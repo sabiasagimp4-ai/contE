@@ -78,7 +78,7 @@ export function cameraNotation(c, b, x, y, w, h) {
   }
   c.restore();
 }
-export function renderPage(p, rows, o, page, total) {
+export function renderPage(p, rows, o, page, total, images) {
   const canvas = document.createElement("canvas");
   canvas.width = 1240;
   canvas.height = 1754;
@@ -126,7 +126,7 @@ export function renderPage(p, rows, o, page, total) {
       c.rect(ix, iy, iw, ih);
       c.clip();
       c.translate(ix, iy);
-      draw(c, r.panel, iw, ih);
+      draw(c, r.panel, iw, ih, null, images);
       if (o.camera) cameraNotation(c, r.panel, 0, 0, iw, ih);
       c.restore();
     }

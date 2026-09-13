@@ -98,6 +98,13 @@ export class ProjectRepository {
   async dismissed() {
     return (await this.storage.get("meta", "session"))?.dismissedAt ?? 0;
   }
+  // ペイン幅などの画面設定。プロジェクトの内容とは分けて持つ。
+  async getLayout() {
+    return (await this.storage.get("meta", "layout")) ?? null;
+  }
+  async setLayout(layout) {
+    await this.storage.put("meta", "layout", layout);
+  }
   async putAsset(id, blob) {
     await this.storage.put("assets", id, blob);
   }

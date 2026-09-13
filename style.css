@@ -70,9 +70,29 @@ header input {
 }
 main {
   display: grid;
-  grid-template-columns: 220px minmax(300px, 1fr) 260px;
+  grid-template-columns: var(--tree, 220px) 6px minmax(260px, 1fr) 6px var(
+      --inspector,
+      260px
+    );
   min-height: 0;
   flex: 1;
+}
+.splitter {
+  background: #232a33;
+  border-left: 1px solid #343b45;
+  border-right: 1px solid #343b45;
+  cursor: col-resize;
+  touch-action: none;
+}
+.splitter:hover {
+  background: #3a4655;
+}
+.splitter.horizontal {
+  cursor: row-resize;
+  height: 6px;
+  border: 0;
+  border-top: 1px solid #343b45;
+  border-bottom: 1px solid #343b45;
 }
 aside {
   padding: 12px;
@@ -114,6 +134,68 @@ aside {
 }
 #strip button {
   min-width: 100px;
+  position: relative;
+}
+#strip button.dragging {
+  opacity: 0.5;
+}
+#strip button.before,
+#strip button.after {
+  box-shadow: inset 3px 0 0 #73baff;
+}
+#strip button.after {
+  box-shadow: inset -3px 0 0 #73baff;
+}
+#tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+#tools button {
+  padding: 5px 9px;
+}
+#tools .tool.on {
+  background: #2f6ea8;
+  border-color: #73baff;
+}
+#tools .inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: #aab6c6;
+}
+#tools .inline input {
+  width: 90px;
+  margin: 0;
+}
+#viewInfo {
+  color: #8c9aad;
+}
+#tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+#tabs .tab {
+  flex: 1;
+  padding: 6px 4px;
+}
+#tabs .tab.on {
+  background: #2f6ea8;
+  border-color: #73baff;
+}
+#inspector .pane button {
+  margin: 4px 4px 4px 0;
+}
+#tree .shot {
+  color: #9acbff;
+  padding-left: 10px;
+}
+input.rename {
+  width: 100%;
+  margin: 2px 0;
 }
 label {
   display: block;
@@ -139,7 +221,7 @@ summary {
   cursor: pointer;
 }
 footer {
-  height: 180px;
+  height: var(--timeline, 190px);
   padding: 12px;
   border-top: 1px solid #414b58;
 }
@@ -232,9 +314,10 @@ dialog::backdrop {
 }
 @media (max-width: 900px) {
   main {
-    grid-template-columns: 150px minmax(250px, 1fr);
+    grid-template-columns: 150px 6px minmax(250px, 1fr);
   }
-  #inspector {
+  #inspector,
+  #splitInspector {
     display: none;
   }
 }

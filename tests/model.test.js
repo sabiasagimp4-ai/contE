@@ -9,6 +9,8 @@ import {
   merge,
   load,
   cameraAt,
+  movePanels,
+  BRUSH,
 } from "../src/model.js";
 import { paginate, defaults } from "../src/paper.js";
 test("split and merge preserve frames, order and undo identity", () => {
@@ -67,25 +69,94 @@ test("500 panels paginate exactly once with continuous frame boundaries", () => 
   assert.equal(pages.flat().length, 500);
   assert.equal(flatten(p).at(-1).end, 24000);
 });
+const line = (points, extra = {}) => ({
+  size: BRUSH.default,
+  erase: false,
+  points,
+  ...extra,
+});
 test("stroke sharing cannot mutate history and permits drawing replacement", () => {
   const s = new Store();
   s.edit((p) => {
     p.scenes[0].shots[0].panels[0].strokes = [
-      [
-        [0.1, 0.2],
-        [0.3, 0.4],
-      ],
+      line([
+        [0.1, 0.2, 1],
+        [0.3, 0.4, 0.5],
+      ]),
     ];
   });
   const old = s.p.scenes[0].shots[0].panels[0].strokes;
   s.edit((p) => p.scenes[0].shots[0].panels[0].frames++);
   assert.equal(s.p.scenes[0].shots[0].panels[0].strokes, old);
-  assert.throws(() => old.push([]));
+  assert.throws(() => old.push(line([[0, 0, 1]])));
+  assert.throws(() => (old[0].size = 0.01));
+  assert.throws(() => old[0].points.push([0.5, 0.5, 1]));
   s.edit(
-    (p) => (p.scenes[0].shots[0].panels[0].strokes = [...old, [[0.5, 0.5]]]),
+    (p) =>
+      (p.scenes[0].shots[0].panels[0].strokes = [
+        ...old,
+        line([[0.5, 0.5, 1]], { erase: true }),
+      ]),
   );
   s.undo();
   assert.equal(s.p.scenes[0].shots[0].panels[0].strokes.length, 1);
+});
+test("brush size, eraser flag and pressure are validated", () => {
+  const s = new Store();
+  const set = (stroke) => () =>
+    s.edit((p) => (p.scenes[0].shots[0].panels[0].strokes = [stroke]));
+  assert.throws(set(line([[0.1, 0.1, 0]])), /ストローク/);
+  assert.throws(set(line([[0.1, 0.1, 1.5]])), /ストローク/);
+  assert.throws(set(line([[0.1, 0.1]])), /ストローク/);
+  assert.throws(set(line([[0.1, 0.1, 1]], { size: 0 })), /ストローク/);
+  assert.throws(set(line([[0.1, 0.1, 1]], { size: 1 })), /ストローク/);
+  assert.throws(set(line([[0.1, 0.1, 1]], { erase: "yes" })), /ストローク/);
+  assert.equal(set(line([[0.1, 0.1, 0.3]], { erase: true }))(), true);
+});
+test("panels move between shots and scenes keeping global order", () => {
+  const s = new Store();
+  s.edit((p) => p.scenes[0].shots[0].panels.push(panel(), panel()));
+  const ids = flatten(s.p).map((r) => r.panel.id);
+  s.edit((p) => split(p, ids[2]));
+  s.edit((p) => {
+    p.scenes.push({
+      id: "scene-2",
+      name: "シーン02",
+      shots: [{ id: "shot-2", name: "", panels: [panel()] }],
+    });
+  });
+  const last = flatten(s.p).at(-1).panel.id;
+  // 別Sceneの末尾Panelを、先頭Shotの2番目の前へ移す。
+  s.edit((p) => movePanels(p, [last], ids[1], "before"));
+  assert.deepEqual(
+    flatten(s.p).map((r) => r.panel.id),
+    [ids[0], last, ids[1], ids[2]],
+  );
+  // 空になったShot/Sceneは残さない。
+  assert.equal(s.p.scenes.length, 1);
+  s.undo();
+  assert.equal(s.p.scenes.length, 2);
+});
+test("moving onto itself or an unknown anchor changes nothing", () => {
+  const s = new Store();
+  s.edit((p) => p.scenes[0].shots[0].panels.push(panel()));
+  const [a, b] = flatten(s.p).map((r) => r.panel.id);
+  assert.equal(
+    s.edit((p) => movePanels(p, [a], a)),
+    false,
+  );
+  assert.equal(
+    s.edit((p) => movePanels(p, [a], "missing")),
+    false,
+  );
+  assert.equal(
+    s.edit((p) => movePanels(p, [], b)),
+    false,
+  );
+  assert.deepEqual(
+    flatten(s.p).map((r) => r.panel.id),
+    [a, b],
+  );
 });
 test("no-op commands consume neither history nor redo", () => {
   const s = new Store();

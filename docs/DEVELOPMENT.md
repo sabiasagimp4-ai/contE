@@ -31,6 +31,18 @@
 - Remaining: saves still serialize on the UI thread (a worker is needed before very large projects), no direct file overwrite, no asset-bundled export, no UI yet creates assets — `panel.image` is the seam P1 will use, and images are not drawn yet.
 - Next highest value: P1 image import and drawing tools on top of the asset store, then panel range selection and drag reordering.
 
+## Cycle 4: drawing tools, image assets and panel handling (P1)
+
+- Problem: one fixed-width pen, no eraser, no pressure, no way to zoom into a drawing, no way to bring in a photo or scan, no range selection or drag reordering, unnamed shots, and fixed pane widths. A rough pass of ten panels meant fighting the tools rather than the story.
+- Change: schema v3 gives each stroke `{size, erase, points:[x,y,pressure]}` and each shot a `name`; a v2→v3 migration lifts old drawings unchanged (constant width, pressure 1). `src/drawing.js` now owns brush width, eraser, pressure, image compositing and the editor's zoom/pan transform. `movePanels` in the model moves a selection before or after any panel, across shots and scenes, dropping shots and scenes that become empty. The strip drags to reorder, Shift-click selects a range in global order, the tree renames scenes and shots on double click, and the four panes resize with the sizes stored in the repository's meta store.
+- Images: the imported file is stored as the asset binary; the project keeps only `{assetId, opacity}` plus metadata (name, MIME, bytes, original pixel size). Display bitmaps are downscaled to a 2048px long edge, so a 6000px scan does not cost 6000px of texture on every repaint while the original is kept for future export. Missing binaries are reported in the inspector and in a status message rather than silently drawing nothing — `.contp` files do not carry assets.
+- Eraser correctness: erase strokes composite on a separate surface and the destination is filled white first, so erasing never punches transparent holes into the paper page, the PNG export or the previous frame. The browser check asserts both that the stroke disappears and that no pixel ends up with alpha < 255.
+- Validation: 30 unit tests (4 new: stroke attribute validation, cross-scene moves, no-op moves, v2 fixture migration) and a browser run that draws, erases, range-selects, drag-reorders, undoes, renames a scene, drags a pane, imports a real PNG (verified by sampling the canvas pixel), then reloads and recovers the project with the image and pane width intact. No page errors.
+- Measurements after the schema change (20 samples, 500 panels, 10 strokes × 50 points each, now with pressure): save median 84.56ms, load 193.96ms, 3.69MB, versus 72.45 / 116.72ms and 2.98MB for v2 data. The third coordinate per point costs roughly 24% more bytes; validation walks each point, which is where the load time went. In Chromium, the 501-panel autosave completed 1343.8ms after the keystroke (1200ms of that is the debounce).
+- One defect found by the browser check and fixed before commit: the eraser composited its surface over the previous frame, so erased areas showed the old drawing instead of paper.
+- Remaining: no layers, shapes, text or colour; no copy/paste of panels; the timeline still only reorders by duration handles; drawing still repaints the whole canvas per pointer move.
+- Next highest value: P2 — separate a Timeline Engine out of `src/app.js`, add fps rulers, playhead-following scroll and arbitrary camera keys.
+
 ## UX evaluation
 
 Counts describe editor commands (a shortcut chord counts as one); typing values and operating OS dialogs are separate.
@@ -38,6 +50,11 @@ Counts describe editor commands (a shortcut chord counts as one); typing values 
 | Task | Current count / measurement |
 |---|---|
 | Panel add / duplicate / previous-next | 1 shortcut |
+| Panel reorder | 1 drag in the strip (multi-selection moves together) |
+| Range select | 1 Shift-click |
+| Brush / eraser switch | 1 shortcut (E) |
+| Image import | 1 click plus the OS file dialog |
+| Scene / Shot rename | 1 double click, or the structure tab |
 | Frame duration ±1 | 1 shortcut; multiple selected panels share edit |
 | Exact duration | Focus, value, commit |
 | Shot split / merge | 1 shortcut (valid boundary) |
@@ -63,3 +80,5 @@ Both consulted 2026-09-13. The knowledge base separates drawing, narrative hiera
 Final paper QA: Japanese font loaded in the test environment, visually inspected output; Chromium print rendering produced exactly one PDF page for a two-panel/four-rows fixture. Physical printer behavior and Windows drivers remain untested. PNG download was verified by the browser download event. Final shortcuts also include K for endpoint Camera commit and +/- for Timeline Zoom.
 
 Cycle 3 note: the numbers above were re-measured on 2026-09-13 with Playwright 1.56 and the environment's Chromium 1194; earlier cycles reported a different sample. Playwright and Chromium are external QA tools and are not part of the application or its dependencies.
+
+Cycle 4 note: the save/load numbers in the UX table above predate schema v3; the current figures are in the cycle 4 entry. Browser samples continue to include two animation frames of waiting and remain single samples, not distributions.

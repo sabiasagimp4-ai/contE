@@ -1,5 +1,7 @@
 export const uid = () => crypto.randomUUID();
-export const VERSION = 2;
+export const VERSION = 3;
+// ブラシ幅は画面幅に対する割合で持つ。出力サイズが変わっても線の太さが崩れない。
+export const BRUSH = { min: 0.0005, max: 0.05, default: 3 / 1280 };
 export const panel = () => ({
   id: uid(),
   frames: 48,
@@ -16,7 +18,11 @@ export const project = () => ({
   fps: 24,
   assets: [],
   scenes: [
-    { id: uid(), name: "シーン01", shots: [{ id: uid(), panels: [panel()] }] },
+    {
+      id: uid(),
+      name: "シーン01",
+      shots: [{ id: uid(), name: "", panels: [panel()] }],
+    },
   ],
 });
 export function flatten(p) {
@@ -66,7 +72,10 @@ export function validate(p) {
       typeof a.name !== "string" ||
       typeof a.mime !== "string" ||
       !Number.isInteger(a.bytes) ||
-      a.bytes < 0
+      a.bytes < 0 ||
+      ["width", "height"].some(
+        (k) => a[k] !== undefined && !(Number.isInteger(a[k]) && a[k] > 0),
+      )
     )
       throw Error("不正な素材");
     assets.add(a.id);
@@ -79,6 +88,7 @@ export function validate(p) {
       throw Error("不正なScene");
     for (const h of s.shots) {
       id(h);
+      if (typeof h.name !== "string") throw Error("不正なShot名");
       if (!h.panels?.length) throw Error("空のShot");
       for (const b of h.panels) {
         id(b);
@@ -102,20 +112,33 @@ export function validate(p) {
             throw Error("不正な画像参照");
         }
         if (!checkedStrokes.has(b.strokes)) {
-          for (const stroke of b.strokes)
+          for (const stroke of b.strokes) {
             if (
-              !Array.isArray(stroke) ||
-              !stroke.length ||
-              stroke.some(
+              typeof stroke?.size !== "number" ||
+              !Number.isFinite(stroke.size) ||
+              stroke.size < BRUSH.min ||
+              stroke.size > BRUSH.max ||
+              typeof stroke.erase !== "boolean" ||
+              !Array.isArray(stroke.points) ||
+              !stroke.points.length ||
+              stroke.points.some(
                 (pt) =>
                   !Array.isArray(pt) ||
-                  pt.length !== 2 ||
-                  pt.some((v) => !Number.isFinite(v) || v < 0 || v > 1),
+                  pt.length !== 3 ||
+                  pt.some((v) => !Number.isFinite(v)) ||
+                  pt[0] < 0 ||
+                  pt[0] > 1 ||
+                  pt[1] < 0 ||
+                  pt[1] > 1 ||
+                  pt[2] <= 0 ||
+                  pt[2] > 1,
               )
             )
               throw Error("不正なストローク");
+          }
           for (const stroke of b.strokes) {
-            for (const pt of stroke) Object.freeze(pt);
+            for (const pt of stroke.points) Object.freeze(pt);
+            Object.freeze(stroke.points);
             Object.freeze(stroke);
           }
           Object.freeze(b.strokes);
@@ -149,6 +172,26 @@ const migrations = {
       shots: s.shots.map((h) => ({
         ...h,
         panels: h.panels.map((b) => ({ ...b, image: b.image ?? null })),
+      })),
+    })),
+  }),
+  2: (p) => ({
+    ...p,
+    version: 3,
+    scenes: p.scenes.map((s) => ({
+      ...s,
+      shots: s.shots.map((h) => ({
+        ...h,
+        name: h.name ?? "",
+        panels: h.panels.map((b) => ({
+          ...b,
+          // v2の線は太さ一定・筆圧なし。見た目を変えずに属性つきの形式へ移す。
+          strokes: b.strokes.map((stroke) => ({
+            size: 1 / 500,
+            erase: false,
+            points: stroke.map(([x, y]) => [x, y, 1]),
+          })),
+        })),
       })),
     })),
   }),
@@ -189,7 +232,15 @@ export function sameProject(a, b) {
   return (
     sameKeys(a, b, ["version", "title", "fps"]) &&
     sameList(a.assets, b.assets, (x, y) =>
-      sameKeys(x, y, ["id", "kind", "name", "mime", "bytes"]),
+      sameKeys(x, y, [
+        "id",
+        "kind",
+        "name",
+        "mime",
+        "bytes",
+        "width",
+        "height",
+      ]),
     ) &&
     sameList(
       a.scenes,
@@ -202,7 +253,8 @@ export function sameProject(a, b) {
             t.shots,
             (h, u) =>
               h === u ||
-              (h.id === u.id && sameList(h.panels, u.panels, samePanel)),
+              (sameKeys(h, u, ["id", "name"]) &&
+                sameList(h.panels, u.panels, samePanel)),
           )),
     )
   );
@@ -285,7 +337,7 @@ export class Store {
 export function split(p, id) {
   const r = flatten(p).find((r) => r.panel.id === id);
   if (!r || r.pi === 0) return;
-  const next = { id: uid(), panels: r.shot.panels.splice(r.pi) };
+  const next = { id: uid(), name: "", panels: r.shot.panels.splice(r.pi) };
   r.scene.shots.splice(r.hi + 1, 0, next);
 }
 export function merge(p, id) {
@@ -293,6 +345,32 @@ export function merge(p, id) {
   if (!r || !r.hi) return;
   r.scene.shots[r.hi - 1].panels.push(...r.shot.panels);
   r.scene.shots.splice(r.hi, 1);
+}
+// 選択Panelをanchorの前後へ移す。Shot/Sceneをまたいでも全体の順序を保つ。
+export function movePanels(p, ids, anchorId, place = "before") {
+  const moving = new Set(ids);
+  if (!moving.size || moving.has(anchorId)) return false;
+  const anchor = flatten(p).find((r) => r.panel.id === anchorId);
+  if (!anchor) return false;
+  const taken = [];
+  for (const s of p.scenes)
+    for (const h of s.shots) {
+      const keep = [];
+      for (const b of h.panels) (moving.has(b.id) ? taken : keep).push(b);
+      h.panels = keep;
+    }
+  if (!taken.length) return false;
+  const shot = p.scenes
+    .flatMap((s) => s.shots)
+    .find((h) => h.id === anchor.shot.id);
+  shot.panels.splice(
+    shot.panels.indexOf(anchor.panel) + (place === "after" ? 1 : 0),
+    0,
+    ...taken,
+  );
+  for (const s of p.scenes) s.shots = s.shots.filter((h) => h.panels.length);
+  p.scenes = p.scenes.filter((s) => s.shots.length);
+  return true;
 }
 export function cameraAt(b, t) {
   const keys = [...b.camera].sort((a, b) => a.t - b.t);

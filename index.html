@@ -26,8 +26,31 @@
     </nav>
     <main>
       <aside id="tree"></aside>
+      <div class="splitter" id="splitTree" title="幅を変更"></div>
       <section id="stage">
         <div id="breadcrumb"></div>
+        <div id="tools">
+          <button id="brushTool" class="tool on">ブラシ</button
+          ><button id="eraserTool" class="tool">消しゴム <kbd>E</kbd></button
+          ><label class="inline"
+            >太さ<input id="brush" type="range" min="1" max="40" value="3"
+          /></label>
+          <button id="image">画像</button
+          ><input id="imageFile" type="file" accept="image/*" hidden /><button
+            id="imageClear"
+          >
+            画像を外す</button
+          ><label class="inline"
+            >濃さ<input
+              id="imageOpacity"
+              type="range"
+              min="5"
+              max="100"
+              value="100"
+          /></label>
+          <button id="fit">表示リセット <kbd>0</kbd></button
+          ><output id="viewInfo">100%</output>
+        </div>
         <canvas
           id="drawing"
           width="1280"
@@ -36,32 +59,31 @@
         ></canvas>
         <div class="hint">
           描画 · N 新規 · ← → Panel · Space 再生 · [ ] 尺 ±1f · Ctrl Z / Shift Z
-          履歴
+          履歴 · ホイールでズーム · Alt/中ボタンドラッグで移動 ·
+          Shiftクリックで範囲選択 · Stripをドラッグで並べ替え
         </div>
         <div id="strip"></div>
       </section>
+      <div class="splitter" id="splitInspector" title="幅を変更"></div>
       <aside id="inspector">
-        <h3>Inspector</h3>
-        <label
-          >尺（フレーム）<input
-            id="frames"
-            type="number"
-            min="1"
-            max="864000" /></label
-        ><label>台詞<textarea id="dialogue"></textarea></label
-        ><label>SE / BGM（注記）<textarea id="sound"></textarea></label
-        ><label>演出メモ<textarea id="notes"></textarea></label>
-        <details>
-          <summary>Shot / Panel 操作</summary>
-          <button data-act="split">ここでShot分割</button
-          ><button data-act="merge">前Shotへ統合</button
-          ><button data-act="left">前へ移動</button
-          ><button data-act="right">後ろへ移動</button
-          ><button data-act="delete">選択Panelを削除</button
-          ><button data-act="scene">Scene追加</button>
-        </details>
-        <details open>
-          <summary>Camera（開始 → 終了）</summary>
+        <div id="tabs">
+          <button class="tab on" data-tab="content">内容</button
+          ><button class="tab" data-tab="camera">Camera</button
+          ><button class="tab" data-tab="structure">構成</button>
+        </div>
+        <div class="pane" data-pane="content">
+          <label
+            >尺（フレーム）<input
+              id="frames"
+              type="number"
+              min="1"
+              max="864000" /></label
+          ><label>台詞<textarea id="dialogue"></textarea></label
+          ><label>SE / BGM（注記）<textarea id="sound"></textarea></label
+          ><label>演出メモ<textarea id="notes"></textarea></label>
+          <p class="hint" id="assetInfo"></p>
+        </div>
+        <div class="pane" data-pane="camera" hidden>
           <label
             >終了 X<input
               id="cx"
@@ -90,10 +112,25 @@
               step="5"
               min="-360"
               max="360" /></label
-          ><button id="key">終了Keyframeを設定</button>
-        </details>
+          ><button id="key">終了Keyframeを設定 <kbd>K</kbd></button>
+        </div>
+        <div class="pane" data-pane="structure" hidden>
+          <label>Scene名<input id="sceneName" /></label
+          ><label>Shot名<input id="shotName" placeholder="未設定" /></label>
+          <button data-act="split">ここでShot分割</button
+          ><button data-act="merge">前Shotへ統合</button
+          ><button data-act="left">前へ移動</button
+          ><button data-act="right">後ろへ移動</button
+          ><button data-act="delete">選択Panelを削除</button
+          ><button data-act="scene">Scene追加</button>
+        </div>
       </aside>
     </main>
+    <div
+      class="splitter horizontal"
+      id="splitTimeline"
+      title="高さを変更"
+    ></div>
     <footer>
       <div>
         <b>Timeline</b> <output id="time"></output

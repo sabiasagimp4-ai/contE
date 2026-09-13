@@ -3,10 +3,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { load, migrate, validate, project, VERSION } from "../src/model.js";
-const fixture = await readFile(
-  fileURLToPath(new URL("./fixtures/v1.contp", import.meta.url)),
-  "utf8",
-);
+const read = (name) =>
+  readFile(
+    fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)),
+    "utf8",
+  );
+const fixture = await read("v1.contp");
+const fixtureV2 = await read("v2.contp");
 test("v1 project loads, gains asset fields and keeps timing and drawing", () => {
   const p = load(fixture);
   assert.equal(p.version, VERSION);
@@ -16,18 +19,37 @@ test("v1 project loads, gains asset fields and keeps timing and drawing", () => 
   assert.equal(panels[0].frames, 36);
   assert.equal(panels[0].dialogue, "おはよう");
   assert.deepEqual(panels[0].strokes, [
-    [
-      [0.1, 0.2],
-      [0.4, 0.5],
-    ],
+    {
+      size: 1 / 500,
+      erase: false,
+      points: [
+        [0.1, 0.2, 1],
+        [0.4, 0.5, 1],
+      ],
+    },
   ]);
+  assert.equal(p.scenes[0].shots[0].name, "");
   assert.equal(panels[1].camera.at(-1).zoom, 1.5);
 });
+test("v2 project keeps its asset reference and gains stroke attributes", () => {
+  const p = load(fixtureV2);
+  assert.equal(p.version, VERSION);
+  assert.deepEqual(p.assets[0].id, "asset-v2");
+  const b = p.scenes[0].shots[0].panels[0];
+  assert.deepEqual(b.image, { assetId: "asset-v2", opacity: 0.5 });
+  assert.equal(b.strokes[0].erase, false);
+  assert.deepEqual(b.strokes[0].points, [
+    [0.2, 0.3, 1],
+    [0.6, 0.7, 1],
+  ]);
+});
 test("migration does not touch the source object", () => {
-  const raw = JSON.parse(fixture);
-  const copy = JSON.parse(fixture);
-  migrate(raw);
-  assert.deepEqual(raw, copy);
+  for (const text of [fixture, fixtureV2]) {
+    const raw = JSON.parse(text);
+    const copy = JSON.parse(text);
+    migrate(raw);
+    assert.deepEqual(raw, copy);
+  }
 });
 test("unknown versions and non-objects are refused with a readable message", () => {
   assert.throws(() => migrate({ version: 99 }), /Version/);

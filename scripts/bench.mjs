@@ -1,14 +1,16 @@
 import { performance } from "node:perf_hooks";
-import { project, panel, Store, flatten, load } from "../src/model.js";
+import { project, panel, Store, flatten, load, BRUSH } from "../src/model.js";
 import { ProjectRepository } from "../src/repository.js";
 import { MemoryStorage } from "../src/storage.js";
 for (const count of [100, 500]) {
   const p = project();
   p.scenes[0].shots[0].panels = Array.from({ length: count }, () => ({
     ...panel(),
-    strokes: Array.from({ length: 10 }, () =>
-      Array.from({ length: 50 }, (_, i) => [i / 50, i / 50]),
-    ),
+    strokes: Array.from({ length: 10 }, () => ({
+      size: BRUSH.default,
+      erase: false,
+      points: Array.from({ length: 50 }, (_, i) => [i / 50, i / 50, 1]),
+    })),
   }));
   const s = new Store(p);
   const bench = async (name, f) => {

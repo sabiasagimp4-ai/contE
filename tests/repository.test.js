@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ProjectRepository, Autosaver } from "../src/repository.js";
 import { MemoryStorage } from "../src/storage.js";
-import { project, panel, flatten } from "../src/model.js";
+import { project, panel, flatten, BRUSH } from "../src/model.js";
 const clock = (start = 1000) => {
   let t = start;
   return () => (t += 1000);
@@ -21,10 +21,14 @@ test("saved project reopens with identical drawing, timing and text", async () =
   p.scenes[0].shots[0].panels[0].frames = 37;
   p.scenes[0].shots[0].panels[0].dialogue = "台詞";
   p.scenes[0].shots[0].panels[0].strokes = [
-    [
-      [0.1, 0.1],
-      [0.9, 0.4],
-    ],
+    {
+      size: BRUSH.default,
+      erase: false,
+      points: [
+        [0.1, 0.1, 1],
+        [0.9, 0.4, 0.4],
+      ],
+    },
   ];
   p.scenes[0].shots[0].panels[0].camera.push({
     t: 1,
