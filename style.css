@@ -49,9 +49,24 @@ header strong {
 header input {
   width: 250px;
 }
-#status {
+#savestate {
   margin-left: auto;
+  color: #9caabd;
+  white-space: nowrap;
+}
+#savestate.pending,
+#savestate.saving {
+  color: #ffd479;
+}
+#savestate.failed {
+  color: #ff9f8e;
+}
+#status {
   color: #aab6c6;
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 main {
   display: grid;
@@ -227,7 +242,7 @@ dialog::backdrop {
   body > * {
     display: none !important;
   }
-  body > dialog {
+  body > #paperDialog {
     display: block !important;
     position: static;
     max-height: none;
@@ -235,10 +250,10 @@ dialog::backdrop {
     border: 0;
     padding: 0;
   }
-  dialog > * {
+  #paperDialog > * {
     display: none !important;
   }
-  dialog > #pages {
+  #paperDialog > #pages {
     display: block !important;
   }
   #pages :is(canvas, img) {
@@ -262,5 +277,31 @@ dialog::backdrop {
   margin-bottom: 5px;
   background: #fff;
 }
-#paperSettings label:has(input[type="checkbox"]) {display:flex;align-items:center;gap:8px;width:145px;margin:4px 0}
-#paperSettings input[type="checkbox"] {width:auto;margin:0}
+#paperSettings label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 145px;
+  margin: 4px 0;
+}
+#paperSettings input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+#recoverDialog {
+  width: min(520px, 92vw);
+  padding: 20px;
+}
+#recoverDialog h2 {
+  margin: 0 0 12px;
+  font-size: 17px;
+}
+#recoverInfo {
+  background: #232a33;
+  border: 1px solid #414b58;
+  border-radius: 4px;
+  padding: 10px;
+}
+#recoverDialog button {
+  margin-right: 8px;
+}

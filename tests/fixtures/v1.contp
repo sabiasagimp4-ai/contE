@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "title": "v1の作例",
+  "fps": 24,
+  "scenes": [
+    {
+      "id": "scene-1",
+      "name": "シーン01",
+      "shots": [
+        {
+          "id": "shot-1",
+          "panels": [
+            {
+              "id": "panel-1",
+              "frames": 36,
+              "dialogue": "おはよう",
+              "sound": "SE: 扉",
+              "notes": "ロング",
+              "strokes": [[[0.1, 0.2], [0.4, 0.5]]],
+              "camera": [{ "t": 0, "x": 0, "y": 0, "zoom": 1, "rotation": 0 }]
+            },
+            {
+              "id": "panel-2",
+              "frames": 60,
+              "dialogue": "",
+              "sound": "",
+              "notes": "",
+              "strokes": [],
+              "camera": [
+                { "t": 0, "x": 0, "y": 0, "zoom": 1, "rotation": 0 },
+                { "t": 1, "x": 0.2, "y": 0, "zoom": 1.5, "rotation": 0 }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

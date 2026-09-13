@@ -1,5 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { project, panel, Store, flatten, load } from "../src/model.js";
+import { ProjectRepository } from "../src/repository.js";
+import { MemoryStorage } from "../src/storage.js";
 for (const count of [100, 500]) {
   const p = project();
   p.scenes[0].shots[0].panels = Array.from({ length: count }, () => ({
@@ -9,11 +11,11 @@ for (const count of [100, 500]) {
     ),
   }));
   const s = new Store(p);
-  const bench = (name, f) => {
+  const bench = async (name, f) => {
     const values = [];
     for (let i = 0; i < 20; i++) {
       const t = performance.now();
-      f();
+      await f();
       values.push(performance.now() - t);
     }
     values.sort((a, b) => a - b);
@@ -28,13 +30,20 @@ for (const count of [100, 500]) {
       "ms",
     );
   };
-  bench("timeline index", () => flatten(p));
-  bench("duration + undo", () => {
+  await bench("timeline index", () => flatten(p));
+  await bench("duration + undo", () => {
     s.edit((p) => p.scenes[0].shots[0].panels[0].frames++);
     s.undo();
   });
-  bench("serialize", () => JSON.stringify(p));
+  await bench("serialize", () => JSON.stringify(p));
   const text = JSON.stringify(p);
-  bench("load + validate", () => load(text));
+  await bench("load + validate", () => load(text));
+  // 保存はメモリ上のStorageで計測する。ディスク/IndexedDBの時間は含まない。
+  const repo = new ProjectRepository(new MemoryStorage());
+  let id = null;
+  await bench("repository save", async () => {
+    id = (await repo.save(p)).id;
+  });
+  await bench("repository load", () => repo.load(id));
   console.log("bytes", Buffer.byteLength(text));
 }

@@ -1,4 +1,5 @@
 export const uid = () => crypto.randomUUID();
+export const VERSION = 2;
 export const panel = () => ({
   id: uid(),
   frames: 48,
@@ -6,12 +7,14 @@ export const panel = () => ({
   sound: "",
   notes: "",
   strokes: [],
+  image: null,
   camera: [{ t: 0, x: 0, y: 0, zoom: 1, rotation: 0 }],
 });
 export const project = () => ({
-  version: 1,
+  version: VERSION,
   title: "無題のコンテ",
   fps: 24,
+  assets: [],
   scenes: [
     { id: uid(), name: "シーン01", shots: [{ id: uid(), panels: [panel()] }] },
   ],
@@ -39,7 +42,7 @@ export function flatten(p) {
 }
 const checkedStrokes = new WeakSet();
 export function validate(p) {
-  if (p?.version !== 1) throw Error("未対応のプロジェクトVersion");
+  if (p?.version !== VERSION) throw Error("未対応のプロジェクトVersion");
   if (
     !Number.isInteger(p.fps) ||
     p.fps < 1 ||
@@ -53,6 +56,21 @@ export function validate(p) {
       throw Error("IDが不正または重複");
     ids.add(o.id);
   };
+  // 素材はIDとメタデータだけを持つ。バイナリはProjectRepositoryが別に保持する。
+  if (!Array.isArray(p.assets)) throw Error("不正な素材一覧");
+  const assets = new Set();
+  for (const a of p.assets) {
+    id(a);
+    if (
+      !["image", "audio"].includes(a.kind) ||
+      typeof a.name !== "string" ||
+      typeof a.mime !== "string" ||
+      !Number.isInteger(a.bytes) ||
+      a.bytes < 0
+    )
+      throw Error("不正な素材");
+    assets.add(a.id);
+  }
   if (!Array.isArray(p.scenes) || !p.scenes.length)
     throw Error("Sceneが必要です");
   for (const s of p.scenes) {
@@ -74,6 +92,15 @@ export function validate(p) {
           !b.camera.length
         )
           throw Error("不正な描画/Camera");
+        if (b.image !== null) {
+          if (
+            !assets.has(b.image?.assetId) ||
+            !Number.isFinite(b.image.opacity) ||
+            b.image.opacity < 0 ||
+            b.image.opacity > 1
+          )
+            throw Error("不正な画像参照");
+        }
         if (!checkedStrokes.has(b.strokes)) {
           for (const stroke of b.strokes)
             if (
@@ -110,47 +137,149 @@ export function validate(p) {
   }
   return p;
 }
-export function load(text) {
-  return validate(JSON.parse(text));
+// 旧形式は読み込み時に一段ずつ持ち上げる。元データは変更しない。
+const migrations = {
+  1: (p) => ({
+    version: 2,
+    title: p.title,
+    fps: p.fps,
+    assets: [],
+    scenes: p.scenes.map((s) => ({
+      ...s,
+      shots: s.shots.map((h) => ({
+        ...h,
+        panels: h.panels.map((b) => ({ ...b, image: b.image ?? null })),
+      })),
+    })),
+  }),
+};
+export function migrate(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+    throw Error("プロジェクトとして読み取れません");
+  let p = raw;
+  while (p.version !== VERSION) {
+    const step = migrations[p.version];
+    if (!step)
+      throw Error(
+        `未対応のプロジェクトVersion: ${JSON.stringify(p.version)}（このアプリはv${VERSION}まで）`,
+      );
+    p = step(p);
+  }
+  return p;
 }
+export function load(text) {
+  return validate(migrate(JSON.parse(text)));
+}
+const sameList = (a, b, eq) =>
+  a === b || (a.length === b.length && a.every((v, i) => eq(v, b[i])));
+const sameKeys = (a, b, keys) => keys.every((k) => a[k] === b[k]);
+const sameImage = (a, b) =>
+  a === b || (!!a && !!b && a.assetId === b.assetId && a.opacity === b.opacity);
+const samePanel = (a, b) =>
+  a === b ||
+  (sameKeys(a, b, ["id", "frames", "dialogue", "sound", "notes"]) &&
+    sameImage(a.image, b.image) &&
+    // ストロークは履歴間で共有された不変配列なので参照比較で足りる。
+    sameList(a.strokes, b.strokes, (x, y) => x === y) &&
+    sameList(a.camera, b.camera, (x, y) =>
+      sameKeys(x, y, ["t", "x", "y", "zoom", "rotation"]),
+    ));
+export function sameProject(a, b) {
+  if (a === b) return true;
+  return (
+    sameKeys(a, b, ["version", "title", "fps"]) &&
+    sameList(a.assets, b.assets, (x, y) =>
+      sameKeys(x, y, ["id", "kind", "name", "mime", "bytes"]),
+    ) &&
+    sameList(
+      a.scenes,
+      b.scenes,
+      (s, t) =>
+        s === t ||
+        (sameKeys(s, t, ["id", "name"]) &&
+          sameList(
+            s.shots,
+            t.shots,
+            (h, u) =>
+              h === u ||
+              (h.id === u.id && sameList(h.panels, u.panels, samePanel)),
+          )),
+    )
+  );
+}
+export function selectionOf(p) {
+  const first = flatten(p)[0].panel.id;
+  return { active: first, ids: [first] };
+}
+// 選択は常に存在するPanelを指す。削除やUndoの後も選択が迷子にならない。
+export function normalizeSelection(selection, p) {
+  const rows = flatten(p);
+  const known = new Set(rows.map((r) => r.panel.id));
+  const ids = (selection?.ids ?? []).filter((id) => known.has(id));
+  const active =
+    selection?.active && known.has(selection.active)
+      ? selection.active
+      : (ids[0] ?? rows[0].panel.id);
+  return { active, ids: ids.length ? ids : [active] };
+}
+const sameSelection = (a, b) =>
+  a.active === b.active && sameList(a.ids, b.ids, (x, y) => x === y);
 export class Store {
-  constructor(p = project()) {
+  constructor(p = project(), selection) {
     this.p = validate(p);
+    this.selection = normalizeSelection(selection, this.p);
     this.past = [];
     this.future = [];
   }
+  select(selection) {
+    this.selection = normalizeSelection(selection, this.p);
+    return this.selection;
+  }
+  // fnは選択を返せる。プロジェクトが変わらない操作は履歴段数を消費しない。
   edit(fn) {
     const next = {
       ...this.p,
+      assets: this.p.assets.map((a) => ({ ...a })),
       scenes: this.p.scenes.map((s) => ({
         ...s,
         shots: s.shots.map((h) => ({
           ...h,
           panels: h.panels.map((b) => ({
             ...b,
+            image: b.image ? { ...b.image } : null,
             camera: b.camera.map((k) => ({ ...k })),
           })),
         })),
       })),
     };
-    fn(next);
+    const requested = fn(next);
     validate(next);
-    this.past.push(this.p);
+    const changed = !sameProject(this.p, next);
+    const selection = normalizeSelection(requested ?? this.selection, next);
+    if (!changed) {
+      this.selection = selection;
+      return false;
+    }
+    this.past.push({ p: this.p, selection: this.selection });
     if (this.past.length > 80) this.past.shift();
     this.p = next;
+    this.selection = selection;
     this.future = [];
+    return true;
+  }
+  #move(from, to) {
+    if (!from.length) return false;
+    to.push({ p: this.p, selection: this.selection });
+    const entry = from.pop();
+    this.p = entry.p;
+    this.selection = normalizeSelection(entry.selection, this.p);
+    return true;
   }
   undo() {
-    if (this.past.length) {
-      this.future.push(this.p);
-      this.p = this.past.pop();
-    }
+    return this.#move(this.past, this.future);
   }
   redo() {
-    if (this.future.length) {
-      this.past.push(this.p);
-      this.p = this.future.pop();
-    }
+    return this.#move(this.future, this.past);
   }
 }
 export function split(p, id) {

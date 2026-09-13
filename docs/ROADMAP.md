@@ -4,7 +4,7 @@
 
 1. First usable foundation (this iteration): browser-hosted local editor, Scene/Shot/Panel model, frame timing, strokes, selection, split/merge, history, save/load, camera interpolation, timeline and playback.
 2. Paper production (this iteration): shared project-derived pagination, configurable columns/rows/margins/type/header, camera notation, print/PDF via print dialog, numbered PNG pages.
-3. Production reliability: asset store, incremental history, crash recovery in IndexedDB, image import, waveform/audio editing and synchronized playback, camera tracks, export cancellation.
+3. Production reliability: crash recovery and autosave in IndexedDB with a separated asset store and schema migration (done 2026-09-13); next image import, waveform/audio editing and synchronized playback, camera tracks, export cancellation.
 4. Desktop and animatics: choose native shell after Windows pen/audio benchmarks; packaged installers, native PDF/video exporters, codec/license review, end-to-end 500-panel media-heavy benchmark.
 
 Do not describe phase 1 as a finished desktop application. First release has no audio or video export. Keep common actions in toolbar; advanced settings in inspector. No runtime third-party dependencies added.

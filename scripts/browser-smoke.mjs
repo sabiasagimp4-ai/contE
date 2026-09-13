@@ -2,9 +2,8 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { serve } from "./serve.mjs";
-const { chromium } = await import(
-  process.env.PLAYWRIGHT_MODULE || "playwright"
-);
+const loaded = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
+const { chromium } = loaded.chromium ? loaded : loaded.default;
 const server = await serve(resolve("."), 0);
 const browser = await chromium.launch({
   headless: true,
@@ -69,13 +68,11 @@ try {
       },
     ],
   }));
-  await page
-    .locator("#file")
-    .setInputFiles({
-      name: "500.contp",
-      mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(data)),
-    });
+  await page.locator("#file").setInputFiles({
+    name: "500.contp",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(data)),
+  });
   await page.waitForFunction(
     () => document.querySelectorAll("#tree .panel").length === 500,
   );
@@ -118,11 +115,41 @@ try {
   const save = page.waitForEvent("download");
   await page.locator("#save").click();
   assert.equal((await save).suggestedFilename(), "project.contp");
+  // 自動保存と復旧：編集 → ブラウザ内保存 → 再起動 → 復旧で同じ内容へ戻る。
+  const persisted = await page.evaluate(async () => {
+    document.activeElement.blur();
+    const t = performance.now();
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "n", bubbles: true }),
+    );
+    const text = () => document.querySelector("#savestate").textContent;
+    while (!text().startsWith("ブラウザに保存"))
+      await new Promise((r) => setTimeout(r, 50));
+    return {
+      panels: document.querySelectorAll("#tree .panel").length,
+      title: document.querySelector("#title").value,
+      autosave_ms: +(performance.now() - t).toFixed(2),
+    };
+  });
+  await page.reload();
+  await page.waitForSelector("#recoverDialog[open]");
+  assert.match(
+    await page.locator("#recoverInfo").innerText(),
+    new RegExp(`${persisted.panels} Panel`),
+  );
+  await page.locator("#recover").click();
+  await page.waitForFunction(
+    (n) => document.querySelectorAll("#tree .panel").length === n,
+    persisted.panels,
+  );
+  assert.equal(await page.locator("#title").inputValue(), persisted.title);
   await page.locator("#paper").click();
   assert.equal(await page.locator("#pages canvas").count(), 1);
   assert.equal(await page.locator("#print").isDisabled(), false);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ smoke: "passed", metrics, errors }, null, 2));
+  console.log(
+    JSON.stringify({ smoke: "passed", metrics, persisted, errors }, null, 2),
+  );
 } finally {
   await browser.close();
   server.close();

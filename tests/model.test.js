@@ -42,7 +42,7 @@ test("save/load rejects future schemas, duplicate ids and invalid geometry", () 
   const p = project();
   assert.deepEqual(load(JSON.stringify(p)), p);
   assert.throws(() => load("{"));
-  assert.throws(() => load(JSON.stringify({ ...p, version: 2 })));
+  assert.throws(() => load(JSON.stringify({ ...p, version: 99 })));
   p.scenes[0].shots[0].panels.push(
     structuredClone(p.scenes[0].shots[0].panels[0]),
   );
@@ -86,4 +86,55 @@ test("stroke sharing cannot mutate history and permits drawing replacement", () 
   );
   s.undo();
   assert.equal(s.p.scenes[0].shots[0].panels[0].strokes.length, 1);
+});
+test("no-op commands consume neither history nor redo", () => {
+  const s = new Store();
+  s.edit((p) => p.scenes[0].shots[0].panels.push(panel()));
+  s.undo();
+  const head = flatten(s.p)[0].panel.id;
+  assert.equal(
+    s.edit((p) => split(p, head)),
+    false,
+  );
+  assert.equal(
+    s.edit((p) => merge(p, head)),
+    false,
+  );
+  assert.equal(
+    s.edit((p) => (p.title = s.p.title)),
+    false,
+  );
+  assert.equal(s.past.length, 0);
+  s.redo();
+  assert.equal(flatten(s.p).length, 2);
+});
+test("undo restores the selection the edit started from", () => {
+  const s = new Store();
+  const first = flatten(s.p)[0].panel.id;
+  s.edit((p) => {
+    const b = panel();
+    p.scenes[0].shots[0].panels.push(b);
+    return { active: b.id, ids: [b.id] };
+  });
+  const added = s.selection.active;
+  assert.notEqual(added, first);
+  s.undo();
+  assert.deepEqual(s.selection, { active: first, ids: [first] });
+  s.redo();
+  assert.deepEqual(s.selection, { active: added, ids: [added] });
+});
+test("deleting the selected panel moves selection to a surviving panel", () => {
+  const s = new Store();
+  s.edit((p) => p.scenes[0].shots[0].panels.push(panel(), panel()));
+  const [a, b] = flatten(s.p).map((r) => r.panel.id);
+  s.select({ active: b, ids: [b] });
+  s.edit((p) => {
+    p.scenes[0].shots[0].panels = p.scenes[0].shots[0].panels.filter(
+      (x) => x.id !== b,
+    );
+  });
+  assert.equal(s.selection.active, a);
+  assert.deepEqual(s.selection.ids, [a]);
+  s.undo();
+  assert.equal(s.selection.active, b);
 });

@@ -11,18 +11,20 @@ import {
 } from "./model.js";
 import { draw } from "./drawing.js";
 import { defaults, paginate, renderPage, download } from "./paper.js";
+import { ProjectRepository, Autosaver } from "./repository.js";
+import { IndexedDbStorage, MemoryStorage } from "./storage.js";
 const $ = (id) => document.getElementById(id);
 let store = new Store(),
-  selected = new Set([flatten(store.p)[0].panel.id]),
-  active = [...selected][0],
   frame = 0,
   playing = false,
   raf,
   scale = 3,
   rows = [],
   stroke = null,
-  dirty = false;
-const current = () => rows.find((r) => r.panel.id === active) || rows[0];
+  fileDirty = false;
+const activeId = () => store.selection.active;
+const isSelected = (id) => store.selection.ids.includes(id);
+const current = () => rows.find((r) => r.panel.id === activeId()) || rows[0];
 const notice = (t) => ($("status").textContent = t);
 function stop() {
   playing = false;
@@ -30,13 +32,16 @@ function stop() {
   $("play").textContent = "▶ 再生";
 }
 function edit(fn) {
-  const oldActive = active;
+  const before = activeId();
   stop();
   try {
-    store.edit(fn);
-    if (active !== oldActive)
-      frame = flatten(store.p).find((r) => r.panel.id === active)?.start || 0;
-    dirty = true;
+    // 変更がない操作はUndo段数も保存も消費しない。
+    if (store.edit(fn)) {
+      if (activeId() !== before)
+        frame =
+          flatten(store.p).find((r) => r.panel.id === activeId())?.start || 0;
+      markDirty();
+    }
     render();
   } catch (e) {
     notice(e.message);
@@ -44,12 +49,21 @@ function edit(fn) {
 }
 function select(id, multi = false) {
   stop();
-  active = id;
-  if (multi) {
-    selected.has(id) ? selected.delete(id) : selected.add(id);
-    if (!selected.size) selected.add(id);
-  } else selected = new Set([id]);
+  const ids = multi
+    ? isSelected(id)
+      ? store.selection.ids.filter((v) => v !== id)
+      : [...store.selection.ids, id]
+    : [id];
+  store.select({ active: id, ids });
   frame = rows.find((r) => r.panel.id === id).start;
+  render();
+}
+function history(step) {
+  stop();
+  if (store[step]()) {
+    frame = flatten(store.p).find((r) => r.panel.id === activeId())?.start || 0;
+    markDirty();
+  }
   render();
 }
 function button(text, fn, cls = "") {
@@ -75,11 +89,7 @@ const thumbnailObserver = new IntersectionObserver(
 function render() {
   thumbnailObserver.disconnect();
   rows = flatten(store.p);
-  selected = new Set(
-    [...selected].filter((id) => rows.some((r) => r.panel.id === id)),
-  );
-  if (!rows.some((r) => r.panel.id === active)) active = rows[0].panel.id;
-  if (!selected.size) selected.add(active);
+  store.select(store.selection);
   const r = current();
   $("title").value = store.p.title;
   $("tree").replaceChildren();
@@ -96,7 +106,7 @@ function render() {
           button(
             `Panel ${pi + 1} · ${p.frames}f`,
             (e) => select(p.id),
-            `panel ${selected.has(p.id) ? "selected" : ""}`,
+            `panel ${isSelected(p.id) ? "selected" : ""}`,
           ),
         ),
       );
@@ -116,7 +126,7 @@ function render() {
       const b = button(
         `P${i + 1} · ${p.frames}f`,
         () => select(p.id),
-        selected.has(p.id) ? "selected" : "",
+        isSelected(p.id) ? "selected" : "",
       );
       b.onclick = (e) => select(p.id, e.ctrlKey || e.metaKey);
       const thumb = document.createElement("canvas");
@@ -142,7 +152,7 @@ function timeline() {
     const b = button(
       `P${r.pi + 1} · ${r.panel.frames}f`,
       () => {},
-      `clip ${selected.has(r.panel.id) ? "selected" : ""}`,
+      `clip ${isSelected(r.panel.id) ? "selected" : ""}`,
     );
     b.style.left = `${r.start * scale}px`;
     b.style.width = `${r.panel.frames * scale}px`;
@@ -201,33 +211,34 @@ function paint(preview = false) {
 const acts = {
   add: () =>
     edit((p) => {
-      const r = flatten(p).find((r) => r.panel.id === active),
+      const r = flatten(p).find((r) => r.panel.id === activeId()),
         b = panel();
       r.shot.panels.splice(r.pi + 1, 0, b);
-      active = b.id;
-      selected = new Set([active]);
+      return { active: b.id, ids: [b.id] };
     }),
   duplicate: () =>
     edit((p) => {
+      const ids = new Set(store.selection.ids);
       for (const h of p.scenes.flatMap((s) => s.shots)) {
         h.panels = h.panels.flatMap((b) =>
-          selected.has(b.id) ? [b, { ...structuredClone(b), id: uid() }] : [b],
+          ids.has(b.id) ? [b, { ...structuredClone(b), id: uid() }] : [b],
         );
       }
     }),
   delete: () =>
     edit((p) => {
-      if (selected.size === rows.length)
+      const ids = new Set(store.selection.ids);
+      if (ids.size === flatten(p).length)
         throw Error("最低1つのPanelを残してください");
       for (const s of p.scenes) {
         for (const h of s.shots)
-          h.panels = h.panels.filter((b) => !selected.has(b.id));
+          h.panels = h.panels.filter((b) => !ids.has(b.id));
         s.shots = s.shots.filter((h) => h.panels.length);
       }
       p.scenes = p.scenes.filter((s) => s.shots.length);
     }),
-  split: () => edit((p) => split(p, active)),
-  merge: () => edit((p) => merge(p, active)),
+  split: () => edit((p) => split(p, activeId())),
+  merge: () => edit((p) => merge(p, activeId())),
   scene: () =>
     edit((p) => {
       const b = panel();
@@ -236,21 +247,10 @@ const acts = {
         name: `シーン${p.scenes.length + 1}`,
         shots: [{ id: uid(), panels: [b] }],
       });
-      active = b.id;
-      selected = new Set([active]);
+      return { active: b.id, ids: [b.id] };
     }),
-  undo: () => {
-    stop();
-    store.undo();
-    dirty = true;
-    render();
-  },
-  redo: () => {
-    stop();
-    store.redo();
-    dirty = true;
-    render();
-  },
+  undo: () => history("undo"),
+  redo: () => history("redo"),
 };
 for (const [name, delta] of [
   ["left", -1],
@@ -258,7 +258,7 @@ for (const [name, delta] of [
 ])
   acts[name] = () =>
     edit((p) => {
-      const r = flatten(p).find((r) => r.panel.id === active),
+      const r = flatten(p).find((r) => r.panel.id === activeId()),
         to = r.pi + delta;
       if (to >= 0 && to < r.shot.panels.length) {
         const [b] = r.shot.panels.splice(r.pi, 1);
@@ -271,14 +271,15 @@ document
 for (const k of ["frames", "dialogue", "sound", "notes"])
   $(k).onchange = () =>
     edit((p) => {
+      const ids = new Set(store.selection.ids);
       for (const r of flatten(p))
-        if (selected.has(r.panel.id))
+        if (ids.has(r.panel.id))
           r.panel[k] = k === "frames" ? Number($(k).value) : $(k).value;
     });
 $("title").onchange = () => edit((p) => (p.title = $("title").value));
 $("key").onclick = () =>
   edit((p) => {
-    const b = flatten(p).find((r) => r.panel.id === active).panel;
+    const b = flatten(p).find((r) => r.panel.id === activeId()).panel;
     const k = {
       t: 1,
       x: Number($("cx").value),
@@ -372,8 +373,8 @@ $("drawing").onpointerup = () => {
     stroke = null;
     edit(
       (p) =>
-        (flatten(p).find((r) => r.panel.id === active).panel.strokes = [
-          ...flatten(p).find((r) => r.panel.id === active).panel.strokes,
+        (flatten(p).find((r) => r.panel.id === activeId()).panel.strokes = [
+          ...flatten(p).find((r) => r.panel.id === activeId()).panel.strokes,
           s,
         ]),
     );
@@ -383,13 +384,14 @@ $("drawing").onpointercancel = () => {
   stroke = null;
   paint();
 };
-$("save").onclick = () => {
+$("save").onclick = async () => {
   download(
     new Blob([JSON.stringify(store.p)], { type: "application/json" }),
     "project.contp",
   );
-  dirty = false;
+  fileDirty = false;
   notice("プロジェクトをダウンロードしました");
+  await persist("manual");
 };
 $("open").onclick = () => $("file").click();
 $("file").onchange = async () => {
@@ -397,14 +399,20 @@ $("file").onchange = async () => {
   if (!f) return;
   try {
     if (f.size > 50e6) throw Error("50MBを超えるファイルは未対応です");
+    // 読み込みに失敗しても現在のプロジェクトへは触れない。
     const p = load(await f.text());
-    if (dirty && !confirm("未保存の変更を破棄して開きますか？")) return;
+    if (
+      (fileDirty || saver.pending) &&
+      !confirm("編集中の内容を置き換えて開きますか？")
+    )
+      return;
     stop();
     store = new Store(p);
     frame = 0;
-    dirty = false;
+    fileDirty = false;
     render();
     notice("読み込み完了");
+    markDirty();
   } catch (e) {
     notice(e.message);
   } finally {
@@ -412,13 +420,23 @@ $("file").onchange = async () => {
   }
 };
 window.addEventListener("beforeunload", (e) => {
-  if (dirty) {
+  // ブラウザ内保存が済んでいれば次回の起動で復旧できるので引き止めない。
+  if (saver.pending || (!persistence && fileDirty)) {
     e.preventDefault();
     e.returnValue = "";
   }
 });
+for (const event of ["pagehide", "visibilitychange"])
+  window.addEventListener(event, () => {
+    if (event === "pagehide" || document.visibilityState === "hidden")
+      saver.flush();
+  });
 document.addEventListener("keydown", (e) => {
-  if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName) || $("paperDialog").open)
+  if (
+    /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) ||
+    $("paperDialog").open ||
+    $("recoverDialog").open
+  )
     return;
   const mod = e.ctrlKey || e.metaKey,
     k = e.key.toLowerCase();
@@ -430,14 +448,15 @@ document.addEventListener("keydown", (e) => {
   else if (mod && k === "k") fn = acts.split;
   else if (k === "n") fn = acts.add;
   else if (k === "k") fn = () => $("key").click();
-  else if (k === "+" || k === "=" || k === "-") fn = () => {
-    $("zoom").value=Math.max(1,Math.min(12,scale+(k==="-"?-1:1)));
-    $("zoom").dispatchEvent(new Event("input"));
-  };
+  else if (k === "+" || k === "=" || k === "-")
+    fn = () => {
+      $("zoom").value = Math.max(1, Math.min(12, scale + (k === "-" ? -1 : 1)));
+      $("zoom").dispatchEvent(new Event("input"));
+    };
   else if (k === " ") fn = () => $("play").click();
   else if (k === "arrowright" || k === "arrowleft")
     fn = () => {
-      const i = rows.findIndex((r) => r.panel.id === active);
+      const i = rows.findIndex((r) => r.panel.id === activeId());
       select(
         rows[
           Math.max(
@@ -450,8 +469,9 @@ document.addEventListener("keydown", (e) => {
   else if (k === "[" || k === "]")
     fn = () =>
       edit((p) => {
+        const ids = new Set(store.selection.ids);
         for (const r of flatten(p))
-          if (selected.has(r.panel.id))
+          if (ids.has(r.panel.id))
             r.panel.frames = Math.max(
               1,
               Math.min(864000, r.panel.frames + (k === "]" ? 1 : -1)),
@@ -607,3 +627,98 @@ $("png").onclick = async () => {
   );
 };
 render();
+// 永続化はProjectRepositoryへ集約する。UIは保存の成否をそのまま表示する。
+const repo = new ProjectRepository(
+  IndexedDbStorage.available() ? new IndexedDbStorage() : new MemoryStorage(),
+);
+let persistence = false;
+const clock = (t) =>
+  new Date(t).toLocaleString("ja-JP", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+const saver = new Autosaver(repo, {
+  onState: ({ state, meta, message }) => {
+    $("savestate").textContent =
+      {
+        idle: "",
+        pending: "未保存の変更",
+        saving: "自動保存中…",
+        saved: meta ? `ブラウザに保存 ${clock(meta.savedAt)}` : "保存済み",
+        failed: `自動保存に失敗：${message}／保存ボタンでファイルへ`,
+      }[state] ?? "";
+    $("savestate").className = state;
+  },
+});
+function markDirty() {
+  fileDirty = true;
+  // 自動保存の失敗で編集操作そのものを止めない。
+  try {
+    if (persistence) saver.schedule(() => store.p);
+  } catch (e) {
+    notice(`自動保存を予約できません：${e.message}`);
+  }
+}
+async function persist(kind) {
+  if (!persistence) return null;
+  const snapshot = store.p;
+  try {
+    const meta = await repo.save(snapshot, { kind });
+    await repo.pruneAssets(snapshot).catch(() => {});
+    if (store.p === snapshot) saver.resolved(meta);
+    return meta;
+  } catch (e) {
+    notice(`ブラウザ内保存に失敗：${e.message}`);
+    return null;
+  }
+}
+function offerRecovery({ meta, project }) {
+  $("recoverInfo").textContent = `${clock(meta.savedAt)} ／ ${
+    meta.title
+  } ／ ${meta.panels} Panel ／ ${meta.kind === "manual" ? "手動保存" : "自動保存"}`;
+  $("recover").onclick = () => {
+    $("recoverDialog").close();
+    stop();
+    store = new Store(project);
+    frame = 0;
+    fileDirty = true;
+    render();
+    saver.resolved(meta);
+    notice("前回の作業を復旧しました。ファイルへの保存は別に行ってください。");
+  };
+  $("discardRecovery").onclick = async () => {
+    $("recoverDialog").close();
+    await repo.dismiss(meta.savedAt).catch(() => {});
+    notice("復旧候補を今回は使いません（保存データは残っています）");
+  };
+  $("recoverDialog").showModal();
+}
+(async () => {
+  try {
+    await repo.open();
+    persistence = true;
+    // 開き終わる前の編集も取りこぼさない。
+    if (fileDirty) markDirty();
+  } catch (e) {
+    $("savestate").textContent = `自動保存を使えません：${e.message}`;
+    $("savestate").className = "failed";
+    return;
+  }
+  try {
+    const candidate = await repo.latest();
+    if (!candidate) return;
+    if (candidate.broken.length)
+      notice(
+        `読み取れない保存データを${candidate.broken.length}件読み飛ばしました（削除はしていません）`,
+      );
+    if (!candidate.project) return;
+    if (candidate.meta.savedAt <= (await repo.dismissed())) return;
+    offerRecovery(candidate);
+  } catch (e) {
+    notice(`復旧候補を確認できません：${e.message}`);
+  }
+})();
