@@ -46,7 +46,7 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 
 `src/model.js`：階層・検証・履歴、`src/playback.js`：時刻計算・Panel検索、`src/drawing.js`：描画Adapter、`src/paper.js`：ページ生成・Camera表記、`src/app.js`：UI/Timeline操作。
 
-[ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md)。次は自動復旧と素材管理、その後に音声とAnimatic出力です。Timeline UIは今後独立モジュールへ分離します。
+[次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md)。次は自動復旧と素材管理、その後に音声とAnimatic出力です。Timeline UIは今後独立モジュールへ分離します。
 
 ```sh
 npm test
