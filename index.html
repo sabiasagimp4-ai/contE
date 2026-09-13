@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ja">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>contE</title
+  ><link rel="stylesheet" href="style.css" />
+  <body>
+    <header>
+      <strong>contE</strong
+      ><input id="title" aria-label="プロジェクト名" /><button id="save">
+        保存</button
+      ><button id="open">開く</button
+      ><input id="file" type="file" accept=".contp" hidden /><span
+        id="status"
+        role="status"
+      ></span>
+    </header>
+    <nav>
+      <button data-act="add">＋ Panel <kbd>N</kbd></button
+      ><button data-act="duplicate">複製</button
+      ><button data-act="undo">元に戻す</button
+      ><button data-act="redo">やり直す</button><button id="play">▶ 再生</button
+      ><button id="paper">紙コンテ出力</button>
+    </nav>
+    <main>
+      <aside id="tree"></aside>
+      <section id="stage">
+        <div id="breadcrumb"></div>
+        <canvas
+          id="drawing"
+          width="1280"
+          height="720"
+          aria-label="描画キャンバス"
+        ></canvas>
+        <div class="hint">
+          描画 · N 新規 · ← → Panel · Space 再生 · [ ] 尺 ±1f · Ctrl Z / Shift Z
+          履歴
+        </div>
+        <div id="strip"></div>
+      </section>
+      <aside id="inspector">
+        <h3>Inspector</h3>
+        <label
+          >尺（フレーム）<input
+            id="frames"
+            type="number"
+            min="1"
+            max="864000" /></label
+        ><label>台詞<textarea id="dialogue"></textarea></label
+        ><label>SE / BGM（注記）<textarea id="sound"></textarea></label
+        ><label>演出メモ<textarea id="notes"></textarea></label>
+        <details>
+          <summary>Shot / Panel 操作</summary>
+          <button data-act="split">ここでShot分割</button
+          ><button data-act="merge">前Shotへ統合</button
+          ><button data-act="left">前へ移動</button
+          ><button data-act="right">後ろへ移動</button
+          ><button data-act="delete">選択Panelを削除</button
+          ><button data-act="scene">Scene追加</button>
+        </details>
+        <details open>
+          <summary>Camera（開始 → 終了）</summary>
+          <label
+            >終了 X<input
+              id="cx"
+              type="number"
+              step=".05"
+              min="-2"
+              max="2" /></label
+          ><label
+            >終了 Y<input
+              id="cy"
+              type="number"
+              step=".05"
+              min="-2"
+              max="2" /></label
+          ><label
+            >終了 Zoom<input
+              id="cz"
+              type="number"
+              step=".1"
+              min=".1"
+              max="10" /></label
+          ><label
+            >終了 Rotation<input
+              id="cr"
+              type="number"
+              step="5"
+              min="-360"
+              max="360" /></label
+          ><button id="key">終了Keyframeを設定</button>
+        </details>
+      </aside>
+    </main>
+    <footer>
+      <div>
+        <b>Timeline</b> <output id="time"></output
+        ><label
+          >Zoom <input id="zoom" type="range" min="1" max="12" value="3"
+        /></label>
+      </div>
+      <div id="timeline"><div id="track"></div></div>
+    </footer>
+    <dialog id="paperDialog">
+      <h2>紙コンテ</h2>
+      <div id="paperSettings"></div>
+      <button id="print">印刷 / PDF</button><button id="png">PNG連番</button
+      ><button id="closePaper">閉じる</button>
+      <div id="pages"></div>
+    </dialog>
+    <script type="module" src="src/app.js"></script>
+  </body>
+</html>
