@@ -1,0 +1,13 @@
+{
+  "name": "conte",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/serve.mjs",
+    "bench": "node scripts/bench.mjs",
+    "test:browser": "node scripts/browser-smoke.mjs"
+  }
+}
