@@ -47,6 +47,10 @@ export class EditorSession {
     return !!token && token.sessionId === this.sessionId;
   }
 
+  isCurrentRevision(token) {
+    return this.isCurrent(token) && token.revision === this.revision;
+  }
+
   #result(kind, changed, selectionChanged, extra = {}) {
     return Object.freeze({
       kind,

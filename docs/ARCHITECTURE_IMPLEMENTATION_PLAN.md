@@ -1,7 +1,7 @@
 # contE 構造改善の実装計画
 
 作成日: 2026-09-14  
-状態: 実装進行中。M0のコード照合と基準テスト、M1のSession境界第一段階、M2のStorage batchとRepository移行を実装済み。本文中で実装済みと明記していない新しいモジュール、API、試験、性能目標は提案である。
+状態: 実装進行中。M0のコード照合と基準テスト、M1のSession境界第一段階、M2のStorage batch・Repository移行・保存revision隔離の第一段階を実装済み。本文中で実装済みと明記していない新しいモジュール、API、試験、性能目標は提案である。
 
 ## 1. 根拠と対象範囲
 
@@ -130,7 +130,7 @@ M6で旧データの意味を変える必要が判明した場合、その仕様
 ### 6.3 M0実施結果（2026-09-14）
 
 - `src/app.js`、`src/model.js`、`src/repository.js`、`src/storage.js`、既存テストの実装入口を照合した。
-- 既存のNodeテストは73件すべて成功し、Session追加後は78件、Storage batch追加後は82件すべて成功した。
+- 既存のNodeテストは73件すべて成功し、Session追加後は78件、Storage batch追加後は82件、保存revision検証追加後は83件すべて成功した。
 - `npm run build` は成功し、新しいES Moduleも`dist/src/`へコピーされることを確認した。
 - `node --check src/app.js`、`node --check src/editor-session.js`、`git diff --check` は成功した。
 - `npm run test:browser` は、この実行環境に`playwright`パッケージがないため開始前に停止した。ブラウザsmokeを通過したとは扱わず、依存を用意した環境で再実行する。
@@ -197,7 +197,7 @@ Viewは`mount`、更新、`dispose`相当の寿命を持つ。イベント、Obs
 
 ### 7.4 実装済みの第一段階
 
-`src/editor-session.js`を追加し、`app.js`の編集、選択、Undo/Redo、Project差し替えを`EditorSession`経由へ移した。Sessionには実行時IDとrevisionがあり、変更結果を`kind`、`changed`、`selectionChanged`、`sessionId`、`revision`付きで返す。Project差し替え時はSession IDを更新するため、差し替え前に取得したTokenを現在Sessionとして扱わない。
+`src/editor-session.js`を追加し、`app.js`の編集、選択、Undo/Redo、Project差し替えを`EditorSession`経由へ移した。Sessionには実行時IDとrevisionがあり、変更結果を`kind`、`changed`、`selectionChanged`、`sessionId`、`revision`付きで返す。Project差し替え時はSession IDを更新するため、差し替え前に取得したTokenを現在Sessionとして扱わない。保存経路ではSession IDとrevisionの両方を照合する。
 
 素材読み込みは開始時のProjectとSession Tokenを捕捉し、非同期処理後にTokenが古ければ現在画面の再描画を行わない。既存の全体`render()`、Storeの深い複製、保存方式、UIの副作用順序はこの段階で維持している。これはM1完了ではなく、Session境界を先に導入した移行コミットである。
 
@@ -230,6 +230,8 @@ await storage.batch([
 
 保存中に新しい編集が来たら、最新の要求を次の保存へ残す。直列の保存処理が古いrevisionの完了で新しいrevisionを保存済みにしてはいけない。手動保存とAutosaverも同じRepositoryの確定経路を利用する。
 
+保存revision隔離の第一段階を実装した。Autosaverは予約時のtokenを保持し、完了時に`isCurrent`が偽なら成功表示と予約解除を行わない。`app.js`はSessionのrevisionを予約へ渡し、手動保存後のAsset GCと保存済み解除もtoken一致時だけ行う。失敗時の再試行、Quota再試行、既存のSnapshot保持規則は変更していない。
+
 通常600ms、連続編集時4000msの予約規則、Quota時の一回だけの再試行、最新8件と範囲外の最新手動保存の保持は維持する。Quota対処で削除するpayloadとsnapshotも対で扱い、最新の正常保存と保持対象の手動保存を保護する。保護した保存まで失わなければ再試行できない場合は、既存保存を保って失敗を返す。
 
 通常のProject保存は、既存仕様で許している素材欠落と差し替えの経路を維持する。M8の「素材を全て同梱したBundle」の完全性判定とは分ける。
@@ -250,6 +252,7 @@ Repository内のキューだけでは複数タブを排他できない。初期�
 
 - `Repository.#write()`はpayloadとsnapshotを`Storage.batch()`へ渡し、現行Storageでは複数storeを同じ確定単位で保存する。`batch`を持たない旧アダプターには従来の逐次書き込みと失敗時削除を残した。
 - `MemoryStorage`の失敗時ロールバック、入力検証、Repositoryの保存・復旧経路をNodeテストで追加し、テストは82件すべて成功した。
+- AutosaverにSession tokenのrevision照合を追加し、古い保存完了の成功表示とAsset GCを抑止するテストを追加した。Nodeテストは83件すべて成功した。
 - 実ブラウザのIndexedDB transaction完了経路は、環境にPlaywrightがないため未実行である。ブラウザsmoke環境を用意した時点で追加検証する。
 
 ## 9. M3 — Storeの構造共有と変更情報
@@ -524,7 +527,7 @@ MemoryStorageの成功だけでIndexedDBのtransactionを検証したとは扱�
 
 ## 16. コミットの切り方と戻し方
 
-下表は実装コミットの切り方と戻し方である。C02のSession境界第一段階とC04のStorage batch / Repository移行は実行済みで、その他は未実行である。
+下表は実装コミットの切り方と戻し方である。C02のSession境界第一段階、C04のStorage batch / Repository移行、C05の保存revision隔離第一段階は実行済みで、その他は未実行である。
 
 | 順序 | コミット案 | 一つの変更として確認すること | 差し戻し方針 |
 |---|---|---|---|
@@ -532,7 +535,7 @@ MemoryStorageの成功だけでIndexedDBのtransactionを検証したとは扱�
 | C02 | `refactor: centralize editor commands and session lifecycle` | M1の確定後処理、非同期の所属。Session境界の第一段階を実施済み | 既存Storeとrenderを利用する接続へ戻せる |
 | C03 | `refactor: extract editor views and playback ownership` | UI購読・再生資源の所有者 | 計算と保存形式を変えずに戻せる |
 | C04 | `fix: commit project snapshots atomically` | M2のStorage batchとRepository（実施済み） | 既存store・既存metadataを読める状態を維持する |
-| C05 | `fix: isolate save revisions and protect active assets` | Autosaver、GC、Session境界 | GCを保留する保守的経路を残す |
+| C05 | `fix: isolate save revisions and protect active assets` | Autosaverのrevision隔離、手動保存後GCのtoken保護（実施済み） | GCを保留する保守的経路を残す |
 | C06 | `refactor: add copy-on-write edits to project store` | M3のDraftと高頻度Command | 旧callback経路を維持する |
 | C07 | `refactor: migrate structural edits to change-aware store` | 構造操作、Undo/Redo、変更情報 | 全無効化へ戻して表示の正しさを保つ |
 | C08 | `perf: cache project timing and derived data` | M4の索引、現在のPanelとの結合 | `flatten()`による全再計算を互換経路にする |
@@ -565,4 +568,4 @@ C03の再生所有者の抽出では時間計算を移さず、C11で単位変�
 - [ ] 統合: 改善前後の測定と実機で未検証の範囲を記録した。
 - [ ] 文書: ARCHITECTURE.mdが実装済みの構造と一致している。
 
-この更新時点で実施済みなのは、M0のコード照合・Node/build検証、M1のSession境界第一段階、M2のStorage batchとRepository移行である。M0のブラウザsmoke、M1の画面責務分離、M2の並行保存・GC・revision隔離、M3以降の実装、性能改善は未完了である。
+この更新時点で実施済みなのは、M0のコード照合・Node/build検証、M1のSession境界第一段階、M2のStorage batch・Repository移行・保存revision隔離第一段階である。M0のブラウザsmoke、M1の画面責務分離、M2の保存中Asset使用権の登録、M3以降の実装、性能改善は未完了である。

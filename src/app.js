@@ -1822,6 +1822,7 @@ const clock = (t) =>
     hour12: false,
   });
 const saver = new Autosaver(repo, {
+  isCurrent: (token) => editor.isCurrentRevision(token),
   onState: ({ state, meta, message }) => {
     $("savestate").textContent =
       {
@@ -1838,20 +1839,23 @@ function markDirty() {
   fileDirty = true;
   // 自動保存の失敗で編集操作そのものを止めない。
   try {
-    if (persistence) saver.schedule(() => store.p);
+    if (persistence) saver.schedule(() => store.p, editor.capture());
   } catch (e) {
     notice(`自動保存を予約できません：${e.message}`);
   }
 }
 async function persist(kind) {
   if (!persistence) return null;
+  const token = editor.capture();
   const snapshot = store.p;
   try {
     const meta = await repo.save(snapshot, { kind });
-    // 保存世代とUndo/Redoから戻せる素材はGCの対象にしない。
-    const history = [...store.past, ...store.future].map((entry) => entry.p);
-    await repo.pruneAssets(snapshot, history).catch(() => {});
-    if (store.p === snapshot) saver.resolved(meta);
+    if (editor.isCurrentRevision(token)) {
+      // 保存世代とUndo/Redoから戻せる素材はGCの対象にしない。
+      const history = [...store.past, ...store.future].map((entry) => entry.p);
+      await repo.pruneAssets(snapshot, history).catch(() => {});
+      if (editor.isCurrentRevision(token)) saver.resolved(meta);
+    }
     return meta;
   } catch (e) {
     notice(`ブラウザ内保存に失敗：${e.message}`);

@@ -275,3 +275,28 @@ test("edits made while saving stay pending for the next write", async () => {
   assert.equal(saver.pending, false);
   assert.equal(flatten((await repo.latest()).project).length, 2);
 });
+test("a stale autosave does not report the latest revision as saved", async () => {
+  const { repo } = repository();
+  let current = project();
+  let token = "revision-1";
+  const source = () => current;
+  const states = [];
+  const saver = new Autosaver(repo, {
+    isCurrent: (candidate) => candidate === token,
+    onState: ({ state, stale }) => states.push({ state, stale }),
+    setTimer: () => null,
+    clearTimer: () => {},
+  });
+  saver.schedule(source, "revision-1");
+  const run = saver.flush();
+  current = project();
+  current.scenes[0].shots[0].panels.push(panel());
+  token = "revision-2";
+  saver.schedule(source, "revision-2");
+  await run;
+  assert.equal(saver.pending, true);
+  assert.ok(states.some(({ state, stale }) => state === "pending" && stale));
+  await saver.flush();
+  assert.equal(saver.pending, false);
+  assert.equal(flatten((await repo.latest()).project).length, 2);
+});

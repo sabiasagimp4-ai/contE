@@ -13,6 +13,8 @@ test("editing returns a revision and does not advance it for a no-op", () => {
   assert.equal(changed.selectionChanged, false);
   assert.equal(changed.revision, 1);
   assert.equal(editor.isCurrent(first), true);
+  assert.equal(editor.isCurrentRevision(first), false);
+  assert.equal(editor.isCurrentRevision(editor.capture()), true);
 
   const noOp = editor.edit((p) => (p.title = p.title), "title");
   assert.equal(noOp.changed, false);
@@ -77,4 +79,3 @@ test("invalid edits remain atomic and do not change the session revision", () =>
   assert.equal(editor.isCurrent(token), true);
   assert.equal(editor.store.p.scenes[0].shots[0].panels[0].frames, 48);
 });
-

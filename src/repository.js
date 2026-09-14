@@ -163,6 +163,7 @@ export class Autosaver {
       now = () => Date.now(),
       setTimer = (fn, ms) => setTimeout(fn, ms),
       clearTimer = (id) => clearTimeout(id),
+      isCurrent = () => true,
     } = {},
   ) {
     this.repo = repo;
@@ -177,6 +178,8 @@ export class Autosaver {
     this.timer = null;
     this.running = null;
     this.state = "idle";
+    this.sourceToken = null;
+    this.isCurrent = isCurrent;
   }
   get pending() {
     return !!this.source || this.state === "failed";
@@ -185,8 +188,9 @@ export class Autosaver {
     this.state = state;
     this.onState({ state, ...detail });
   }
-  schedule(source) {
+  schedule(source, token = null) {
     this.source = source;
+    this.sourceToken = token;
     if (!this.pendingSince) this.pendingSince = this.now();
     this.clearTimer(this.timer);
     const wait = Math.max(
@@ -202,16 +206,24 @@ export class Autosaver {
     if (!this.source) return null;
     if (this.running) return this.running;
     const source = this.source;
+    const token = this.sourceToken;
     this.#emit("saving");
     this.running = (async () => {
       try {
         const meta = await this.repo.save(source(), { kind: "auto" });
+        const current =
+          this.source === source &&
+          (!token || this.isCurrent(token));
         // 保存中にさらに編集されていたら未保存のまま残す。
-        if (this.source === source) {
+        if (current) {
           this.source = null;
+          this.sourceToken = null;
           this.pendingSince = 0;
+          this.#emit("saved", { meta });
+        } else {
+          // 古いrevisionの保存成功は、最新状態の成功表示にしない。
+          this.#emit("pending", { meta, stale: true });
         }
-        this.#emit("saved", { meta });
         return meta;
       } catch (e) {
         this.#emit("failed", { message: e.message });
@@ -222,7 +234,8 @@ export class Autosaver {
     })();
     const meta = await this.running;
     // 失敗したら自動では叩き続けない。次の編集か手動保存で再試行する。
-    if (meta && this.source && !this.timer) this.schedule(this.source);
+    if (meta && this.source && !this.timer)
+      this.schedule(this.source, this.sourceToken);
     return meta;
   }
   // 手動保存などで同じ内容が保存済みになったとき、待機中の自動保存を解除する。
@@ -230,6 +243,7 @@ export class Autosaver {
     this.clearTimer(this.timer);
     this.timer = null;
     this.source = null;
+    this.sourceToken = null;
     this.pendingSince = 0;
     this.#emit("saved", { meta });
   }
@@ -237,6 +251,7 @@ export class Autosaver {
     this.clearTimer(this.timer);
     this.timer = null;
     this.source = null;
+    this.sourceToken = null;
     this.pendingSince = 0;
     this.#emit("idle");
   }

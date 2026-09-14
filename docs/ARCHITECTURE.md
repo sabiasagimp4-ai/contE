@@ -236,7 +236,7 @@ EditorSession
 
 `edit()`、`undo()`、`redo()`はStoreの既存の検証・履歴処理を呼び、変更が確定した場合だけrevisionを1増やす。選択だけの変更は`selectionChanged`として返すが、Project revisionは増やさない。無変更操作は履歴とrevisionを消費しない。`replace()`は新しいStoreを作り、Session IDを更新してrevisionを0へ戻す。
 
-非同期処理は`capture()`でSession IDを取得し、完了時に`isCurrent()`を確認できる。古いSessionの素材読み込み結果は、キャッシュへの取得処理が完了しても現在画面の`render()`を呼ばない。Sessionはデータ保存形式やProjectの意味を変更しない。
+非同期処理は`capture()`でSession IDとrevisionを取得し、完了時に`isCurrent()`または`isCurrentRevision()`を確認できる。古いSessionの素材読み込み結果は、キャッシュへの取得処理が完了しても現在画面の`render()`を呼ばない。保存完了やAsset GCはrevisionが一致するときだけ最新状態へ反映する。Sessionはデータ保存形式やProjectの意味を変更しない。
 
 ## 5. UI構造とイベントの流れ
 
@@ -455,19 +455,20 @@ Asset GCは、現在Project、Undo/Redo履歴、保持中SnapshotのAsset IDを�
 
 ### 11.3 Autosaver
 
-`Autosaver`は変更時の保存予約をまとめる。
+`Autosaver`は変更時の保存予約をまとめる。予約にはSession tokenを任意で付けられ、保存完了時に現在revisionと一致しない場合は成功表示を確定せず、最新予約を残して次の保存へ回す。
 
 - 通常の遅延: 600ms
 - 連続編集時の上限: 4000ms
 - 状態: `idle` / `pending` / `saving` / `saved` / `failed`
 - 保存中に編集された場合、保存開始時のProjectを確定し、新しい変更を次回保存へ残す
+- 古いrevisionの保存完了では最新revisionを保存済みにせず、現在ProjectのAsset GCも実行しない
 - 失敗時は成功表示にせず、次の編集または手動保存で再試行できる
 
 ## 12. テストと検証の境界
 
 ### 12.1 Nodeテスト
 
-`npm test` はNode標準Test Runnerで、現在82テストを実行する。
+`npm test` はNode標準Test Runnerで、現在83テストを実行する。
 
 | テスト | 対象 |
 |---|---|
