@@ -1,8 +1,32 @@
+/* After Effects風のパネルUI。
+   ねらいは3つ。(1)青みを抜いた中性グレーで面を作る (2)どの領域も「タブの付いた
+   パネル」として区切る (3)数値はホットテキスト、時間はタイムライン上の行として扱う。
+   色はここのカスタムプロパティだけで決める。個々の部品に生の色を書かない。 */
 :root {
   color-scheme: dark;
-  font: 13px system-ui;
-  background: #171b20;
-  color: #dde2e9;
+  font: 12px system-ui, sans-serif;
+  --gutter: #101010; /* パネルの隙間。いちばん暗い面 */
+  --panel: #232323; /* パネル本体 */
+  --head: #2b2b2b; /* タブ列・ツール列 */
+  --sunken: #1a1a1a; /* 入力欄・タイムラインの地 */
+  --raised: #333; /* ボタン */
+  --raised-on: #3d3d3d;
+  --line: #121212; /* パネル境界（暗い側） */
+  --line-soft: #3a3a3a; /* パネル内の罫線 */
+  --text: #c9c9c9;
+  --dim: #8d8d8d;
+  --accent: #2f5f96; /* 選択 */
+  --accent-hi: #5b93cf;
+  --hot: #7fb3ff; /* 数値のホットテキスト */
+  --warn: #dcb166;
+  --bad: #e08a7a;
+  --bar: #3f5b78; /* タイムラインのレイヤーバー */
+  --bar-line: #5f7d9c;
+  --key: #b9b9b9; /* キーフレーム */
+  --key-on: #e6c179;
+  --wave: #6fae93;
+  background: var(--gutter);
+  color: var(--text);
 }
 * {
   box-sizing: border-box;
@@ -12,62 +36,239 @@ body {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  background: var(--gutter);
+  overflow: hidden;
 }
+
+/* ---- 部品 ------------------------------------------------------------- */
 button,
 input,
 textarea,
 select {
   font: inherit;
   color: inherit;
-  background: #252c34;
-  border: 1px solid #414b58;
-  border-radius: 4px;
-  padding: 7px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 3px 8px;
 }
 button {
   cursor: pointer;
+  border-top-color: #4a4a4a;
+  white-space: nowrap;
 }
 button:hover {
-  background: #36485c;
+  background: var(--raised-on);
 }
-button:focus-visible,
-input:focus-visible {
-  outline: 2px solid #73baff;
+button:active {
+  background: #2a2a2a;
 }
-header,
-nav {
+button.on {
+  background: var(--accent);
+  border-color: #1d3c5e;
+  color: #eaf2fb;
+}
+:is(button, input, textarea, select):focus-visible {
+  outline: 1px solid var(--accent-hi);
+  outline-offset: -1px;
+}
+input,
+textarea,
+select {
+  background: var(--sunken);
+  border-color: #0d0d0d;
+  border-top-color: #000;
+}
+/* AEのホットテキスト。数値は箱ではなく青い文字として置き、触ったときだけ枠が出る。 */
+input[type="number"] {
+  background: transparent;
+  border-color: transparent;
+  border-bottom: 1px dotted #4d6d92;
+  border-radius: 0;
+  color: var(--hot);
+  padding: 2px 4px;
+}
+input[type="number"]:hover {
+  background: var(--sunken);
+  border-color: #3a3a3a;
+}
+input[type="number"]:focus {
+  background: var(--sunken);
+  border: 1px solid var(--accent-hi);
+  color: #fff;
+}
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  height: 14px;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  background: #0f0f0f;
+  border: 1px solid #3a3a3a;
+  border-radius: 1px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 9px;
+  height: 13px;
+  margin-top: -6px;
+  background: #9a9a9a;
+  border: 1px solid #0d0d0d;
+  border-radius: 1px;
+}
+input[type="range"]::-moz-range-track {
+  height: 3px;
+  background: #0f0f0f;
+  border: 1px solid #3a3a3a;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 9px;
+  height: 13px;
+  background: #9a9a9a;
+  border: 1px solid #0d0d0d;
+  border-radius: 1px;
+}
+input[type="checkbox"] {
+  accent-color: var(--accent-hi);
+  width: auto;
+  padding: 0;
+}
+label {
+  display: block;
+  margin: 8px 0;
+  color: var(--dim);
+  font-size: 11px;
+}
+label input,
+label select,
+textarea {
+  width: 100%;
+  margin-top: 3px;
+  color: var(--text);
+}
+textarea {
+  resize: vertical;
+  min-height: 46px;
+}
+kbd {
+  font-size: 10px;
+  color: #7d7d7d;
+}
+.hint {
+  color: var(--dim);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+/* ---- パネルの枠組み ---------------------------------------------------- */
+.panel {
   display: flex;
-  gap: 10px;
-  padding: 10px 16px;
-  border-bottom: 1px solid #343b45;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.panelBar {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  min-height: 23px;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+.panelTab {
+  display: flex;
   align-items: center;
+  padding: 0 12px;
+  font-size: 11px;
+  color: var(--dim);
+  border-right: 1px solid var(--line);
+  background: var(--head);
+}
+/* アクティブなタブはパネル面と同じ色になり、上に細いアクセントが入る。 */
+.panelTab.on {
+  background: var(--panel);
+  color: #e2e2e2;
+  box-shadow: inset 0 2px 0 var(--accent-hi);
+}
+.panel:focus-within,
+#inspector:focus-within,
+footer:focus-within {
+  border-color: #3f3f3f;
+}
+.panelBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px;
+}
+
+/* ---- 上部：メニュー列とツール列 ---------------------------------------- */
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  background: #1e1e1e;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
 }
 header strong {
-  font-size: 21px;
-  color: #9acbff;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: #d7d7d7;
 }
 header input {
-  width: 250px;
+  width: 240px;
+  padding: 2px 6px;
+}
+header button {
+  padding: 2px 9px;
+}
+nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 8px;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+nav button {
+  padding: 3px 10px;
 }
 #savestate {
   margin-left: auto;
-  color: #9caabd;
+  color: var(--dim);
+  font-size: 11px;
   white-space: nowrap;
 }
 #savestate.pending,
 #savestate.saving {
-  color: #ffd479;
+  color: var(--warn);
 }
 #savestate.failed {
-  color: #ff9f8e;
+  color: var(--bad);
 }
 #status {
-  color: #aab6c6;
-  max-width: 34ch;
+  color: var(--dim);
+  font-size: 11px;
+  max-width: 36ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---- 3面 + スプリッタ -------------------------------------------------- */
 main {
   display: grid;
   grid-template-columns: var(--tree, 220px) 6px minmax(260px, 1fr) 6px var(
@@ -76,248 +277,519 @@ main {
     );
   min-height: 0;
   flex: 1;
+  background: var(--gutter);
 }
 .splitter {
-  background: #232a33;
-  border-left: 1px solid #343b45;
-  border-right: 1px solid #343b45;
+  background: var(--gutter);
   cursor: col-resize;
   touch-action: none;
 }
 .splitter:hover {
-  background: #3a4655;
+  background: #3c3c3c;
 }
 .splitter.horizontal {
   cursor: row-resize;
   height: 6px;
-  border: 0;
-  border-top: 1px solid #343b45;
-  border-bottom: 1px solid #343b45;
+  flex: 0 0 auto;
 }
-aside {
-  padding: 12px;
-  overflow: auto;
-  background: #1c2229;
+
+/* ---- プロジェクト（Tree） ---------------------------------------------- */
+#tree {
+  padding: 4px;
+}
+#tree details {
+  border: 0;
+  padding: 0;
+  margin-bottom: 2px;
+}
+#tree summary {
+  cursor: pointer;
+  padding: 3px 6px;
+  font-size: 11px;
+  color: #d2d2d2;
+  background: #2a2a2a;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  list-style: none;
+}
+#tree summary::-webkit-details-marker {
+  display: none;
+}
+#tree summary::before {
+  content: "▸ ";
+  color: var(--dim);
+}
+#tree details[open] > summary::before {
+  content: "▾ ";
 }
 #tree button {
   width: 100%;
   text-align: left;
-  margin: 2px 0;
+  margin: 1px 0;
+  padding: 3px 8px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text);
+  font-size: 11px;
+  border-radius: 2px;
+}
+#tree button:hover {
+  background: #2e2e2e;
+}
+#tree .shot {
+  color: #9fb8d4;
+  padding-left: 14px;
 }
 #tree .panel {
-  padding-left: 22px;
+  padding-left: 26px;
+  color: #b9b9b9;
 }
+#tree .panel.selected {
+  background: var(--accent);
+  color: #eaf2fb;
+}
+input.rename {
+  width: 100%;
+  margin: 2px 0;
+}
+
+/* ---- コンポジション（Stage） ------------------------------------------- */
 #stage {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 16px;
-  gap: 12px;
+}
+#breadcrumb {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 11px;
+  color: var(--dim);
+}
+#tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 8px;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+#tools button {
+  padding: 3px 8px;
+}
+#tools .tool.on {
+  background: var(--accent);
+  border-color: #1d3c5e;
+  color: #eaf2fb;
+}
+#tools .inline {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  color: var(--dim);
+  font-size: 10.5px;
+}
+#tools .inline input {
+  width: 84px;
+  margin: 0;
+}
+#viewInfo {
+  color: var(--dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  padding-right: 4px;
+}
+/* 画面はAEのビューアと同じく暗い面の中央にコンポを置く。 */
+#viewer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  background: #0d0d0d;
+  overflow: hidden;
 }
 #drawing {
-  width: 100%;
-  min-height: 0;
-  flex: 1;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
   touch-action: none;
   cursor: crosshair;
+  background: #fff;
+  box-shadow: 0 0 0 1px #000;
 }
-.hint {
-  color: #8c9aad;
-  font-size: 11px;
+#stage > .hint {
+  padding: 3px 10px;
+  background: var(--head);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 0 auto;
 }
 #strip {
   display: flex;
-  gap: 8px;
-  overflow: auto;
-  min-height: 65px;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 106px;
+  padding: 6px;
+  background: #1d1d1d;
+  flex: 0 0 auto;
 }
 #strip button {
-  min-width: 100px;
+  min-width: 104px;
   position: relative;
+  padding: 3px;
+  background: #2a2a2a;
+  border: 1px solid var(--line);
+  font-size: 10.5px;
+  color: var(--dim);
+}
+#strip button.selected {
+  border-color: var(--accent-hi);
+  background: #2f3d4c;
+  color: #e6eef7;
+}
+#strip canvas {
+  display: block;
+  width: 120px;
+  height: 68px;
+  margin-bottom: 4px;
+  background: #fff;
 }
 #strip button.dragging {
   opacity: 0.5;
 }
 #strip button.before,
 #strip button.after {
-  box-shadow: inset 3px 0 0 #73baff;
+  box-shadow: inset 3px 0 0 var(--accent-hi);
 }
 #strip button.after {
-  box-shadow: inset -3px 0 0 #73baff;
+  box-shadow: inset -3px 0 0 var(--accent-hi);
 }
-#tools {
+
+/* ---- インスペクタ（エフェクトコントロール相当） ------------------------ */
+#inspector {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-#tools button {
-  padding: 5px 9px;
-}
-#tools .tool.on {
-  background: #2f6ea8;
-  border-color: #73baff;
-}
-#tools .inline {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  color: #aab6c6;
-}
-#tools .inline input {
-  width: 90px;
-  margin: 0;
-}
-#viewInfo {
-  color: #8c9aad;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  overflow: hidden;
 }
 #tabs {
   display: flex;
-  gap: 4px;
-  margin-bottom: 6px;
+  min-height: 23px;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
 }
 #tabs .tab {
   flex: 1;
-  padding: 6px 4px;
+  padding: 0 6px;
+  height: 22px;
+  font-size: 11px;
+  color: var(--dim);
+  background: var(--head);
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+}
+#tabs .tab:hover {
+  background: #323232;
 }
 #tabs .tab.on {
-  background: #2f6ea8;
-  border-color: #73baff;
+  background: var(--panel);
+  color: #e2e2e2;
+  box-shadow: inset 0 2px 0 var(--accent-hi);
+}
+#inspector .pane {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 10px;
 }
 #inspector .pane button {
   margin: 4px 4px 4px 0;
 }
-#tree .shot {
-  color: #9acbff;
-  padding-left: 10px;
+#inspector select[size] {
+  height: auto;
+  padding: 2px;
+  font-size: 11px;
 }
-input.rename {
-  width: 100%;
-  margin: 2px 0;
+#cameraSummary {
+  color: #d4c19a;
+  padding: 4px 6px;
+  background: #2a2620;
+  border: 1px solid #3a352c;
+  border-radius: 2px;
 }
-label {
-  display: block;
-  margin: 10px 0;
-}
-label input,
-textarea {
-  width: 100%;
-  margin-top: 4px;
-}
-textarea {
-  resize: vertical;
-  min-height: 50px;
-}
-details {
-  border-top: 1px solid #38414d;
-  padding: 12px 0;
-}
-details button {
-  margin: 4px;
-}
-summary {
-  cursor: pointer;
-}
+
+/* ---- タイムライン ------------------------------------------------------ */
 footer {
   height: var(--timeline, 270px);
-  padding: 12px;
-  border-top: 1px solid #414b58;
-}
-footer > div:first-child {
   display: flex;
-  align-items: center;
-  gap: 24px;
-}
-footer label {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 0;
-}
-#zoom {
-  width: 160px;
-}
-#timeline {
-  overflow: auto;
-  flex: 1;
+  flex-direction: column;
   min-height: 0;
-  margin-top: 10px;
-}
-#track {
-  position: relative;
-  height: 100%;
-  min-height: 200px;
-  background: #202832;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  flex: 0 0 auto;
 }
 #timebar {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  padding: 4px 8px;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
 }
-#timebar .inline {
+#timebar button {
+  padding: 2px 8px;
+}
+#timebar .inline,
+footer label {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   margin: 0;
+  font-size: 10.5px;
+  color: var(--dim);
 }
 #timebar .inline input[type="range"] {
-  width: 130px;
+  width: 120px;
   margin: 0;
 }
-#timebar input[type="checkbox"] {
-  width: auto;
-  margin: 0;
+#zoom {
+  width: 120px;
 }
-#time,
-#range {
-  color: #aab6c6;
+/* 現在時刻はAEと同じくタイムラインの左上に置く。 */
+#time {
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  color: var(--hot);
   font-variant-numeric: tabular-nums;
+  border-right: 1px solid var(--line);
+}
+#range {
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  color: var(--dim);
+  font-size: 10.5px;
+}
+/* 時間グラフの左に行名の列を置く。AEのレイヤー名の列にあたり、横スクロールしない。
+   行の上端はこのファイルのトラック位置（#clips/#cameraTrack/#audioTrack）と、
+   app.jsが音声レーンへ与える26px間隔に合わせている。片方だけ動かさない。 */
+#timeBody {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+#rowNames {
+  position: relative;
+  flex: 0 0 96px;
+  background: #1f1f1f;
+  border-right: 1px solid var(--line);
+}
+.rowName {
+  position: absolute;
+  left: 0;
+  right: 0;
+  padding: 3px 8px;
+  font-size: 10.5px;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid #262626;
+}
+.rowName.ruler {
+  top: 0;
+  height: 22px;
+  background: #212121;
+  border-bottom: 1px solid var(--line);
+}
+.rowName.clips {
+  top: 28px;
+  height: 52px;
+  color: #c4c4c4;
+}
+.rowName.camera {
+  top: 86px;
+  height: 26px;
+}
+/* 音声のレーン名はapp.jsがトラック一覧から作る。位置は#audioTrackの中と同じ。 */
+#audioNames {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 116px;
+}
+.rowName.audio {
+  height: 24px;
+}
+#timeline {
+  overflow: auto;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: var(--sunken);
+}
+#track {
+  position: relative;
+  height: 100%;
+  min-height: 200px;
+  background-color: var(--sunken);
+  /* 行の区切りは左の行名の列と同じ位置。上の#rowNamesと対で直す。 */
+  background-image: linear-gradient(
+    to bottom,
+    transparent 0 28px,
+    #202020 28px 80px,
+    #191919 80px 86px,
+    #1f1f1f 86px 112px,
+    #191919 112px 116px,
+    #1d1d1d 116px 192px,
+    transparent 192px
+  );
+}
+/* 行の名前は横スクロールしても左端に残す。AEのレイヤー名の列にあたる。 */
+#rowNames {
+  position: sticky;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 3;
+}
+.rowName {
+  position: absolute;
+  left: 0;
+  padding: 1px 7px;
+  font-size: 10px;
+  color: var(--dim);
+  background: #1a1a1acc;
+  border-right: 1px solid var(--line);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.rowName.clips {
+  top: 30px;
+}
+.rowName.camera {
+  top: 90px;
 }
 #ruler {
   position: absolute;
   inset: 0 0 auto 0;
   height: 22px;
-  border-bottom: 1px solid #3b4653;
+  background: #212121;
+  border-bottom: 1px solid var(--line);
 }
 .tick {
   position: absolute;
   top: 0;
   padding-left: 4px;
-  font-size: 10px;
-  color: #8c9aad;
-  border-left: 1px solid #3b4653;
+  font-size: 9.5px;
+  color: #7d7d7d;
+  border-left: 1px solid #333;
   height: 22px;
   line-height: 22px;
   white-space: nowrap;
 }
 .tick.second {
-  color: #b9c6d6;
-  border-left-color: #55637a;
+  color: #b0b0b0;
+  border-left-color: #4d4d4d;
 }
+/* 選択範囲はAEのワークエリアのように上に薄く敷く。 */
 #band {
   position: absolute;
   top: 22px;
   bottom: 0;
-  background: #73baff18;
-  border-left: 1px solid #73baff66;
-  border-right: 1px solid #73baff66;
+  background: #ffffff0d;
+  border-left: 1px solid #ffffff26;
+  border-right: 1px solid #ffffff26;
   pointer-events: none;
+}
+.clip {
+  position: absolute;
+  top: 28px;
+  height: 52px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-align: left;
+  padding: 3px 6px;
+  font-size: 10.5px;
+  color: #dfe7ef;
+  background: var(--bar);
+  border: 1px solid var(--bar-line);
+  border-radius: 2px;
+  border-left: 3px solid var(--bar-line);
+}
+.clip.selected,
+.selected {
+  background: #4a6c90 !important;
+  outline: 1px solid var(--accent-hi);
+  outline-offset: -1px;
+}
+.handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 9px;
+  height: 100%;
+  background: #ffffff2e;
+  cursor: ew-resize;
 }
 #cameraTrack {
   position: absolute;
   left: 0;
   right: 0;
-  top: 88px;
+  top: 86px;
   height: 26px;
+}
+.lane {
+  position: absolute;
+  height: 26px;
+  border: 1px solid #383838;
+  border-radius: 2px;
+  background: #272727;
+}
+.lane.active {
+  border-color: #4d4030;
+  background: #2d2820;
+}
+/* キーフレームはAEと同じひし形。選択したものだけ明るくする。 */
+.camkey {
+  position: absolute;
+  top: 7px;
+  width: 11px;
+  height: 11px;
+  margin-left: -5.5px;
+  background: var(--key);
+  border: 1px solid #0d0d0d;
+  transform: rotate(45deg);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.camkey.selected {
+  background: var(--key-on);
+  box-shadow: 0 0 0 1px #00000080;
 }
 #audioTrack {
   position: absolute;
   left: 0;
   right: 0;
-  top: 118px;
+  top: 116px;
   height: 78px;
 }
 .audiolane {
@@ -325,38 +797,27 @@ footer label {
   left: 0;
   right: 0;
   height: 24px;
-  border-top: 1px dashed #39424f;
+  border-top: 1px solid #2a2a2a;
 }
-.audiolane > .label {
-  position: sticky;
-  left: 0;
-  display: inline-block;
-  padding: 2px 6px;
-  font-size: 10px;
-  color: #8c9aad;
-  background: #202832cc;
-  z-index: 1;
-  /* 見出しは目印だけ。下のクリップを掴む邪魔をしない。 */
-  pointer-events: none;
-}
+
 .sound {
   position: absolute;
   top: 2px;
   height: 20px;
-  border: 1px solid #5f9c86;
-  background: #234a3d;
-  border-radius: 3px;
+  border: 1px solid #46705f;
+  background: #1f3831;
+  border-radius: 2px;
   overflow: hidden;
   cursor: grab;
   touch-action: none;
 }
 .sound.selected {
-  border-color: #9fe8c8;
-  box-shadow: 0 0 0 1px #9fe8c8;
+  border-color: var(--wave);
+  box-shadow: 0 0 0 1px #7fc7a880;
 }
 .sound.missing {
-  border-color: #ff9f8e;
-  background: #4a2a27;
+  border-color: #7a4a42;
+  background: #3a2522;
 }
 .sound canvas {
   display: block;
@@ -368,7 +829,7 @@ footer label {
   left: 4px;
   top: 2px;
   font-size: 10px;
-  color: #d8f3e7;
+  color: #cfe6da;
   pointer-events: none;
   white-space: nowrap;
 }
@@ -378,100 +839,82 @@ footer label {
   top: 0;
   width: 8px;
   height: 100%;
-  background: #9fe8c855;
+  background: #ffffff26;
   cursor: ew-resize;
 }
-.lane {
-  position: absolute;
-  height: 26px;
-  border: 1px solid #4a5566;
-  border-radius: 3px;
-  background: #262f3a;
-}
-.lane.active {
-  border-color: #bb7f5f;
-  background: #33272a;
-}
-.camkey {
-  position: absolute;
-  top: 6px;
-  width: 12px;
-  height: 12px;
-  margin-left: -6px;
-  background: #e0a06a;
-  border: 1px solid #2a2118;
-  transform: rotate(45deg);
-  cursor: ew-resize;
-  touch-action: none;
-}
-.camkey.selected {
-  background: #ffd479;
-  box-shadow: 0 0 0 2px #ffd47955;
-}
-.clip {
-  position: absolute;
-  top: 28px;
-  height: 54px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-align: left;
-  background: #335c88;
-  border: 1px solid #6f9dcc;
-}
-.selected {
-  background: #365d84 !important;
-  outline: 2px solid #96cbff;
-}
-.handle {
-  position: absolute;
-  right: 0;
-  top: 0;
-  width: 10px;
-  height: 100%;
-  background: #a0cbff55;
-  cursor: ew-resize;
-}
+/* 再生ヘッドはAEのCTIに合わせ、上に掴み手のついた細い線にする。 */
 #head {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 2px;
-  background: #ffcc85;
+  width: 1px;
+  background: #4ea3ff;
   pointer-events: none;
 }
-footer {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+#head::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -5px;
+  width: 11px;
+  height: 13px;
+  background: #4ea3ff;
+  clip-path: polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%);
 }
-kbd {
-  font-size: 10px;
-  color: #9caabd;
-}
+
+/* ---- ダイアログ -------------------------------------------------------- */
 dialog {
   width: min(1050px, 95vw);
   max-height: 95vh;
-  background: #1c2229;
-  border: 1px solid #657386;
+  background: var(--panel);
+  border: 1px solid #0c0c0c;
+  border-radius: 3px;
+  box-shadow: 0 12px 40px #000000a6;
+  color: var(--text);
+  padding: 0 16px 16px;
 }
 dialog::backdrop {
-  background: #000a;
+  background: #000000b3;
+}
+dialog h2 {
+  margin: 0 -16px 12px;
+  padding: 5px 16px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #e2e2e2;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  box-shadow: inset 0 2px 0 var(--accent-hi);
+}
+details {
+  border-top: 1px solid var(--line-soft);
+  padding: 10px 0;
+}
+details button {
+  margin: 4px;
+}
+summary {
+  cursor: pointer;
+  color: var(--dim);
+  font-size: 11px;
 }
 #paperSettings {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
 }
 #paperSettings label {
   width: 145px;
 }
+#paperSettings label:has(input[type="checkbox"]),
 #paperSettings label.check {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 190px;
+  gap: 7px;
+  width: 150px;
   margin: 4px 0;
 }
+#paperSettings label:has(input[type="checkbox"]) input,
 #paperSettings label.check input {
   width: auto;
   margin: 0;
@@ -479,14 +922,16 @@ dialog::backdrop {
 #paperColumns .column {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 4px 0;
+  gap: 7px;
+  margin: 3px 0;
 }
 #paperColumns .column span {
   width: 90px;
+  font-size: 11px;
+  color: var(--dim);
 }
 #paperColumns .column input[type="number"] {
-  width: 70px;
+  width: 66px;
   margin: 0;
 }
 #paperColumns .column input[type="checkbox"] {
@@ -494,30 +939,65 @@ dialog::backdrop {
   margin: 0;
 }
 #paperColumns .column button {
-  padding: 3px 9px;
+  padding: 2px 8px;
 }
-#paperActions {
+#paperActions,
+#animaticActions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   flex-wrap: wrap;
   margin: 12px 0 4px;
 }
-#paperProgress {
-  color: #aab6c6;
+#paperProgress,
+#animaticProgress {
+  color: var(--dim);
+  font-size: 11px;
 }
 .paging {
   display: flex;
   align-items: center;
-  gap: 10px;
-  color: #aab6c6;
+  gap: 8px;
+  color: var(--dim);
+  font-size: 11px;
 }
 #pages :is(canvas, img) {
   width: 100%;
   height: auto;
   background: white;
-  margin-top: 16px;
+  margin-top: 12px;
 }
+#animaticDialog {
+  width: min(720px, 94vw);
+}
+#animaticSettings {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+#animaticSettings label {
+  width: 200px;
+}
+#animaticPreview {
+  width: 100%;
+  height: auto;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+#recoverDialog {
+  width: min(520px, 92vw);
+}
+#recoverInfo {
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 9px;
+  font-size: 11px;
+}
+#recoverDialog button {
+  margin-right: 8px;
+}
+
 @media (max-width: 900px) {
   main {
     grid-template-columns: 150px 6px minmax(250px, 1fr);
@@ -538,6 +1018,7 @@ dialog::backdrop {
     width: 100%;
     border: 0;
     padding: 0;
+    background: #fff;
   }
   #paperDialog > * {
     display: none !important;
@@ -555,70 +1036,4 @@ dialog::backdrop {
     size: A4 portrait;
     margin: 0;
   }
-}
-#strip {
-  min-height: 110px;
-}
-#strip canvas {
-  display: block;
-  width: 120px;
-  height: 68px;
-  margin-bottom: 5px;
-  background: #fff;
-}
-#paperSettings label:has(input[type="checkbox"]) {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 145px;
-  margin: 4px 0;
-}
-#paperSettings input[type="checkbox"] {
-  width: auto;
-  margin: 0;
-}
-#animaticDialog {
-  width: min(720px, 94vw);
-  padding: 20px;
-}
-#animaticSettings {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-#animaticSettings label {
-  width: 200px;
-}
-#animaticActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 12px 0;
-}
-#animaticProgress {
-  color: #aab6c6;
-}
-#animaticPreview {
-  width: 100%;
-  height: auto;
-  background: #fff;
-  border: 1px solid #414b58;
-}
-#recoverDialog {
-  width: min(520px, 92vw);
-  padding: 20px;
-}
-#recoverDialog h2 {
-  margin: 0 0 12px;
-  font-size: 17px;
-}
-#recoverInfo {
-  background: #232a33;
-  border: 1px solid #414b58;
-  border-radius: 4px;
-  padding: 10px;
-}
-#recoverDialog button {
-  margin-right: 8px;
 }

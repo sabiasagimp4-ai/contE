@@ -38,7 +38,7 @@ IndexedDBが利用できない場合、UI編集は継続し、保存層だけが
 | パス | 現在の責務 |
 |---|---|
 | `index.html` | UIのDOM骨格。Toolbar、Canvas、Panel strip、Inspector、Timeline、紙コンテDialog、Animatic Dialog、復旧Dialogを定義 |
-| `style.css` | 4ペイン配置、Timelineレーン、Inspector、Dialog、印刷用スタイル、レスポンシブ境界 |
+| `style.css` | After Effects風のパネルUI。色のカスタムプロパティ、パネルとタブ、Timelineの行、Dialog、印刷用スタイル、レスポンシブ境界 |
 | `src/app.js` | UIイベント、表示更新、ファイル選択、再生、Dialog、保存の接続。現在のアプリケーション統合層 |
 | `src/editor-session.js` | 現在の`Store`の寿命、編集/選択/Undo/Redoの結果、変更範囲、実行時Session IDとrevision、Project差し替え後の古い非同期処理の識別 |
 | `src/application/commands.js` | UI操作をStoreの一回の編集として表すコマンド集。DOM・Storage・awaitを持たない |
@@ -258,34 +258,49 @@ DOM / Pointer / Keyboard
 
 ### 5.1 画面のDOM構造
 
+画面はAfter Effects風のパネル構成にしている。各領域は`.panel`として枠を持ち、
+先頭に`.panelBar`（タブ列）が付く。タブの`.on`が現在の面を示す。
+
 ```text
 body
-├─ header
-│  ├─ #title / #save / #open / #savestate / #status
-├─ nav
-│  ├─ Panel追加 / 複製 / Undo / Redo / 再生 / 紙コンテ / Animatic
+├─ header                           アプリ名 / #title / #save / #open / #savestate / #status
+├─ nav                              Panel追加 / 複製 / Undo / Redo / 再生 / 紙コンテ / Animatic
 ├─ main
-│  ├─ #tree                         Scene・Shot・Panelツリー
-│  ├─ #stage
-│  │  ├─ #tools                     描画、消しゴム、画像、表示
-│  │  ├─ #drawing                   1280×720 Canvas
+│  ├─ #projectPanel .panel
+│  │  ├─ .panelBar                  「プロジェクト」タブ
+│  │  └─ #tree                      Scene・Shot・Panelツリー（JSが中身を差し替える）
+│  ├─ #stage .panel
+│  │  ├─ .panelBar                  「コンポジション」タブ / #breadcrumb
+│  │  ├─ #tools                     描画、消しゴム、画像、表示、#viewInfo
+│  │  ├─ #viewer                    暗いビューア。中央に#drawing（1280×720 Canvas）
+│  │  ├─ .hint                      操作の要約（1行）
 │  │  └─ #strip                     現ShotのPanel strip
 │  └─ #inspector
-│     ├─ content                    尺、台詞、注記、素材情報
-│     ├─ camera                     Cameraキー
-│     ├─ sound                      音声Clipと素材
-│     └─ structure                  Scene/Shot名、分割、統合、削除
+│     ├─ #tabs                      内容 / Camera / 音 / 構成（パネルのタブ列）
+│     └─ .pane × 4                  尺・台詞・注記 / Cameraキー / 音声Clip / Scene・Shot操作
 └─ footer
-   ├─ #timebar                      時刻、Timeline Zoom、Fit、Snap、追従
-   └─ #timeline
-      └─ #track
-         ├─ #ruler
-         ├─ #band
-         ├─ #clips
-         ├─ #cameraTrack
-         ├─ #audioTrack
-         └─ #head
+   ├─ .panelBar                     「タイムライン」タブ / #time / #range
+   ├─ #timebar                      Zoom、Fit、Snap、追従
+   └─ #timeBody
+      ├─ #rowNames                  行名の列（コマ / Camera / #audioNames）。横スクロールしない
+      └─ #timeline
+         └─ #track
+            ├─ #ruler
+            ├─ #band
+            ├─ #clips
+            ├─ #cameraTrack
+            ├─ #audioTrack
+            └─ #head                再生ヘッド（上に掴み手の付いた線）
 ```
+
+行の位置（`#clips`は上から28px、`#cameraTrack`は86px、`#audioTrack`は116px、音声
+レーンは26px間隔）は`style.css`の`#rowNames`と対になっている。片方だけ変更しない。
+音声のレーン名は`app.js`が`AUDIO_TRACK_ORDER`から作るので、トラックを増やしても
+名前の列と行がずれない。
+
+数値入力はAEのホットテキストに倣い、通常は青い文字として表示し、触れたときだけ
+枠が出る。色は`:root`のカスタムプロパティにまとめてあり、個々の部品へ生の色を
+書かない。
 
 紙コンテとAnimaticは`dialog`として開き、復旧候補も別Dialogで表示する。低頻度設定はInspectorまたはDialogへ置き、高頻度操作はToolbar、ショートカット、Timeline上に置く構成になっている。
 

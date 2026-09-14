@@ -314,17 +314,23 @@ function soundInspector(r) {
       : `${current.asset?.name} · ${sound.seconds(current.clip.assetId).toFixed(2)}秒の素材`;
 }
 // 音声レーン。波形は素材ごとに1度だけ計算し、クリップ幅に合わせて描く。
+// レーン名は横スクロールしない左の列へ置く。行の高さはここの26pxが基準で、
+// 名前の列も同じ間隔で並べる。
+const LANE_HEIGHT = 26;
 function audioTrack(px, left, width) {
   const node = $("audioTrack");
+  const names = $("audioNames");
   node.replaceChildren();
+  names.replaceChildren();
   audio.AUDIO_TRACK_ORDER.forEach((track, index) => {
     const lane = document.createElement("div");
     lane.className = "audiolane";
-    lane.style.top = `${index * 26}px`;
-    const label = document.createElement("span");
-    label.className = "label";
-    label.textContent = audio.TRACK_LABEL[track];
-    lane.append(label);
+    lane.style.top = `${index * LANE_HEIGHT}px`;
+    const name = document.createElement("div");
+    name.className = "rowName audio";
+    name.style.top = `${index * LANE_HEIGHT}px`;
+    name.textContent = audio.TRACK_LABEL[track];
+    names.append(name);
     for (const item of audio.clipsInRange(
       resolved.filter((c) => c.clip.track === track),
       (left - width) / px,

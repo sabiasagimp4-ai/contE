@@ -26,10 +26,18 @@
       ><button id="animatic">Animatic出力</button>
     </nav>
     <main>
-      <aside id="tree"></aside>
+      <section class="panel" id="projectPanel">
+        <div class="panelBar">
+          <span class="panelTab on">プロジェクト</span>
+        </div>
+        <div id="tree" class="panelBody"></div>
+      </section>
       <div class="splitter" id="splitTree" title="幅を変更"></div>
-      <section id="stage">
-        <div id="breadcrumb"></div>
+      <section class="panel" id="stage">
+        <div class="panelBar">
+          <span class="panelTab on">コンポジション</span>
+          <div id="breadcrumb"></div>
+        </div>
         <div id="tools">
           <button id="brushTool" class="tool on">ブラシ</button
           ><button id="eraserTool" class="tool">消しゴム <kbd>E</kbd></button
@@ -52,12 +60,14 @@
           <button id="fit">表示リセット <kbd>0</kbd></button
           ><output id="viewInfo">100%</output>
         </div>
-        <canvas
-          id="drawing"
-          width="1280"
-          height="720"
-          aria-label="描画キャンバス"
-        ></canvas>
+        <div id="viewer">
+          <canvas
+            id="drawing"
+            width="1280"
+            height="720"
+            aria-label="描画キャンバス"
+          ></canvas>
+        </div>
         <div class="hint">
           描画 · N 新規 · ← → Panel · Space 再生 · [ ] 尺 ±1f · Ctrl Z / Shift Z
           履歴 · ホイールでズーム · Alt/中ボタンドラッグで移動 ·
@@ -66,7 +76,7 @@
         <div id="strip"></div>
       </section>
       <div class="splitter" id="splitInspector" title="幅を変更"></div>
-      <aside id="inspector">
+      <section id="inspector">
         <div id="tabs">
           <button class="tab on" data-tab="content">内容</button
           ><button class="tab" data-tab="camera">Camera</button
@@ -160,7 +170,7 @@
           ><button data-act="delete">選択Panelを削除</button
           ><button data-act="scene">Scene追加</button>
         </div>
-      </aside>
+      </section>
     </main>
     <div
       class="splitter horizontal"
@@ -168,9 +178,12 @@
       title="高さを変更"
     ></div>
     <footer>
+      <div class="panelBar">
+        <span class="panelTab on">タイムライン</span
+        ><output id="time"></output><output id="range"></output>
+      </div>
       <div id="timebar">
-        <b>Timeline</b> <output id="time"></output><output id="range"></output
-        ><label class="inline"
+        <label class="inline"
           >Zoom <input id="zoom" type="range" min="0" max="15" value="9"
         /></label>
         <button id="fitTime">全体 <kbd>F</kbd></button
@@ -184,14 +197,22 @@
           />再生ヘッド追従</label
         >
       </div>
-      <div id="timeline">
-        <div id="track">
-          <div id="ruler"></div>
-          <div id="band"></div>
-          <div id="clips"></div>
-          <div id="cameraTrack"></div>
-          <div id="audioTrack"></div>
-          <div id="head"></div>
+      <div id="timeBody">
+        <div id="rowNames" aria-hidden="true">
+          <div class="rowName ruler"></div>
+          <div class="rowName clips">コマ</div>
+          <div class="rowName camera">Camera</div>
+          <div id="audioNames"></div>
+        </div>
+        <div id="timeline">
+          <div id="track">
+            <div id="ruler"></div>
+            <div id="band"></div>
+            <div id="clips"></div>
+            <div id="cameraTrack"></div>
+            <div id="audioTrack"></div>
+            <div id="head"></div>
+          </div>
         </div>
       </div>
     </footer>
