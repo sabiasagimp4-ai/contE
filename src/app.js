@@ -1113,10 +1113,15 @@ for (const [id, key] of [
       ),
     });
 $("clipDelete").onclick = () => act("deleteClip", { clipId });
-// 素材が見つからないクリップは、同じIDへ別のファイルを入れて直せる。
+// 素材が見つからないクリップは、別のファイルを入れて直せる。
+// 原本は不変として扱う。同じAsset IDへ上書きすると、履歴や過去のSnapshotが
+// 指す音まで別物になってしまうため、新しいIDを作って参照だけを付け替える。
 $("clipRepair").onclick = () => {
   const clip = currentClip();
   if (!clip) return;
+  // 取り込みの対象とSessionは開始時に固定する。
+  const target = clip.id;
+  const token = editor.capture();
   const picker = document.createElement("input");
   picker.type = "file";
   picker.accept = "audio/*";
@@ -1124,20 +1129,35 @@ $("clipRepair").onclick = () => {
     const file = picker.files[0];
     if (!file) return;
     try {
-      sound.forget(clip.assetId);
-      await sound.decode(clip.assetId, file);
-      await repo.putAsset(clip.assetId, file);
-      edit((p) => {
-        const asset = p.assets.find((a) => a.id === clip.assetId);
-        if (asset)
-          Object.assign(asset, {
-            name: file.name.slice(0, 80),
-            mime: file.type,
-            bytes: file.size,
-          });
+      if (!file.type.startsWith("audio/"))
+        throw Error("音声ファイルではありません");
+      if (file.size > 80e6) throw Error("80MBを超える音声は未対応です");
+      const id = uid();
+      const buffer = await sound.decode(id, file);
+      await repo.putAsset(id, file);
+      // 差し替え中に作品を開き直していたら、古い結果を新しい画面へ入れない。
+      if (!editor.isCurrent(token)) {
+        sound.forget(id);
+        return;
+      }
+      const result = act("replaceClipAsset", {
+        clipId: target,
+        asset: {
+          id,
+          kind: "audio",
+          name: file.name.slice(0, 80),
+          mime: file.type,
+          bytes: file.size,
+        },
       });
-      notice("素材を差し替えました");
-      render();
+      if (!result.changed) {
+        sound.forget(id);
+        notice("差し替える対象のクリップがありません");
+        return;
+      }
+      notice(
+        `素材を差し替えました（${buffer.duration.toFixed(2)}秒／元に戻すで戻せます）`,
+      );
     } catch (e) {
       notice(`差し替えられません：${e.message}`);
     }

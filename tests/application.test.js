@@ -197,3 +197,84 @@ test("stopping playback happens once per command, before the commit", () => {
     "notify",
   ]);
 });
+
+const audioAsset = (id, name) => ({
+  id,
+  kind: "audio",
+  name,
+  mime: "audio/wav",
+  bytes: 8,
+});
+
+test("replacing a clip's source keeps the original reachable through undo", () => {
+  const { controller } = controllerWith();
+  const anchor = controller.activeId;
+  controller.execute("addAudioClip", {
+    clipId: "clip-1",
+    asset: audioAsset("old-asset", "元の音.wav"),
+    track: "se",
+    anchor,
+    at: 0,
+    frames: 12,
+  });
+  const before = controller.project;
+
+  const replaced = controller.execute("replaceClipAsset", {
+    clipId: "clip-1",
+    asset: audioAsset("new-asset", "差し替え.wav"),
+  });
+
+  assert.equal(replaced.changed, true);
+  assert.deepEqual([...replaced.changes.assetIds], ["new-asset"]);
+  assert.equal(controller.project.audio[0].assetId, "new-asset");
+  // 原本は不変。古いProjectは元の素材を指したままにする。
+  assert.equal(before.audio[0].assetId, "old-asset");
+  assert.equal(
+    controller.project.assets.some((a) => a.id === "old-asset"),
+    false,
+    "使われなくなった素材メタデータが現在のProjectに残っている",
+  );
+
+  controller.undo();
+  assert.equal(controller.project.audio[0].assetId, "old-asset");
+  assert.equal(
+    controller.project.assets.find((a) => a.id === "old-asset").name,
+    "元の音.wav",
+  );
+});
+
+test("replacing one clip leaves other clips on the original source", () => {
+  const { controller } = controllerWith();
+  const anchor = controller.activeId;
+  for (const clipId of ["clip-1", "clip-2"])
+    controller.execute("addAudioClip", {
+      clipId,
+      asset: audioAsset("shared", "共有.wav"),
+      track: "se",
+      anchor,
+      at: 0,
+      frames: 12,
+    });
+  assert.equal(controller.project.assets.length, 1);
+
+  controller.execute("replaceClipAsset", {
+    clipId: "clip-1",
+    asset: audioAsset("new-asset", "差し替え.wav"),
+  });
+
+  const [first, second] = controller.project.audio;
+  assert.equal(first.assetId, "new-asset");
+  assert.equal(second.assetId, "shared", "他のクリップまで差し替わっている");
+  assert.equal(controller.project.assets.length, 2);
+});
+
+test("replacing a clip that no longer exists changes nothing", () => {
+  const { controller } = controllerWith();
+  const result = controller.execute("replaceClipAsset", {
+    clipId: "missing",
+    asset: audioAsset("new-asset", "差し替え.wav"),
+  });
+  assert.equal(result.changed, false);
+  assert.equal(controller.project.assets.length, 0);
+  assert.equal(controller.store.past.length, 0);
+});

@@ -677,6 +677,59 @@ try {
     "cancel did not stop the export",
   );
   await page.locator("#closePaper").click();
+  // P3：素材のない音声クリップを差し替える。原本を上書きせず新しいIDを作るので、
+  // Undoで「素材が見つからない」状態へ戻る。
+  const orphan = project();
+  orphan.title = "missing-audio";
+  const lost = uid();
+  orphan.assets.push({
+    id: lost,
+    kind: "audio",
+    name: "lost.wav",
+    mime: "audio/wav",
+    bytes: 2048,
+  });
+  orphan.audio.push({
+    id: uid(),
+    assetId: lost,
+    track: "se",
+    anchor: orphan.scenes[0].shots[0].panels[0].id,
+    at: 0,
+    frames: 24,
+    offset: 0,
+    gain: 1,
+  });
+  await page.locator("#file").setInputFiles({
+    name: "missing-audio.contp",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(orphan)),
+  });
+  await page.waitForFunction(
+    () => document.querySelector("#title").value === "missing-audio",
+  );
+  await page.locator('[data-tab="sound"]').click();
+  await page.waitForFunction(() =>
+    document.querySelector("#clipInfo").textContent.includes("見つかりません"),
+  );
+  const chooser = page.waitForEvent("filechooser");
+  await page.locator("#clipRepair").click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "replaced.wav",
+    mimeType: "audio/wav",
+    buffer: testWav(2, 22050, 880),
+  });
+  await page.waitForFunction(() =>
+    document.querySelector("#clipInfo").textContent.includes("replaced.wav"),
+  );
+  assert.match(await page.locator("#clipInfo").innerText(), /2\.00秒/);
+  assert.equal(await page.locator(".sound canvas").count(), 1);
+  await page.evaluate(() => document.activeElement.blur());
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction(() =>
+    document.querySelector("#clipInfo").textContent.includes("見つかりません"),
+  );
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
