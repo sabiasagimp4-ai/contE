@@ -196,6 +196,21 @@ try {
   await page.locator("input.rename").fill("オープニング");
   await page.keyboard.press("Enter");
   assert.match(await page.locator("#breadcrumb").innerText(), /オープニング/);
+  // P1：Scene追加はUIのボタン経路で確認する。生成したShotが検証を通らないと
+  // 「不正なShot名」で編集が捨てられ、Sceneが増えないまま状態表示だけが変わる。
+  const scenesBefore = await page.locator("#tree details").count();
+  await page.locator('[data-tab="structure"]').click();
+  await page.locator('[data-act="scene"]').click();
+  assert.equal(
+    await page.locator("#tree details").count(),
+    scenesBefore + 1,
+    `Scene追加が失敗した：${await page.locator("#status").innerText()}`,
+  );
+  assert.match(await page.locator("#breadcrumb").innerText(), /シーン02/);
+  await page.keyboard.press("Control+z");
+  assert.equal(await page.locator("#tree details").count(), scenesBefore);
+  assert.match(await page.locator("#breadcrumb").innerText(), /オープニング/);
+  await page.locator('[data-tab="content"]').click();
   const splitter = await page.locator("#splitTree").boundingBox();
   await page.mouse.move(splitter.x + 3, splitter.y + 120);
   await page.mouse.down();

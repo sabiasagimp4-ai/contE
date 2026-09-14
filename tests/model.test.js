@@ -16,6 +16,8 @@ import {
   removeCameraKey,
   describeCamera,
   clearPanelImage,
+  scene,
+  sceneName,
 } from "../src/model.js";
 import { layoutPages } from "../src/paper.js";
 test("split and merge preserve frames, order and undo identity", () => {
@@ -368,4 +370,33 @@ test("splitting a shot keeps every camera key with its own panel", () => {
     flatten(s.p).map((r) => r.panel.camera.length),
     [1, 3, 2],
   );
+});
+test("scene and shot factories always produce validatable branches", () => {
+  const s = new Store();
+  // UIのScene追加と同じ生成経路を使う。名前を書き忘れた枝はここで作れない。
+  s.edit((p) => {
+    const added = scene(sceneName(p.scenes.length + 1));
+    p.scenes.push(added);
+    return { active: added.shots[0].panels[0].id, ids: [] };
+  });
+  assert.equal(s.p.scenes.length, 2);
+  assert.equal(s.p.scenes[1].name, "シーン02");
+  assert.equal(s.p.scenes[1].shots[0].name, "");
+  assert.equal(flatten(s.p).length, 2);
+  assert.equal(s.selection.active, s.p.scenes[1].shots[0].panels[0].id);
+  s.undo();
+  assert.equal(s.p.scenes.length, 1);
+  s.redo();
+  assert.equal(s.p.scenes.length, 2);
+  assert.deepEqual(load(JSON.stringify(s.p)), s.p);
+});
+test("split reuses the shot factory so new shots stay valid", () => {
+  const s = new Store();
+  s.edit((p) => p.scenes[0].shots[0].panels.push(panel()));
+  const id = flatten(s.p)[1].panel.id;
+  s.edit((p) => split(p, id));
+  const created = s.p.scenes[0].shots[1];
+  assert.equal(created.name, "");
+  assert.equal(typeof created.id, "string");
+  assert.deepEqual(load(JSON.stringify(s.p)), s.p);
 });

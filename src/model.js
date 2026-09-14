@@ -47,6 +47,19 @@ export const paperDefaults = () => ({
   numbers: true,
   cameraMarks: true,
 });
+// Scene / Shotの生成はここへ集約する。呼び出し側で必須項目を書き忘れると
+// validateが後から弾くだけになるので、UIもテストも同じ生成関数を使う。
+export const shot = (panels = [panel()], name = "") => ({
+  id: uid(),
+  name,
+  panels,
+});
+export const sceneName = (index) => `シーン${String(index).padStart(2, "0")}`;
+export const scene = (name = sceneName(1), shots = [shot()]) => ({
+  id: uid(),
+  name,
+  shots,
+});
 export const project = () => ({
   version: VERSION,
   title: "無題のコンテ",
@@ -54,13 +67,7 @@ export const project = () => ({
   assets: [],
   audio: [],
   paper: paperDefaults(),
-  scenes: [
-    {
-      id: uid(),
-      name: "シーン01",
-      shots: [{ id: uid(), name: "", panels: [panel()] }],
-    },
-  ],
+  scenes: [scene()],
 });
 export function flatten(p) {
   let start = 0;
@@ -490,8 +497,7 @@ export class Store {
 export function split(p, id) {
   const r = flatten(p).find((r) => r.panel.id === id);
   if (!r || r.pi === 0) return;
-  const next = { id: uid(), name: "", panels: r.shot.panels.splice(r.pi) };
-  r.scene.shots.splice(r.hi + 1, 0, next);
+  r.scene.shots.splice(r.hi + 1, 0, shot(r.shot.panels.splice(r.pi)));
 }
 export function merge(p, id) {
   const r = flatten(p).find((r) => r.panel.id === id);

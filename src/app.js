@@ -2,6 +2,8 @@ import { frameAtTime, rowAtFrame } from "./playback.js";
 import {
   Store,
   panel,
+  scene,
+  sceneName,
   uid,
   flatten,
   load,
@@ -705,12 +707,9 @@ const acts = {
   merge: () => edit((p) => merge(p, activeId())),
   scene: () =>
     edit((p) => {
-      const b = panel();
-      p.scenes.push({
-        id: uid(),
-        name: `シーン${p.scenes.length + 1}`,
-        shots: [{ id: uid(), panels: [b] }],
-      });
+      const added = scene(sceneName(p.scenes.length + 1));
+      p.scenes.push(added);
+      const b = added.shots[0].panels[0];
       return { active: b.id, ids: [b.id] };
     }),
   undo: () => history("undo"),
