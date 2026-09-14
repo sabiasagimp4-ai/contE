@@ -34,8 +34,10 @@ import * as audio from "./audio.js";
 import { AudioEngine } from "./audio.js";
 import { ProjectRepository, Autosaver } from "./repository.js";
 import { IndexedDbStorage, MemoryStorage } from "./storage.js";
+import { EditorSession } from "./editor-session.js";
 const $ = (id) => document.getElementById(id);
-let store = new Store(),
+const editor = new EditorSession(new Store());
+let store = editor.store,
   frame = 0,
   playing = false,
   raf,
@@ -58,6 +60,10 @@ const activeId = () => store.selection.active;
 const isSelected = (id) => store.selection.ids.includes(id);
 const current = () => rows.find((r) => r.panel.id === activeId()) || rows[0];
 const notice = (t) => ($("status").textContent = t);
+function replaceStore(project, selection) {
+  editor.replace(project, selection);
+  store = editor.store;
+}
 function stop() {
   playing = false;
   cancelAnimationFrame(raf);
@@ -70,7 +76,9 @@ function edit(fn) {
   stop();
   try {
     // 変更がない操作はUndo段数も保存も消費しない。
-    if (store.edit(fn)) {
+    const result = editor.edit(fn);
+    store = editor.store;
+    if (result.changed) {
       if (activeId() !== before)
         frame =
           flatten(store.p).find((r) => r.panel.id === activeId())?.start || 0;
@@ -95,13 +103,17 @@ function select(id, e = {}) {
       ? store.selection.ids.filter((v) => v !== id)
       : [...store.selection.ids, id];
   else ids = [id];
-  const selection = store.select({ active: id, ids });
+  editor.select({ active: id, ids });
+  store = editor.store;
+  const selection = store.selection;
   frame = rows.find((r) => r.panel.id === selection.active).start;
   render();
 }
 function history(step) {
   stop();
-  if (store[step]()) {
+  const result = step === "undo" ? editor.undo() : editor.redo();
+  store = editor.store;
+  if (result.changed) {
     frame = flatten(store.p).find((r) => r.panel.id === activeId())?.start || 0;
     markDirty();
   }
@@ -130,7 +142,8 @@ const thumbnailObserver = new IntersectionObserver(
 function render() {
   thumbnailObserver.disconnect();
   rows = flatten(store.p);
-  store.select(store.selection);
+  editor.select(store.selection);
+  store = editor.store;
   resolved = audio.resolveClips(store.p, rows);
   const r = current();
   $("title").value = store.p.title;
@@ -1186,7 +1199,7 @@ $("file").onchange = async () => {
     )
       return;
     stop();
-    store = new Store(p);
+    replaceStore(p);
     frame = 0;
     fileDirty = false;
     render();
@@ -1862,10 +1875,14 @@ async function ensureAudio(p) {
 }
 // 素材のビットマップを用意し、見つからないものは黙って無視しない。
 async function loadImages() {
+  const token = editor.capture();
+  const project = store.p;
   const missing = [
-    ...(await ensureImages(store.p)),
-    ...(await ensureAudio(store.p)),
+    ...(await ensureImages(project)),
+    ...(await ensureAudio(project)),
   ];
+  // Projectを開き直していたら、古い読み込み結果で新しい画面を再描画しない。
+  if (!editor.isCurrent(token)) return [];
   render();
   if (missing.length)
     notice(
@@ -1880,7 +1897,7 @@ function offerRecovery({ meta, project }) {
   $("recover").onclick = async () => {
     $("recoverDialog").close();
     stop();
-    store = new Store(project);
+    replaceStore(project);
     frame = 0;
     fileDirty = true;
     render();

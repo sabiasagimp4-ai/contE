@@ -24,7 +24,7 @@ npm start
 
 ブラウザ起動時の大まかな順序は次のとおり。
 
-1. `src/app.js` が `Store`、`AudioEngine`、表示用Map、編集状態を生成する。
+1. `src/app.js` が `EditorSession`（内部の`Store`を含む）、`AudioEngine`、表示用Map、編集状態を生成する。
 2. 初期Projectを使って最初の `render()` を行う。
 3. `ProjectRepository` をIndexedDBまたはMemoryStorageへ接続する。
 4. 保存済みレイアウトを読み込む。
@@ -40,6 +40,7 @@ IndexedDBが利用できない場合、UI編集は継続し、保存層だけが
 | `index.html` | UIのDOM骨格。Toolbar、Canvas、Panel strip、Inspector、Timeline、紙コンテDialog、Animatic Dialog、復旧Dialogを定義 |
 | `style.css` | 4ペイン配置、Timelineレーン、Inspector、Dialog、印刷用スタイル、レスポンシブ境界 |
 | `src/app.js` | UIイベント、表示更新、編集コマンド、ファイル選択、再生、Dialog、保存の統合。現在のアプリケーション層 |
+| `src/editor-session.js` | 現在の`Store`の寿命、編集/選択/Undo/Redoの結果、実行時Session IDとrevision、Project差し替え後の古い非同期処理の識別 |
 | `src/model.js` | Projectの生成・検証・Migration・履歴・選択・Panel移動・Cameraキー・紙面設定検証 |
 | `src/playback.js` | 時刻からPanelを引く純粋関数。再生時計と二分探索 |
 | `src/timeline.js` | Timelineのフレーム/px変換、可視Panel、目盛、スナップ、Zoom、追従、選択範囲 |
@@ -58,6 +59,8 @@ IndexedDBが利用できない場合、UI編集は継続し、保存層だけが
 | `docs/` | ロードマップ、開発サイクル、デスクトップ調査、現行構造資料 |
 
 `app.js` は描画エンジンや保存エンジンそのものを実装するのではなく、DOMイベントと各モジュールを接続する統合層である。ただしUIの状態管理、表示再構築、出力Dialogも同じファイルにあるため、現時点で最も責務が集まっているファイルでもある。
+
+`editor-session.js` はDOM、IndexedDB、Web Audioを知らない。`EditorSession`は`Store`を保持し、編集結果に`kind`、変更有無、選択変更有無、Session ID、revisionを付けて返す。Projectの差し替えではSession IDを更新し、非同期素材読み込みは開始時に取得したTokenと現在Sessionを照合してから表示を更新する。編集内容のdirty化、自動保存、DOM再構築の順序は引き続き`app.js`が決める。
 
 ## 3. Projectデータモデル
 
@@ -220,6 +223,21 @@ Store
 
 UI側の`edit()`は、変更があれば再生を停止し、dirtyを立て、自動保存を予約して`render()`する。変更のない操作は保存と履歴を発生させない。
 
+### 4.4 EditorSession
+
+`EditorSession`は実行中のProjectを開いている単位を表す。JSONへ保存するProject Versionとは別の、実行時だけの識別情報を持つ。
+
+```text
+EditorSession
+├─ store: Store
+├─ sessionId: string
+└─ revision: integer
+```
+
+`edit()`、`undo()`、`redo()`はStoreの既存の検証・履歴処理を呼び、変更が確定した場合だけrevisionを1増やす。選択だけの変更は`selectionChanged`として返すが、Project revisionは増やさない。無変更操作は履歴とrevisionを消費しない。`replace()`は新しいStoreを作り、Session IDを更新してrevisionを0へ戻す。
+
+非同期処理は`capture()`でSession IDを取得し、完了時に`isCurrent()`を確認できる。古いSessionの素材読み込み結果は、キャッシュへの取得処理が完了しても現在画面の`render()`を呼ばない。Sessionはデータ保存形式やProjectの意味を変更しない。
+
 ## 5. UI構造とイベントの流れ
 
 ### 5.1 画面のDOM構造
@@ -277,6 +295,7 @@ PanelサムネイルはIntersectionObserverで表示範囲に入ったものだ�
 ```text
 DOM / Pointer / Keyboard
   → app.jsの編集コマンド
+  → EditorSession.edit(fn)
   → Store.edit(fn)
   → validate + history + selection normalize
   → markDirty()
@@ -447,12 +466,13 @@ Asset GCは、現在Project、Undo/Redo履歴、保持中SnapshotのAsset IDを�
 
 ### 12.1 Nodeテスト
 
-`npm test` はNode標準Test Runnerで、現在73テストを実行する。
+`npm test` はNode標準Test Runnerで、現在78テストを実行する。
 
 | テスト | 対象 |
 |---|---|
 | `animatic.test.js` | fps変換、Frame plan、Camera評価、録画進捗、Codec選択 |
 | `audio.test.js` | Clip解決、Anchor移動、予約、波形、AudioEngine二重再生防止 |
+| `editor-session.test.js` | 編集結果、Session revision、選択変更、Undo/Redo、Project差し替え、古いTokenの無効化 |
 | `migration.test.js` | v1/v2入力、Migrationの非破壊性、未知Version |
 | `model.test.js` | 構造、検証、履歴、選択、Panel移動、Camera、画像/音声分離 |
 | `paper.test.js` | 用紙、列、折返し、続き行、Camera表記、ページ出力、ZIP、中止 |
@@ -492,6 +512,7 @@ Asset GCは、現在Project、Undo/Redo履歴、保持中SnapshotのAsset IDを�
 これは未実装仕様ではなく、現行コードが持つ境界である。
 
 - WindowsデスクトップShellは存在しない。直接ファイル上書きではなく、Project JSONのダウンロードとIndexedDB自動保存を使う。
+- EditorSessionのSession IDとrevisionは実行時の値で、Project JSONや`.contp`へは保存されない。
 - `.contp` JSONに画像/音声バイナリは同梱されない。別環境ではAssetの差し替えが必要になる。
 - WebM AnimaticはMediaRecorderによる実時間録画。PNG連番はフレーム単位だが音声を持たない。
 - ZIPは無圧縮。大きなPNG連番では完成Blobを作るまでエンコード済みバイトを保持する。
@@ -509,7 +530,7 @@ Asset GCは、現在Project、Undo/Redo履歴、保持中SnapshotのAsset IDを�
 2. Panel境界の検索は `rowAtFrame()` を使う。
 3. Camera値は `cameraAt()`、Paper表記は `describeCamera()` を使う。
 4. 音の絶対位置は `resolveClips()`、再生予約は `scheduleFor()` を使う。
-5. Project変更は `Store.edit()`を通し、直接current Projectを変更しない。
+5. Project変更は `EditorSession.edit()`経由で`Store.edit()`を通し、直接current Projectを変更しない。選択だけの変更は`EditorSession.select()`を使う。
 6. 保存は`ProjectRepository`、保存遅延は`Autosaver`を通す。
 7. Canvas描画は`drawing.draw()`、紙面ページは`paper.renderPage()`、Animaticフレームは`animatic.renderFrame()`を使う。
 8. 出力の中止・進捗・逐次処理は`Job`/`forEachPage()`の規約を通す。

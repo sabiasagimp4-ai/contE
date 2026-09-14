@@ -1,7 +1,7 @@
 # contE 構造改善の実装計画
 
 作成日: 2026-09-14  
-状態: 実装前の計画。本文中の新しいモジュール、API、試験、性能目標は提案であり、実装済みを意味しない。
+状態: 実装進行中。M0のコード照合と基準テストを行い、M1のSession境界の第一段階を実装済み。本文中で実装済みと明記していない新しいモジュール、API、試験、性能目標は提案である。
 
 ## 1. 根拠と対象範囲
 
@@ -14,7 +14,7 @@
 | 文書のblob SHA | `16a86eac119cf289cf1e4c96fdb49a839ab14c59` |
 | 文書の最終更新日 | 2026-09-14 |
 | 固定した参照先 | [基準コミットのARCHITECTURE.md](https://github.com/sabiasagimp4-ai/contE/blob/21e36dfe95d8f8572bc51384a9731e93c7c092e1/docs/ARCHITECTURE.md) |
-| 計画作成時に読んだ実装ファイル | なし。ソースコード・テストコードの内容は未確認 |
+| 計画作成時に読んだ実装ファイル | なし。これは計画作成時点の記録。M0実施時に主要なソースとテストを照合した |
 | GitHubメタデータの用途 | 基準コミット、配置先の重複、作業指示ファイルの有無の確認 |
 
 以下で「参照§N」はARCHITECTURE.mdの節番号を指す。既存の挙動、文書から導いた懸念、変更案を区別する。記載がない保証を「実装に存在しない」とは断定しない。将来の実装担当はM0で該当コードを確認し、文書と違う場合は本計画を修正してからその変更に着手する。
@@ -127,6 +127,17 @@ M6で旧データの意味を変える必要が判明した場合、その仕様
 
 **完了条件:** 現行挙動を確認する試験、環境付きの計測結果、文書との差異、M1以降で触る経路が記録されている。
 
+### 6.3 M0実施結果（2026-09-14）
+
+- `src/app.js`、`src/model.js`、`src/repository.js`、`src/storage.js`、既存テストの実装入口を照合した。
+- 既存のNodeテストは73件すべて成功し、Session追加後は78件すべて成功した。
+- `npm run build` は成功し、新しいES Moduleも`dist/src/`へコピーされることを確認した。
+- `node --check src/app.js`、`node --check src/editor-session.js`、`git diff --check` は成功した。
+- `npm run test:browser` は、この実行環境に`playwright`パッケージがないため開始前に停止した。ブラウザsmokeを通過したとは扱わず、依存を用意した環境で再実行する。
+- 既存の実装はARCHITECTURE.mdの基準コミットとblob SHAに一致した。今回の実装ではProject JSON Version 5、保存形式、既存のStore履歴規則を変更していない。
+
+M0のブラウザ検証は未完了である。M1のSession境界はNodeと静的構文・buildまで検証し、ブラウザでのProject切り替えと遅い素材読み込みの組み合わせはPlaywright環境復旧後に確認する。
+
 ## 7. M1 — アプリケーション層とSession
 
 ### 7.1 状態の所有者
@@ -183,6 +194,12 @@ Viewは`mount`、更新、`dispose`相当の寿命を持つ。イベント、Obs
 **検証:** 一つの確定編集につき保存予約・更新通知は一回、無変更では発生しない。Project切り替え中の遅いデコード・保存完了が新画面に混ざらない。同じ画面を繰り返し開閉してもイベントが重複しない。
 
 **完了条件:** 既存挙動を保った状態で`app.js`からCommand、Session、画面単位の所有責任が分離される。M1では全体renderを互換経路として維持する。
+
+### 7.4 実装済みの第一段階
+
+`src/editor-session.js`を追加し、`app.js`の編集、選択、Undo/Redo、Project差し替えを`EditorSession`経由へ移した。Sessionには実行時IDとrevisionがあり、変更結果を`kind`、`changed`、`selectionChanged`、`sessionId`、`revision`付きで返す。Project差し替え時はSession IDを更新するため、差し替え前に取得したTokenを現在Sessionとして扱わない。
+
+素材読み込みは開始時のProjectとSession Tokenを捕捉し、非同期処理後にTokenが古ければ現在画面の再描画を行わない。既存の全体`render()`、Storeの深い複製、保存方式、UIの副作用順序はこの段階で維持している。これはM1完了ではなく、Session境界を先に導入した移行コミットである。
 
 ## 8. M2 — 保存の原子性と整合性
 
@@ -506,7 +523,7 @@ MemoryStorageの成功だけでIndexedDBのtransactionを検証したとは扱�
 | 順序 | コミット案 | 一つの変更として確認すること | 差し戻し方針 |
 |---|---|---|---|
 | C01 | `test: record editor contracts and performance baseline` | M0の現状照合と基準 | アプリの挙動を変えない |
-| C02 | `refactor: centralize editor commands and session lifecycle` | M1の確定後処理、非同期の所属 | 既存Storeとrenderを利用する接続へ戻せる |
+| C02 | `refactor: centralize editor commands and session lifecycle` | M1の確定後処理、非同期の所属。Session境界の第一段階を実施済み | 既存Storeとrenderを利用する接続へ戻せる |
 | C03 | `refactor: extract editor views and playback ownership` | UI購読・再生資源の所有者 | 計算と保存形式を変えずに戻せる |
 | C04 | `fix: commit project snapshots atomically` | M2のStorage batchとRepository | 既存store・既存metadataを読める状態を維持する |
 | C05 | `fix: isolate save revisions and protect active assets` | Autosaver、GC、Session境界 | GCを保留する保守的経路を残す |
@@ -542,4 +559,4 @@ C03の再生所有者の抽出では時間計算を移さず、C11で単位変�
 - [ ] 統合: 改善前後の測定と実機で未検証の範囲を記録した。
 - [ ] 文書: ARCHITECTURE.mdが実装済みの構造と一致している。
 
-本計画書の追加時点では、上記の実装、試験実行、性能改善は未実施である。
+この更新時点で実施済みなのは、M0のコード照合・Node/build検証と、M1のSession境界第一段階である。M0のブラウザsmoke、M1の画面責務分離、M2以降の実装、性能改善は未完了である。
