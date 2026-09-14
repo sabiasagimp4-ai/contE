@@ -1,24 +1,15 @@
 import { frameAtTime, rowAtFrame } from "./playback.js";
 import {
   Store,
-  panel,
-  scene,
-  sceneName,
   uid,
   flatten,
   load,
-  split,
-  merge,
   cameraAt,
-  movePanels,
+  cameraKeyIndex,
   BRUSH,
-  setCameraKey,
-  moveCameraKey,
-  removeCameraKey,
   describeCamera,
   CAMERA_FIELDS,
   PAPER_COLUMNS,
-  clearPanelImage,
 } from "./model.js";
 import { draw } from "./drawing.js";
 import { layoutPages, renderPage, download, COLUMN_LABEL } from "./paper.js";
@@ -37,8 +28,18 @@ import { AudioEngine } from "./audio.js";
 import { ProjectRepository, Autosaver } from "./repository.js";
 import { IndexedDbStorage, MemoryStorage } from "./storage.js";
 import { EditorSession } from "./editor-session.js";
+import { EditorController } from "./application/editor-controller.js";
 const $ = (id) => document.getElementById(id);
-const editor = new EditorSession(new Store());
+const session = new EditorSession(new Store());
+// 確定編集の入口はEditorControllerひとつ。副作用は下の購読で一度だけ行う。
+const editor = new EditorController(session, {
+  beforeCommand: () => {
+    activeBefore = editor.activeId;
+    stop();
+  },
+});
+let activeBefore = null,
+  afterCommit = null;
 let store = editor.store,
   frame = 0,
   playing = false,
@@ -66,6 +67,21 @@ function replaceStore(project, selection) {
   editor.replace(project, selection);
   store = editor.store;
 }
+const panelById = (id) =>
+  flatten(store.p).find((r) => r.panel.id === id)?.panel ?? null;
+const startOf = (id) =>
+  flatten(store.p).find((r) => r.panel.id === id)?.start ?? 0;
+// 確定の直後・描画の前に一度だけ走らせたいUI状態の更新（選択中のCameraキーなど）。
+function commitWith(after, run) {
+  afterCommit = after;
+  try {
+    return run();
+  } finally {
+    afterCommit = null;
+  }
+}
+const act = (name, args, after = null) =>
+  commitWith(after, () => editor.execute(name, args));
 function stop() {
   playing = false;
   cancelAnimationFrame(raf);
@@ -73,24 +89,33 @@ function stop() {
   sound.stop();
   $("play").textContent = "▶ 再生";
 }
+// 変更範囲を判定できない編集のための互換経路。順次Commandへ移す。
 function edit(fn) {
-  const before = activeId();
-  stop();
+  return editor.edit(fn);
+}
+// 一回の確定編集につき、dirty・保存予約・再描画はここで一度だけ行う。
+editor.subscribe((result) => {
+  store = editor.store;
+  // Project差し替えは呼び出し側が画面と保存状態を作り直す。
+  if (result.kind === "replace") return;
   try {
+    if (result.failed) {
+      notice(result.error.message);
+      return;
+    }
     // 変更がない操作はUndo段数も保存も消費しない。
-    const result = editor.edit(fn);
-    store = editor.store;
     if (result.changed) {
-      if (activeId() !== before)
-        frame =
-          flatten(store.p).find((r) => r.panel.id === activeId())?.start || 0;
+      const movedActive = activeId() !== activeBefore;
+      if (movedActive || result.kind === "undo" || result.kind === "redo")
+        frame = startOf(activeId());
       markDirty();
     }
+    afterCommit?.(result);
     render();
   } catch (e) {
     notice(e.message);
   }
-}
+});
 // Ctrl/Cmdで増減、Shiftで全体順序上の範囲選択。
 function select(id, e = {}) {
   stop();
@@ -105,21 +130,14 @@ function select(id, e = {}) {
       ? store.selection.ids.filter((v) => v !== id)
       : [...store.selection.ids, id];
   else ids = [id];
-  editor.select({ active: id, ids });
-  store = editor.store;
-  const selection = store.selection;
-  frame = rows.find((r) => r.panel.id === selection.active).start;
-  render();
+  // 選択した時点でそのPanelの先頭へ頭出しする。これは選択操作側の作法。
+  commitWith(
+    () => (frame = startOf(editor.activeId)),
+    () => editor.select({ active: id, ids }),
+  );
 }
 function history(step) {
-  stop();
-  const result = step === "undo" ? editor.undo() : editor.redo();
-  store = editor.store;
-  if (result.changed) {
-    frame = flatten(store.p).find((r) => r.panel.id === activeId())?.start || 0;
-    markDirty();
-  }
-  render();
+  return step === "undo" ? editor.undo() : editor.redo();
 }
 function button(text, fn, cls = "") {
   const b = document.createElement("button");
@@ -144,7 +162,8 @@ const thumbnailObserver = new IntersectionObserver(
 function render() {
   thumbnailObserver.disconnect();
   rows = flatten(store.p);
-  editor.select(store.selection);
+  // 描画の直前に選択を現在のProjectへ正規化する。ここは通知を伴わない整合処理。
+  session.store.select(store.selection);
   store = editor.store;
   resolved = audio.resolveClips(store.p, rows);
   const r = current();
@@ -159,7 +178,7 @@ function render() {
     summary.ondblclick = (e) => {
       e.preventDefault();
       rename(summary, s.name, (value) =>
-        edit((p) => (p.scenes.find((x) => x.id === s.id).name = value)),
+        act("renameScene", { sceneId: s.id, name: value }),
       );
     };
     d.append(summary);
@@ -172,10 +191,7 @@ function render() {
       shot.ondblclick = (e) => {
         e.preventDefault();
         rename(shot, h.name, (value) =>
-          edit((p) => {
-            for (const sc of p.scenes)
-              for (const sh of sc.shots) if (sh.id === h.id) sh.name = value;
-          }),
+          act("renameShot", { shotId: h.id, name: value }),
         );
       };
       d.append(shot);
@@ -374,8 +390,7 @@ function startClipDrag(e, item, el, px) {
   const finish = (v, commit) => {
     el.onpointermove = el.onpointerup = el.onpointercancel = null;
     if (!commit || !moved) return render();
-    const at = next(v);
-    edit((p) => audio.placeClip(p, flatten(p), item.clip.id, at));
+    act("placeClip", { clipId: item.clip.id, startFrame: next(v) });
   };
   el.onpointerup = (v) => finish(v, true);
   el.onpointercancel = (v) => finish(v, false);
@@ -395,8 +410,7 @@ function startClipTrim(e, item, trim, el, px) {
   const finish = (v, commit) => {
     trim.onpointermove = trim.onpointerup = trim.onpointercancel = null;
     if (!commit) return render();
-    const value = next(v);
-    edit((p) => audio.trimClip(p, item.clip.id, value));
+    act("trimClip", { clipId: item.clip.id, frames: next(v) });
   };
   trim.onpointerup = (v) => finish(v, true);
   trim.onpointercancel = (v) => finish(v, false);
@@ -481,7 +495,7 @@ function startReorder(e, id) {
     const target = dragged && commit ? targetAt(v.clientX) : null;
     if (target) {
       const ids = isSelected(id) ? store.selection.ids : [id];
-      edit((p) => movePanels(p, ids, target.id, target.place));
+      act("reorderPanels", { ids, anchorId: target.id, place: target.place });
     } else if (dragged) render();
     setTimeout(() => (dragged = null));
   };
@@ -565,11 +579,7 @@ function startResize(e, r, clip, handle) {
   handle.onpointerup = (v) => {
     const frames = next(v);
     handle.onpointermove = handle.onpointerup = null;
-    edit(
-      (p) =>
-        (flatten(p).find((a) => a.panel.id === r.panel.id).panel.frames =
-          frames),
-    );
+    act("setPanelFrames", { ids: [r.panel.id], frames });
   };
   handle.onpointercancel = () => {
     handle.onpointermove = handle.onpointerup = null;
@@ -589,10 +599,9 @@ function cameraTrack(px, left, width) {
     lane.title = describeCamera(r.panel).moves.join(" / ") || "HOLD";
     lane.ondblclick = (e) => {
       const f = localFrame(e, r, px);
-      edit((p) => {
-        const b = flatten(p).find((v) => v.panel.id === r.panel.id).panel;
-        cameraKey = setCameraKey(b, f / r.panel.frames);
-        return { active: r.panel.id, ids: [r.panel.id] };
+      const t = f / r.panel.frames;
+      act("putCameraKey", { panelId: r.panel.id, t, values: {} }, () => {
+        cameraKey = Math.max(0, cameraKeyIndex(panelById(r.panel.id), t));
       });
     };
     r.panel.camera.forEach((k, index) => {
@@ -632,13 +641,22 @@ function startKeyDrag(e, r, index, dot, px) {
     dot.onpointermove = dot.onpointerup = dot.onpointercancel = null;
     if (!commit) return timeline();
     const f = position(v);
-    edit((p) => {
-      const b = flatten(p).find((a) => a.panel.id === r.panel.id).panel;
-      if (moved) moveCameraKey(b, index, f / r.panel.frames);
-      cameraKey = Math.max(0, cameraKeyIndexAt(b, moved ? f : null, index));
-      return { active: r.panel.id, ids: [r.panel.id] };
-    });
-    if (!moved) render();
+    // 動かさなかったときは位置を書き戻さない。選択と対象キーだけを合わせる。
+    if (!moved)
+      return commitWith(
+        () => (cameraKey = index),
+        () => editor.select({ active: r.panel.id, ids: [r.panel.id] }),
+      );
+    act(
+      "moveCameraKey",
+      { panelId: r.panel.id, index, t: f / r.panel.frames },
+      () => {
+        cameraKey = Math.max(
+          0,
+          cameraKeyIndexAt(panelById(r.panel.id) ?? r.panel, f, index),
+        );
+      },
+    );
   };
   dot.onpointerup = (v) => finish(v, true);
   dot.onpointercancel = (v) => finish(v, false);
@@ -671,47 +689,14 @@ function paint(preview = false) {
     .padStart(2, "0")}f`;
   $("head").style.left = `${frame * scale()}px`;
 }
+// UIの操作名からCommandへの対応。編集の計算はcommands.js側にある。
 const acts = {
-  add: () =>
-    edit((p) => {
-      const r = flatten(p).find((r) => r.panel.id === activeId()),
-        b = panel();
-      r.shot.panels.splice(r.pi + 1, 0, b);
-      return { active: b.id, ids: [b.id] };
-    }),
-  duplicate: () =>
-    edit((p) => {
-      const ids = new Set(store.selection.ids);
-      for (const h of p.scenes.flatMap((s) => s.shots)) {
-        h.panels = h.panels.flatMap((b) =>
-          ids.has(b.id) ? [b, { ...structuredClone(b), id: uid() }] : [b],
-        );
-      }
-    }),
-  delete: () =>
-    edit((p) => {
-      const ids = new Set(store.selection.ids);
-      if (ids.size === flatten(p).length)
-        throw Error("最低1つのPanelを残してください");
-      for (const s of p.scenes) {
-        for (const h of s.shots)
-          h.panels = h.panels.filter((b) => !ids.has(b.id));
-        s.shots = s.shots.filter((h) => h.panels.length);
-      }
-      p.scenes = p.scenes.filter((s) => s.shots.length);
-      // 消えたPanelに付いていた音も一緒に消す。孤児のクリップを残さない。
-      audio.pruneClips(p);
-      audio.pruneAudioAssets(p);
-    }),
-  split: () => edit((p) => split(p, activeId())),
-  merge: () => edit((p) => merge(p, activeId())),
-  scene: () =>
-    edit((p) => {
-      const added = scene(sceneName(p.scenes.length + 1));
-      p.scenes.push(added);
-      const b = added.shots[0].panels[0];
-      return { active: b.id, ids: [b.id] };
-    }),
+  add: () => act("addPanel", { activeId: activeId() }),
+  duplicate: () => act("duplicatePanels", { ids: editor.selectedIds }),
+  delete: () => act("deletePanels", { ids: editor.selectedIds }),
+  split: () => act("splitShot", { activeId: activeId() }),
+  merge: () => act("mergeShot", { activeId: activeId() }),
+  scene: () => act("addScene", {}),
   undo: () => history("undo"),
   redo: () => history("redo"),
 };
@@ -719,49 +704,53 @@ for (const [name, delta] of [
   ["left", -1],
   ["right", 1],
 ])
-  acts[name] = () =>
-    edit((p) => {
-      const r = flatten(p).find((r) => r.panel.id === activeId()),
-        to = r.pi + delta;
-      if (to >= 0 && to < r.shot.panels.length) {
-        const [b] = r.shot.panels.splice(r.pi, 1);
-        r.shot.panels.splice(to, 0, b);
-      }
-    });
+  acts[name] = () => act("nudgePanel", { activeId: activeId(), delta });
 document
   .querySelectorAll("[data-act]")
   .forEach((b) => (b.onclick = acts[b.dataset.act]));
 for (const k of ["frames", "dialogue", "sound", "notes"])
   $(k).onchange = () =>
-    edit((p) => {
-      const ids = new Set(store.selection.ids);
-      for (const r of flatten(p))
-        if (ids.has(r.panel.id))
-          r.panel[k] = k === "frames" ? Number($(k).value) : $(k).value;
-    });
-$("title").onchange = () => edit((p) => (p.title = $("title").value));
+    k === "frames"
+      ? act("setPanelFrames", {
+          ids: editor.selectedIds,
+          frames: Number($(k).value),
+        })
+      : act("setPanelField", {
+          ids: editor.selectedIds,
+          field: k,
+          value: $(k).value,
+        });
+$("title").onchange = () => act("setTitle", { title: $("title").value });
 // キーは再生ヘッドがあるPanelへ置く。そのPanelを選択し直すので次の操作が続けやすい。
 $("key").onclick = () => {
   const target = rowAtFrame(rows, Math.round(frame));
-  edit((p) => {
-    const r = flatten(p).find((v) => v.panel.id === target.panel.id);
-    const local = Math.max(
-      0,
-      Math.min(r.panel.frames, Math.round(frame) - r.start),
-    );
-    cameraKey = setCameraKey(
-      r.panel,
-      local / r.panel.frames,
-      target.panel.id === activeId() ? values() : {},
-    );
-    return { active: r.panel.id, ids: [r.panel.id] };
-  });
+  const local = Math.max(
+    0,
+    Math.min(target.panel.frames, Math.round(frame) - target.start),
+  );
+  const t = local / target.panel.frames;
+  act(
+    "putCameraKey",
+    {
+      panelId: target.panel.id,
+      t,
+      values: target.panel.id === activeId() ? values() : {},
+    },
+    () => {
+      cameraKey = Math.max(0, cameraKeyIndex(panelById(target.panel.id), t));
+    },
+  );
 };
-$("keyDelete").onclick = () =>
-  edit((p) => {
-    const b = flatten(p).find((v) => v.panel.id === activeId()).panel;
-    if (removeCameraKey(b, cameraKey)) cameraKey = Math.max(0, cameraKey - 1);
-  });
+$("keyDelete").onclick = () => {
+  const index = cameraKey;
+  act(
+    "deleteCameraKey",
+    { panelId: activeId(), index },
+    (result) => {
+      if (result.changed) cameraKey = Math.max(0, index - 1);
+    },
+  );
+};
 $("keyList").onchange = () => {
   cameraKey = Number($("keyList").value);
   render();
@@ -775,10 +764,10 @@ const values = () =>
   );
 for (const id of ["cx", "cy", "cz", "cr"])
   $(id).onchange = () =>
-    edit((p) => {
-      const b = flatten(p).find((v) => v.panel.id === activeId()).panel;
-      const key = b.camera[cameraKey];
-      if (key) Object.assign(key, values());
+    act("setCameraValues", {
+      panelId: activeId(),
+      index: cameraKey,
+      values: values(),
     });
 $("play").onclick = () => {
   if (playing) {
@@ -946,13 +935,7 @@ $("drawing").onpointerup = () => {
   if (stroke) {
     const s = stroke;
     stroke = null;
-    edit(
-      (p) =>
-        (flatten(p).find((r) => r.panel.id === activeId()).panel.strokes = [
-          ...flatten(p).find((r) => r.panel.id === activeId()).panel.strokes,
-          s,
-        ]),
-    );
+    act("addStroke", { panelId: activeId(), stroke: s });
   }
 };
 $("drawing").onpointercancel = () => {
@@ -1040,25 +1023,23 @@ $("imageFile").onchange = async () => {
     // 先にバイナリを保存する。保存できない画像をプロジェクトへ参照させない。
     await repo.putAsset(id, f);
     images.set(id, await bitmapFor(f));
+    // TODO(R06): 対象の固定は取り込み開始時に行う。ここは現行の挙動のまま。
     const target = activeId();
-    edit((p) => {
-      p.assets.push(meta);
-      flatten(p).find((r) => r.panel.id === target).panel.image = {
-        assetId: id,
-        opacity: Number($("imageOpacity").value) / 100 || 1,
-      };
+    act("setPanelImage", {
+      panelId: target,
+      asset: meta,
+      opacity: Number($("imageOpacity").value) / 100 || 1,
     });
     notice(`${meta.name} を読み込みました（${meta.width}×${meta.height}）`);
   } catch (e) {
     notice(`画像を読み込めません：${e.message}`);
   }
 };
-$("imageClear").onclick = () =>
-  edit((p) => clearPanelImage(p, activeId()));
+$("imageClear").onclick = () => act("clearPanelImage", { panelId: activeId() });
 $("imageOpacity").onchange = () =>
-  edit((p) => {
-    const b = flatten(p).find((r) => r.panel.id === activeId()).panel;
-    if (b.image) b.image.opacity = Number($("imageOpacity").value) / 100;
+  act("setImageOpacity", {
+    panelId: activeId(),
+    opacity: Number($("imageOpacity").value) / 100,
   });
 // 音声取り込み：原本をAssetへ保存し、デコードしてから再生ヘッド位置へ置く。
 $("audioAdd").onclick = () => $("audioFile").click();
@@ -1076,24 +1057,27 @@ $("audioFile").onchange = async () => {
     const at = Math.round(frame);
     const host = rowAtFrame(rows, at);
     const frames = Math.max(1, Math.round(buffer.duration * store.p.fps));
-    edit((p) => {
-      p.assets.push({
-        id,
-        kind: "audio",
-        name: file.name.slice(0, 80),
-        mime: file.type,
-        bytes: file.size,
-      });
-      const clip = audio.addClip(p, {
-        assetId: id,
+    const added = uid();
+    act(
+      "addAudioClip",
+      {
+        clipId: added,
+        asset: {
+          id,
+          kind: "audio",
+          name: file.name.slice(0, 80),
+          mime: file.type,
+          bytes: file.size,
+        },
         track: $("audioKind").value,
         anchor: host.panel.id,
         at: at - host.start,
         frames,
-      });
-      clipId = clip.id;
-      return { active: host.panel.id, ids: [host.panel.id] };
-    });
+      },
+      (result) => {
+        if (result.changed) clipId = added;
+      },
+    );
     notice(`${file.name} を配置しました（${buffer.duration.toFixed(2)}秒）`);
   } catch (e) {
     notice(`音声を読み込めません：${e.message}`);
@@ -1105,29 +1089,25 @@ $("clipList").onchange = () => {
   render();
 };
 $("clipGain").onchange = () =>
-  edit((p) => {
-    const clip = p.audio.find((c) => c.id === clipId);
-    if (clip) clip.gain = Number($("clipGain").value) / 100;
+  act("setClipField", {
+    clipId,
+    field: "gain",
+    value: Number($("clipGain").value) / 100,
   });
 for (const [id, key] of [
   ["clipFrames", "frames"],
   ["clipOffset", "offset"],
 ])
   $(id).onchange = () =>
-    edit((p) => {
-      const clip = p.audio.find((c) => c.id === clipId);
-      if (!clip) return;
-      const value = Math.max(
-        key === "frames" ? 1 : 0,
-        Math.round(Number($(id).value) || 0),
-      );
-      clip[key] = Math.min(864000, value);
+    act("setClipField", {
+      clipId,
+      field: key,
+      value: Math.min(
+        864000,
+        Math.max(key === "frames" ? 1 : 0, Math.round(Number($(id).value) || 0)),
+      ),
     });
-$("clipDelete").onclick = () =>
-  edit((p) => {
-    audio.removeClips(p, [clipId]);
-    audio.pruneAudioAssets(p);
-  });
+$("clipDelete").onclick = () => act("deleteClip", { clipId });
 // 素材が見つからないクリップは、同じIDへ別のファイルを入れて直せる。
 $("clipRepair").onclick = () => {
   const clip = currentClip();
@@ -1160,14 +1140,17 @@ $("clipRepair").onclick = () => {
   picker.click();
 };
 for (const [id, key] of [
-  ["sceneName", "scene"],
-  ["shotName", "shot"],
+  ["sceneName", "renameScene"],
+  ["shotName", "renameShot"],
 ])
-  $(id).onchange = () =>
-    edit((p) => {
-      const r = flatten(p).find((v) => v.panel.id === activeId());
-      r[key].name = $(id).value.slice(0, 60);
+  $(id).onchange = () => {
+    const r = current();
+    act(key, {
+      sceneId: r.scene.id,
+      shotId: r.shot.id,
+      name: $(id).value.slice(0, 60),
     });
+  };
 for (const tab of document.querySelectorAll(".tab"))
   tab.onclick = () => {
     for (const t of document.querySelectorAll(".tab"))
@@ -1266,14 +1249,9 @@ document.addEventListener("keydown", (e) => {
     };
   else if (k === "[" || k === "]")
     fn = () =>
-      edit((p) => {
-        const ids = new Set(store.selection.ids);
-        for (const r of flatten(p))
-          if (ids.has(r.panel.id))
-            r.panel.frames = Math.max(
-              1,
-              Math.min(864000, r.panel.frames + (k === "]" ? 1 : -1)),
-            );
+      act("nudgePanelFrames", {
+        ids: editor.selectedIds,
+        delta: k === "]" ? 1 : -1,
       });
   if (fn) {
     e.preventDefault();
@@ -1283,7 +1261,7 @@ document.addEventListener("keydown", (e) => {
 // 紙面設定はプロジェクトの一部。変更は履歴と自動保存に乗る。
 const paper = () => store.p.paper;
 const paperEdit = (change) => {
-  edit((p) => change(p.paper));
+  act("updatePaper", { change });
   schedulePreview();
 };
 function paperSettings() {

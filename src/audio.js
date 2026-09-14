@@ -88,11 +88,11 @@ export function peaks(samples, columns) {
 }
 export function addClip(
   p,
-  { assetId, track, anchor, at, frames, offset = 0, gain = 1 },
+  { id = uid(), assetId, track, anchor, at, frames, offset = 0, gain = 1 },
 ) {
   if (!AUDIO_TRACKS.includes(track)) return null;
   const clip = {
-    id: uid(),
+    id,
     assetId,
     track,
     anchor,

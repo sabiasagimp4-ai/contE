@@ -19,6 +19,28 @@ const sameSelection = (a, b) =>
   a.ids.length === b.ids.length &&
   a.ids.every((id, index) => id === b.ids[index]);
 
+// 確定した変更の範囲。判定できない編集は必ずallにする。通知漏れで古い表示を
+// 残すより、全更新のほうが安全側に倒れる（計画 §18.3-3）。
+export const ALL_CHANGES = Object.freeze({
+  all: true,
+  kinds: Object.freeze([]),
+  panelIds: Object.freeze([]),
+  assetIds: Object.freeze([]),
+});
+export const NO_CHANGES = Object.freeze({
+  all: false,
+  kinds: Object.freeze([]),
+  panelIds: Object.freeze([]),
+  assetIds: Object.freeze([]),
+});
+export const changesOf = ({ kinds = [], panelIds = [], assetIds = [] } = {}) =>
+  Object.freeze({
+    all: false,
+    kinds: Object.freeze([...kinds]),
+    panelIds: Object.freeze([...panelIds]),
+    assetIds: Object.freeze([...assetIds]),
+  });
+
 /**
  * Owns the lifetime of the current editor Store and identifies its revisions.
  *
@@ -66,22 +88,23 @@ export class EditorSession {
     return !sameSelection(before, this.store.selection);
   }
 
-  edit(fn, kind = "edit") {
+  edit(fn, kind = "edit", changes = ALL_CHANGES) {
     const before = copySelection(this.store.selection);
     const changed = this.store.edit(fn);
     const selectionChanged = this.#selectionChange(before);
     if (changed) this.revision += 1;
-    return this.#result(kind, changed, selectionChanged);
+    return this.#result(kind, changed, selectionChanged, {
+      // 何も変わらなかった編集は無効化する対象を持たない。
+      changes: changed ? changes : NO_CHANGES,
+    });
   }
 
   select(selection) {
     const before = copySelection(this.store.selection);
     this.store.select(selection);
-    return this.#result(
-      "select",
-      false,
-      this.#selectionChange(before),
-    );
+    return this.#result("select", false, this.#selectionChange(before), {
+      changes: NO_CHANGES,
+    });
   }
 
   undo() {
@@ -97,7 +120,10 @@ export class EditorSession {
     const changed = this.store[kind]();
     const selectionChanged = this.#selectionChange(before);
     if (changed) this.revision += 1;
-    return this.#result(kind, changed, selectionChanged);
+    // Undo/Redoの逆方向の変更範囲はまだ判定しない。全更新で正しさを優先する。
+    return this.#result(kind, changed, selectionChanged, {
+      changes: changed ? ALL_CHANGES : NO_CHANGES,
+    });
   }
 
   replace(project, selection) {
@@ -106,6 +132,7 @@ export class EditorSession {
     this.sessionId = sessionId();
     this.revision = 0;
     return this.#result("replace", true, true, {
+      changes: ALL_CHANGES,
       sessionChanged: true,
       previousSessionId,
     });
