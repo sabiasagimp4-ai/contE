@@ -12,21 +12,46 @@
         保存</button
       ><button id="open">開く</button
       ><input id="file" type="file" accept=".contp" hidden /><span
-        id="status"
+        id="savestate"
         role="status"
-      ></span>
+      ></span
+      ><span id="status" role="status"></span>
     </header>
     <nav>
       <button data-act="add">＋ Panel <kbd>N</kbd></button
       ><button data-act="duplicate">複製</button
       ><button data-act="undo">元に戻す</button
       ><button data-act="redo">やり直す</button><button id="play">▶ 再生</button
-      ><button id="paper">紙コンテ出力</button>
+      ><button id="paper">紙コンテ出力</button
+      ><button id="animatic">Animatic出力</button>
     </nav>
     <main>
       <aside id="tree"></aside>
+      <div class="splitter" id="splitTree" title="幅を変更"></div>
       <section id="stage">
         <div id="breadcrumb"></div>
+        <div id="tools">
+          <button id="brushTool" class="tool on">ブラシ</button
+          ><button id="eraserTool" class="tool">消しゴム <kbd>E</kbd></button
+          ><label class="inline"
+            >太さ<input id="brush" type="range" min="1" max="40" value="3"
+          /></label>
+          <button id="image">画像</button
+          ><input id="imageFile" type="file" accept="image/*" hidden /><button
+            id="imageClear"
+          >
+            画像を外す</button
+          ><label class="inline"
+            >濃さ<input
+              id="imageOpacity"
+              type="range"
+              min="5"
+              max="100"
+              value="100"
+          /></label>
+          <button id="fit">表示リセット <kbd>0</kbd></button
+          ><output id="viewInfo">100%</output>
+        </div>
         <canvas
           id="drawing"
           width="1280"
@@ -35,79 +60,187 @@
         ></canvas>
         <div class="hint">
           描画 · N 新規 · ← → Panel · Space 再生 · [ ] 尺 ±1f · Ctrl Z / Shift Z
-          履歴
+          履歴 · ホイールでズーム · Alt/中ボタンドラッグで移動 ·
+          Shiftクリックで範囲選択 · Stripをドラッグで並べ替え
         </div>
         <div id="strip"></div>
       </section>
+      <div class="splitter" id="splitInspector" title="幅を変更"></div>
       <aside id="inspector">
-        <h3>Inspector</h3>
-        <label
-          >尺（フレーム）<input
-            id="frames"
-            type="number"
-            min="1"
-            max="864000" /></label
-        ><label>台詞<textarea id="dialogue"></textarea></label
-        ><label>SE / BGM（注記）<textarea id="sound"></textarea></label
-        ><label>演出メモ<textarea id="notes"></textarea></label>
-        <details>
-          <summary>Shot / Panel 操作</summary>
-          <button data-act="split">ここでShot分割</button
-          ><button data-act="merge">前Shotへ統合</button
-          ><button data-act="left">前へ移動</button
-          ><button data-act="right">後ろへ移動</button
-          ><button data-act="delete">選択Panelを削除</button
-          ><button data-act="scene">Scene追加</button>
-        </details>
-        <details open>
-          <summary>Camera（開始 → 終了）</summary>
+        <div id="tabs">
+          <button class="tab on" data-tab="content">内容</button
+          ><button class="tab" data-tab="camera">Camera</button
+          ><button class="tab" data-tab="sound">音</button
+          ><button class="tab" data-tab="structure">構成</button>
+        </div>
+        <div class="pane" data-pane="content">
           <label
-            >終了 X<input
-              id="cx"
+            >尺（フレーム）<input
+              id="frames"
               type="number"
-              step=".05"
-              min="-2"
-              max="2" /></label
+              min="1"
+              max="864000" /></label
+          ><label>台詞<textarea id="dialogue"></textarea></label
+          ><label>SE / BGM（注記）<textarea id="sound"></textarea></label
+          ><label>演出メモ<textarea id="notes"></textarea></label>
+          <p class="hint" id="assetInfo"></p>
+        </div>
+        <div class="pane" data-pane="camera" hidden>
+          <p id="cameraSummary" class="hint"></p>
+          <label>キー<select id="keyList" size="4"></select></label>
+          <label
+            >X<input id="cx" type="number" step=".05" min="-2" max="2" /></label
           ><label
-            >終了 Y<input
-              id="cy"
-              type="number"
-              step=".05"
-              min="-2"
-              max="2" /></label
+            >Y<input id="cy" type="number" step=".05" min="-2" max="2" /></label
           ><label
-            >終了 Zoom<input
+            >Zoom<input
               id="cz"
               type="number"
               step=".1"
               min=".1"
               max="10" /></label
           ><label
-            >終了 Rotation<input
+            >Rotation<input
               id="cr"
               type="number"
               step="5"
               min="-360"
               max="360" /></label
-          ><button id="key">終了Keyframeを設定</button>
-        </details>
+          ><button id="key">再生ヘッドにキー <kbd>K</kbd></button
+          ><button id="keyDelete">選択キーを削除</button>
+          <p class="hint">
+            キーは尺に対する比率で保持します。尺を変えるとCameraの動きも同じ比率で伸縮します。Timeline下段のキーはドラッグで移動、レーンのダブルクリックで追加できます。
+          </p>
+        </div>
+        <div class="pane" data-pane="sound" hidden>
+          <button id="audioAdd">音声を読み込む</button
+          ><input id="audioFile" type="file" accept="audio/*" hidden /><label
+            >トラック<select id="audioKind">
+              <option value="dialogue">台詞</option>
+              <option value="se" selected>SE</option>
+              <option value="bgm">BGM</option>
+            </select></label
+          >
+          <label
+            >このPanelにかかる音<select id="clipList" size="4"></select
+          ></label>
+          <label
+            >音量<input
+              id="clipGain"
+              type="range"
+              min="0"
+              max="200"
+              value="100" /></label
+          ><label
+            >長さ（フレーム）<input
+              id="clipFrames"
+              type="number"
+              min="1"
+              max="864000" /></label
+          ><label
+            >素材内の開始（フレーム）<input
+              id="clipOffset"
+              type="number"
+              min="0"
+              max="864000" /></label
+          ><button id="clipDelete">選択クリップを削除</button
+          ><button id="clipRepair">素材を差し替える</button>
+          <p id="clipInfo" class="hint"></p>
+          <p class="hint">
+            クリップは開始位置のPanelに属します。前のPanelの尺が変わると一緒に動き、Panelを削除すると音も消えます（Undoで戻ります）。
+          </p>
+        </div>
+        <div class="pane" data-pane="structure" hidden>
+          <label>Scene名<input id="sceneName" /></label
+          ><label>Shot名<input id="shotName" placeholder="未設定" /></label>
+          <button data-act="split">ここでShot分割</button
+          ><button data-act="merge">前Shotへ統合</button
+          ><button data-act="left">前へ移動</button
+          ><button data-act="right">後ろへ移動</button
+          ><button data-act="delete">選択Panelを削除</button
+          ><button data-act="scene">Scene追加</button>
+        </div>
       </aside>
     </main>
+    <div
+      class="splitter horizontal"
+      id="splitTimeline"
+      title="高さを変更"
+    ></div>
     <footer>
-      <div>
-        <b>Timeline</b> <output id="time"></output
-        ><label
-          >Zoom <input id="zoom" type="range" min="1" max="12" value="3"
+      <div id="timebar">
+        <b>Timeline</b> <output id="time"></output><output id="range"></output
+        ><label class="inline"
+          >Zoom <input id="zoom" type="range" min="0" max="15" value="9"
         /></label>
+        <button id="fitTime">全体 <kbd>F</kbd></button
+        ><label class="inline"
+          ><input id="snap" type="checkbox" checked />スナップ</label
+        ><label class="inline"
+          ><input
+            id="followHead"
+            type="checkbox"
+            checked
+          />再生ヘッド追従</label
+        >
       </div>
-      <div id="timeline"><div id="track"></div></div>
+      <div id="timeline">
+        <div id="track">
+          <div id="ruler"></div>
+          <div id="band"></div>
+          <div id="clips"></div>
+          <div id="cameraTrack"></div>
+          <div id="audioTrack"></div>
+          <div id="head"></div>
+        </div>
+      </div>
     </footer>
     <dialog id="paperDialog">
       <h2>紙コンテ</h2>
       <div id="paperSettings"></div>
-      <button id="print">印刷 / PDF</button><button id="png">PNG連番</button
-      ><button id="closePaper">閉じる</button>
+      <details id="paperColumnsBox" open>
+        <summary>列の順番・幅・表示</summary>
+        <div id="paperColumns"></div>
+        <p class="hint">
+          上から順に左から並びます。幅は合計を100とした比率で扱うので、合計が100でなくても構いません。
+        </p>
+      </details>
+      <div id="paperActions">
+        <button id="print">印刷 / PDF</button
+        ><button id="png">PNG連番（ZIP）</button
+        ><button id="cancelExport" hidden>中止</button
+        ><button id="closePaper">閉じる</button
+        ><output id="paperProgress"></output>
+      </div>
       <div id="pages"></div>
+    </dialog>
+    <dialog id="animaticDialog">
+      <h2>Animatic出力</h2>
+      <div id="animaticSettings">
+        <label>形式<select id="animaticFormat"></select></label
+        ><label>fps<select id="animaticFps"></select></label
+        ><label>解像度<select id="animaticSize"></select></label>
+      </div>
+      <p class="hint" id="animaticInfo"></p>
+      <p class="hint">
+        WebMは音つきですが、ブラウザの録画は実時間で進みます（3分のコンテは3分かかります）。フレームを正確に得たいときはPNG連番を選び、外部のエンコーダで組み立ててください。出力中は編集できません。中止しても途中のファイルは残しません。
+      </p>
+      <div id="animaticActions">
+        <button id="animaticStart">書き出す</button
+        ><button id="animaticCancel" hidden>中止</button
+        ><button id="closeAnimatic">閉じる</button
+        ><output id="animaticProgress"></output>
+      </div>
+      <canvas id="animaticPreview" width="854" height="480"></canvas>
+    </dialog>
+    <dialog id="recoverDialog">
+      <h2>前回の作業が残っています</h2>
+      <p id="recoverInfo"></p>
+      <p class="hint">
+        破棄しても保存データはすぐには消えません。復旧すると現在の編集内容は置き換わります。
+      </p>
+      <button id="recover">復旧する</button
+      ><button id="discardRecovery">破棄する</button>
     </dialog>
     <script type="module" src="src/app.js"></script>
   </body>

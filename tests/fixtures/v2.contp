@@ -1,0 +1,37 @@
+{
+  "version": 2,
+  "title": "v2の作例",
+  "fps": 24,
+  "assets": [
+    {
+      "id": "asset-v2",
+      "kind": "image",
+      "name": "bg.png",
+      "mime": "image/png",
+      "bytes": 12
+    }
+  ],
+  "scenes": [
+    {
+      "id": "scene-1",
+      "name": "シーン01",
+      "shots": [
+        {
+          "id": "shot-1",
+          "panels": [
+            {
+              "id": "panel-1",
+              "frames": 24,
+              "dialogue": "",
+              "sound": "",
+              "notes": "",
+              "image": { "assetId": "asset-v2", "opacity": 0.5 },
+              "strokes": [[[0.2, 0.3], [0.6, 0.7]]],
+              "camera": [{ "t": 0, "x": 0, "y": 0, "zoom": 1, "rotation": 0 }]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

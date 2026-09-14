@@ -8,48 +8,95 @@ import {
   split,
   merge,
   cameraAt,
+  movePanels,
+  BRUSH,
+  setCameraKey,
+  moveCameraKey,
+  removeCameraKey,
+  describeCamera,
+  CAMERA_FIELDS,
+  PAPER_COLUMNS,
 } from "./model.js";
 import { draw } from "./drawing.js";
-import { defaults, paginate, renderPage, download } from "./paper.js";
+import { layoutPages, renderPage, download, COLUMN_LABEL } from "./paper.js";
+import { forEachPage, Job, Cancelled, zip, canvasBytes } from "./exporter.js";
+import * as animatic from "./animatic.js";
+import * as tl from "./timeline.js";
+import * as audio from "./audio.js";
+import { AudioEngine } from "./audio.js";
+import { ProjectRepository, Autosaver } from "./repository.js";
+import { IndexedDbStorage, MemoryStorage } from "./storage.js";
 const $ = (id) => document.getElementById(id);
 let store = new Store(),
-  selected = new Set([flatten(store.p)[0].panel.id]),
-  active = [...selected][0],
   frame = 0,
   playing = false,
   raf,
-  scale = 3,
+  scaleIndex = tl.DEFAULT_SCALE,
   rows = [],
   stroke = null,
-  dirty = false;
-const current = () => rows.find((r) => r.panel.id === active) || rows[0];
+  fileDirty = false,
+  cameraKey = 0;
+const sound = new AudioEngine();
+let clipId = null,
+  resolved = [];
+const scale = () => tl.scaleAt(scaleIndex);
+const endFrame = () => tl.total(rows);
+const viewport = () => $("timeline").clientWidth || 900;
+// 画像素材の表示用ビットマップ。プロジェクトにはIDだけが入る。
+const images = new Map();
+const tool = { erase: false, size: 3 / 1280 };
+const view = { zoom: 1, x: 0, y: 0 };
+const activeId = () => store.selection.active;
+const isSelected = (id) => store.selection.ids.includes(id);
+const current = () => rows.find((r) => r.panel.id === activeId()) || rows[0];
 const notice = (t) => ($("status").textContent = t);
 function stop() {
   playing = false;
   cancelAnimationFrame(raf);
+  // 停止時に音を残さない。次の再生は必ず予約し直す。
+  sound.stop();
   $("play").textContent = "▶ 再生";
 }
 function edit(fn) {
-  const oldActive = active;
+  const before = activeId();
   stop();
   try {
-    store.edit(fn);
-    if (active !== oldActive)
-      frame = flatten(store.p).find((r) => r.panel.id === active)?.start || 0;
-    dirty = true;
+    // 変更がない操作はUndo段数も保存も消費しない。
+    if (store.edit(fn)) {
+      if (activeId() !== before)
+        frame =
+          flatten(store.p).find((r) => r.panel.id === activeId())?.start || 0;
+      markDirty();
+    }
     render();
   } catch (e) {
     notice(e.message);
   }
 }
-function select(id, multi = false) {
+// Ctrl/Cmdで増減、Shiftで全体順序上の範囲選択。
+function select(id, e = {}) {
   stop();
-  active = id;
-  if (multi) {
-    selected.has(id) ? selected.delete(id) : selected.add(id);
-    if (!selected.size) selected.add(id);
-  } else selected = new Set([id]);
+  const all = rows.map((r) => r.panel.id);
+  let ids;
+  if (e.shiftKey) {
+    const from = all.indexOf(store.selection.active),
+      to = all.indexOf(id);
+    ids = all.slice(Math.min(from, to), Math.max(from, to) + 1);
+  } else if (e.ctrlKey || e.metaKey)
+    ids = isSelected(id)
+      ? store.selection.ids.filter((v) => v !== id)
+      : [...store.selection.ids, id];
+  else ids = [id];
+  store.select({ active: id, ids });
   frame = rows.find((r) => r.panel.id === id).start;
+  render();
+}
+function history(step) {
+  stop();
+  if (store[step]()) {
+    frame = flatten(store.p).find((r) => r.panel.id === activeId())?.start || 0;
+    markDirty();
+  }
   render();
 }
 function button(text, fn, cls = "") {
@@ -66,7 +113,7 @@ const thumbnailObserver = new IntersectionObserver(
         const b = rows.find(
           (r) => r.panel.id === e.target.dataset.panel,
         )?.panel;
-        if (b) draw(e.target.getContext("2d"), b, 120, 68);
+        if (b) draw(e.target.getContext("2d"), b, 120, 68, null, images);
         thumbnailObserver.unobserve(e.target);
       }
   },
@@ -75,28 +122,46 @@ const thumbnailObserver = new IntersectionObserver(
 function render() {
   thumbnailObserver.disconnect();
   rows = flatten(store.p);
-  selected = new Set(
-    [...selected].filter((id) => rows.some((r) => r.panel.id === id)),
-  );
-  if (!rows.some((r) => r.panel.id === active)) active = rows[0].panel.id;
-  if (!selected.size) selected.add(active);
+  store.select(store.selection);
+  resolved = audio.resolveClips(store.p, rows);
   const r = current();
   $("title").value = store.p.title;
   $("tree").replaceChildren();
-  store.p.scenes.forEach((s, si) => {
+  store.p.scenes.forEach((s) => {
     const d = document.createElement("details");
     d.open = s.id === r.scene.id;
     const summary = document.createElement("summary");
     summary.textContent = `${s.name} (${s.shots.length} Shots)`;
+    summary.title = "ダブルクリックで名前を変更";
+    summary.ondblclick = (e) => {
+      e.preventDefault();
+      rename(summary, s.name, (value) =>
+        edit((p) => (p.scenes.find((x) => x.id === s.id).name = value)),
+      );
+    };
     d.append(summary);
     s.shots.forEach((h, hi) => {
-      d.append(button(`Shot ${hi + 1}`, () => select(h.panels[0].id)));
+      const shot = button(h.name || `Shot ${hi + 1}`, (e) =>
+        select(h.panels[0].id, e),
+      );
+      shot.className = "shot";
+      shot.title = "ダブルクリックで名前を変更";
+      shot.ondblclick = (e) => {
+        e.preventDefault();
+        rename(shot, h.name, (value) =>
+          edit((p) => {
+            for (const sc of p.scenes)
+              for (const sh of sc.shots) if (sh.id === h.id) sh.name = value;
+          }),
+        );
+      };
+      d.append(shot);
       h.panels.forEach((p, pi) =>
         d.append(
           button(
             `Panel ${pi + 1} · ${p.frames}f`,
-            (e) => select(p.id),
-            `panel ${selected.has(p.id) ? "selected" : ""}`,
+            (e) => select(p.id, e),
+            `panel ${isSelected(p.id) ? "selected" : ""}`,
           ),
         ),
       );
@@ -104,21 +169,35 @@ function render() {
     $("tree").append(d);
   });
   $("breadcrumb").textContent =
-    `${r.scene.name}  /  Shot ${r.hi + 1}  /  Panel ${r.pi + 1}`;
+    `${r.scene.name}  /  ${r.shot.name || `Shot ${r.hi + 1}`}  /  Panel ${r.pi + 1}`;
   for (const k of ["frames", "dialogue", "sound", "notes"])
     $(k).value = r.panel[k];
-  const cam = r.panel.camera.at(-1);
-  ["cx", "cy", "cz", "cr"].forEach(
-    (id, i) => ($(id).value = cam[["x", "y", "zoom", "rotation"][i]]),
-  );
+  $("sceneName").value = r.scene.name;
+  $("shotName").value = r.shot.name;
+  const asset =
+    r.panel.image && store.p.assets.find((a) => a.id === r.panel.image.assetId);
+  $("imageOpacity").value = Math.round((r.panel.image?.opacity ?? 1) * 100);
+  $("imageOpacity").disabled = $("imageClear").disabled = !r.panel.image;
+  $("assetInfo").textContent = asset
+    ? `画像：${asset.name}（${asset.width}×${asset.height}${
+        images.has(asset.id) ? "" : "・読み込めません"
+      }）`
+    : "画像なし";
+  cameraInspector(r);
+  soundInspector(r);
   $("strip").replaceChildren(
     ...r.shot.panels.map((p, i) => {
       const b = button(
         `P${i + 1} · ${p.frames}f`,
-        () => select(p.id),
-        selected.has(p.id) ? "selected" : "",
+        () => {},
+        isSelected(p.id) ? "selected" : "",
       );
-      b.onclick = (e) => select(p.id, e.ctrlKey || e.metaKey);
+      b.dataset.panel = p.id;
+      b.onclick = (e) => {
+        if (dragged) return;
+        select(p.id, e);
+      };
+      b.onpointerdown = (e) => startReorder(e, p.id);
       const thumb = document.createElement("canvas");
       thumb.width = 120;
       thumb.height = 68;
@@ -130,57 +209,426 @@ function render() {
   );
   timeline();
   paint();
+  reveal();
 }
+// Cameraキーの一覧と値。位置はフレームで見せ、保存は比率のまま。
+function cameraInspector(r) {
+  const keys = r.panel.camera;
+  cameraKey = Math.max(0, Math.min(cameraKey, keys.length - 1));
+  const list = $("keyList");
+  list.replaceChildren(
+    ...keys.map((k, i) => {
+      const option = document.createElement("option");
+      option.value = i;
+      option.selected = i === cameraKey;
+      option.textContent = `${Math.round(k.t * r.panel.frames)}f · X${k.x} Y${
+        k.y
+      } Z${k.zoom} R${k.rotation}°`;
+      return option;
+    }),
+  );
+  const motion = describeCamera(r.panel);
+  $("cameraSummary").textContent = motion.hold
+    ? "HOLD（動きなし）"
+    : `${motion.moves.join(" / ")} · キー${keys.length}本`;
+  const key = keys[cameraKey];
+  ["cx", "cy", "cz", "cr"].forEach(
+    (id, i) => ($(id).value = key[CAMERA_FIELDS[i]]),
+  );
+  $("keyDelete").disabled = keys.length < 2;
+}
+// このPanelにかかる音のみを出す。重なりで判断し、推測で結びつけない。
+function soundInspector(r) {
+  const here = audio.clipsInRange(resolved, r.start, r.end);
+  if (!here.some((c) => c.clip.id === clipId))
+    clipId = here[0]?.clip.id ?? null;
+  $("clipList").replaceChildren(
+    ...here.map((c) => {
+      const option = document.createElement("option");
+      option.value = c.clip.id;
+      option.selected = c.clip.id === clipId;
+      option.textContent = `${audio.TRACK_LABEL[c.clip.track]} · ${
+        c.asset?.name ?? "素材不明"
+      } · ${c.start}f→${c.end}f`;
+      return option;
+    }),
+  );
+  const current = here.find((c) => c.clip.id === clipId);
+  for (const [id, value] of [
+    ["clipGain", Math.round((current?.clip.gain ?? 1) * 100)],
+    ["clipFrames", current?.clip.frames ?? ""],
+    ["clipOffset", current?.clip.offset ?? ""],
+  ])
+    $(id).value = value;
+  for (const id of ["clipGain", "clipFrames", "clipOffset", "clipDelete"])
+    $(id).disabled = !current;
+  const missing = current && !sound.has(current.clip.assetId);
+  $("clipRepair").hidden = !missing;
+  $("clipInfo").textContent = !current
+    ? "このPanelにかかる音はありません"
+    : missing
+      ? `${current.asset?.name ?? "素材"} が見つかりません。差し替えると同じ位置で鳴ります。`
+      : `${current.asset?.name} · ${sound.seconds(current.clip.assetId).toFixed(2)}秒の素材`;
+}
+// 音声レーン。波形は素材ごとに1度だけ計算し、クリップ幅に合わせて描く。
+function audioTrack(px, left, width) {
+  const node = $("audioTrack");
+  node.replaceChildren();
+  audio.AUDIO_TRACK_ORDER.forEach((track, index) => {
+    const lane = document.createElement("div");
+    lane.className = "audiolane";
+    lane.style.top = `${index * 26}px`;
+    const label = document.createElement("span");
+    label.className = "label";
+    label.textContent = audio.TRACK_LABEL[track];
+    lane.append(label);
+    for (const item of audio.clipsInRange(
+      resolved.filter((c) => c.clip.track === track),
+      (left - width) / px,
+      (left + width * 2) / px,
+    ))
+      lane.append(soundClip(item, px));
+    node.append(lane);
+  });
+}
+function soundClip(item, px) {
+  const el = document.createElement("div");
+  const missing = !sound.has(item.clip.assetId);
+  el.className = `sound${item.clip.id === clipId ? " selected" : ""}${
+    missing ? " missing" : ""
+  }`;
+  el.style.left = `${item.start * px}px`;
+  el.style.width = `${Math.max(6, item.clip.frames * px)}px`;
+  el.title = `${item.asset?.name ?? "素材不明"} · ${item.clip.frames}f`;
+  const columns = Math.max(2, Math.round(item.clip.frames * px));
+  const wave = sound.waveform(item.clip.assetId, columns);
+  if (wave) {
+    const canvas = document.createElement("canvas");
+    canvas.width = columns;
+    canvas.height = 18;
+    const c = canvas.getContext("2d");
+    c.fillStyle = "#8fdcc0";
+    for (let i = 0; i < columns; i++) {
+      const min = wave[i * 2],
+        max = wave[i * 2 + 1];
+      c.fillRect(i, 9 + min * 9, 1, Math.max(1, (max - min) * 9));
+    }
+    el.append(canvas);
+  }
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = missing ? "素材なし" : (item.asset?.name ?? "");
+  el.append(name);
+  const trim = document.createElement("span");
+  trim.className = "trim";
+  trim.onpointerdown = (e) => startClipTrim(e, item, trim, el, px);
+  el.append(trim);
+  el.onpointerdown = (e) => startClipDrag(e, item, el, px);
+  return el;
+}
+function startClipDrag(e, item, el, px) {
+  if (e.target.className === "trim") return;
+  stop();
+  clipId = item.clip.id;
+  const origin = e.clientX,
+    start = item.start;
+  let moved = false;
+  el.setPointerCapture(e.pointerId);
+  const targets = $("snap").checked
+    ? tl.snapTargets(rows, store.p.fps, endFrame(), frame)
+    : [];
+  const next = (v) => {
+    const raw = start + (v.clientX - origin) / px;
+    return Math.max(
+      0,
+      targets.length ? tl.snap(raw, targets, px) : Math.round(raw),
+    );
+  };
+  el.onpointermove = (v) => {
+    moved = true;
+    el.style.left = `${next(v) * px}px`;
+  };
+  const finish = (v, commit) => {
+    el.onpointermove = el.onpointerup = el.onpointercancel = null;
+    if (!commit || !moved) return render();
+    const at = next(v);
+    edit((p) => audio.placeClip(p, flatten(p), item.clip.id, at));
+  };
+  el.onpointerup = (v) => finish(v, true);
+  el.onpointercancel = (v) => finish(v, false);
+}
+function startClipTrim(e, item, trim, el, px) {
+  e.stopPropagation();
+  stop();
+  clipId = item.clip.id;
+  const origin = e.clientX,
+    frames = item.clip.frames;
+  trim.setPointerCapture(e.pointerId);
+  const next = (v) =>
+    Math.max(1, Math.round(frames + (v.clientX - origin) / px));
+  trim.onpointermove = (v) => {
+    el.style.width = `${next(v) * px}px`;
+  };
+  const finish = (v, commit) => {
+    trim.onpointermove = trim.onpointerup = trim.onpointercancel = null;
+    if (!commit) return render();
+    const value = next(v);
+    edit((p) => audio.trimClip(p, item.clip.id, value));
+  };
+  trim.onpointerup = (v) => finish(v, true);
+  trim.onpointercancel = (v) => finish(v, false);
+}
+// 選択が変わったときだけ視界へ入れる。ユーザーのスクロールを毎回奪わない。
+let revealed = null;
+function reveal() {
+  if (revealed === activeId()) return;
+  revealed = activeId();
+  for (const sel of ["#strip .selected", "#tree .panel.selected"])
+    document.querySelector(sel)?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+  const view = $("timeline");
+  view.scrollLeft = tl.follow(
+    current().start,
+    scale(),
+    view.scrollLeft,
+    viewport(),
+  );
+}
+// その場で名前を編集する。Escでキャンセル、Enterと離脱で確定。
+function rename(node, value, commit) {
+  const input = document.createElement("input");
+  input.className = "rename";
+  input.value = value;
+  let done = false;
+  const finish = (save) => {
+    if (done) return;
+    done = true;
+    input.replaceWith(node);
+    if (save && input.value !== value) commit(input.value.slice(0, 60));
+  };
+  input.onkeydown = (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") finish(true);
+    if (e.key === "Escape") finish(false);
+  };
+  input.onblur = () => finish(true);
+  node.replaceWith(input);
+  input.focus();
+  input.select();
+}
+// Stripのドラッグ並べ替え。中断しても順序も描画も壊さない。
+let dragged = null;
+function startReorder(e, id) {
+  if (e.button !== 0) return;
+  const origin = e.clientX,
+    node = e.currentTarget;
+  node.setPointerCapture(e.pointerId);
+  const clear = () => {
+    for (const el of $("strip").children)
+      el.classList.remove("before", "after");
+  };
+  const targetAt = (x) => {
+    for (const el of $("strip").children) {
+      const box = el.getBoundingClientRect();
+      if (x >= box.left && x <= box.right && el.dataset.panel !== id)
+        return {
+          id: el.dataset.panel,
+          place: x < box.left + box.width / 2 ? "before" : "after",
+        };
+    }
+    return null;
+  };
+  node.onpointermove = (v) => {
+    if (!dragged && Math.abs(v.clientX - origin) < 6) return;
+    dragged = id;
+    node.classList.add("dragging");
+    clear();
+    const target = targetAt(v.clientX);
+    if (target)
+      $("strip")
+        .querySelector(`[data-panel="${target.id}"]`)
+        ?.classList.add(target.place);
+  };
+  const end = (v, commit) => {
+    node.onpointermove = node.onpointerup = node.onpointercancel = null;
+    node.classList.remove("dragging");
+    clear();
+    const target = dragged && commit ? targetAt(v.clientX) : null;
+    if (target) {
+      const ids = isSelected(id) ? store.selection.ids : [id];
+      edit((p) => movePanels(p, ids, target.id, target.place));
+    } else if (dragged) render();
+    setTimeout(() => (dragged = null));
+  };
+  node.onpointerup = (v) => end(v, true);
+  node.onpointercancel = (v) => end(v, false);
+}
+// TimelineのDOMはEngineが決めた範囲・目盛・座標をそのまま描く。
 function timeline() {
-  const track = $("track");
-  track.replaceChildren();
-  track.style.width = `${rows.at(-1).end * scale}px`;
-  const left = $("timeline").scrollLeft,
-    right = left + $("timeline").clientWidth;
-  for (const r of rows) {
-    if (r.end * scale < left - 100 || r.start * scale > right + 100) continue;
+  const px = scale(),
+    end = endFrame(),
+    left = $("timeline").scrollLeft,
+    width = viewport();
+  $("track").style.width = `${Math.max(end * px, width)}px`;
+  ruler(px, end, left, width);
+  clips(px, left, width);
+  cameraTrack(px, left, width);
+  audioTrack(px, left, width);
+  const span = tl.selectionRange(rows, store.selection.ids);
+  const band = $("band");
+  band.style.left = `${span.start * px}px`;
+  band.style.width = `${Math.max(2, span.frames * px)}px`;
+  $("range").textContent = `選択 ${span.panels} Panel · ${span.frames}f / ${(
+    span.frames / store.p.fps
+  ).toFixed(2)}s`;
+  $("head").style.left = `${frame * px}px`;
+}
+function ruler(px, end, left, width) {
+  const node = $("ruler");
+  node.replaceChildren();
+  for (const t of tl.ticks(store.p.fps, px, left, width, end)) {
+    const mark = document.createElement("span");
+    mark.className = `tick${t.second ? " second" : ""}`;
+    mark.style.left = `${t.frame * px}px`;
+    mark.textContent = t.label;
+    node.append(mark);
+  }
+}
+function clips(px, left, width) {
+  const node = $("clips");
+  node.replaceChildren();
+  for (const r of tl.visible(rows, px, left, width)) {
+    const rect = tl.clipRect(r, px);
     const b = button(
       `P${r.pi + 1} · ${r.panel.frames}f`,
       () => {},
-      `clip ${selected.has(r.panel.id) ? "selected" : ""}`,
+      `clip ${isSelected(r.panel.id) ? "selected" : ""}`,
     );
-    b.style.left = `${r.start * scale}px`;
-    b.style.width = `${r.panel.frames * scale}px`;
+    b.style.left = `${rect.left}px`;
+    b.style.width = `${rect.width}px`;
     b.onclick = (e) => {
-      if (e.target.className !== "handle")
-        select(r.panel.id, e.ctrlKey || e.metaKey);
+      if (e.target.className !== "handle") select(r.panel.id, e);
     };
     const h = document.createElement("span");
     h.className = "handle";
-    h.onpointerdown = (e) => {
-      e.stopPropagation();
-      stop();
-      const x = e.clientX,
-        original = r.panel.frames;
-      h.setPointerCapture(e.pointerId);
-      h.onpointermove = (v) => {
-        b.style.width = `${Math.max(1, original + Math.round((v.clientX - x) / scale)) * scale}px`;
-      };
-      h.onpointerup = (v) => {
-        const n = Math.max(
-          1,
-          Math.min(864000, original + Math.round((v.clientX - x) / scale)),
-        );
-        edit(
-          (p) =>
-            (flatten(p).find((a) => a.panel.id === r.panel.id).panel.frames =
-              n),
-        );
-      };
-      h.onpointercancel = () => timeline();
-    };
+    h.onpointerdown = (e) => startResize(e, r, b, h);
     b.append(h);
-    track.append(b);
+    node.append(b);
   }
-  const head = document.createElement("div");
-  head.id = "head";
-  head.style.left = `${frame * scale}px`;
-  track.append(head);
+}
+// 端のドラッグはスナップ候補へ吸着し、離すまでプロジェクトを書き換えない。
+function startResize(e, r, clip, handle) {
+  e.stopPropagation();
+  stop();
+  const px = scale(),
+    origin = e.clientX,
+    start = r.panel.frames;
+  const targets = $("snap").checked
+    ? tl.snapTargets(rows, store.p.fps, endFrame(), frame)
+    : [];
+  const next = (v) => {
+    const raw = r.start + start + (v.clientX - origin) / px;
+    const snapped = targets.length
+      ? tl.snap(raw, targets, px)
+      : Math.round(raw);
+    return Math.max(1, Math.min(864000, snapped - r.start));
+  };
+  handle.setPointerCapture(e.pointerId);
+  handle.onpointermove = (v) => {
+    clip.style.width = `${next(v) * px}px`;
+  };
+  handle.onpointerup = (v) => {
+    const frames = next(v);
+    handle.onpointermove = handle.onpointerup = null;
+    edit(
+      (p) =>
+        (flatten(p).find((a) => a.panel.id === r.panel.id).panel.frames =
+          frames),
+    );
+  };
+  handle.onpointercancel = () => {
+    handle.onpointermove = handle.onpointerup = null;
+    timeline();
+  };
+}
+// Cameraトラック：Panelごとのレーンにキーを置く。ドラッグで移動、ダブルクリックで追加。
+function cameraTrack(px, left, width) {
+  const node = $("cameraTrack");
+  node.replaceChildren();
+  for (const r of tl.visible(rows, px, left, width)) {
+    const rect = tl.clipRect(r, px);
+    const lane = document.createElement("div");
+    lane.className = `lane${r.panel.id === activeId() ? " active" : ""}`;
+    lane.style.left = `${rect.left}px`;
+    lane.style.width = `${rect.width}px`;
+    lane.title = describeCamera(r.panel).moves.join(" / ") || "HOLD";
+    lane.ondblclick = (e) => {
+      const f = localFrame(e, r, px);
+      edit((p) => {
+        const b = flatten(p).find((v) => v.panel.id === r.panel.id).panel;
+        cameraKey = setCameraKey(b, f / r.panel.frames);
+        return { active: r.panel.id, ids: [r.panel.id] };
+      });
+    };
+    r.panel.camera.forEach((k, index) => {
+      const dot = document.createElement("span");
+      dot.className = `camkey${
+        r.panel.id === activeId() && index === cameraKey ? " selected" : ""
+      }`;
+      dot.style.left = `${k.t * r.panel.frames * px}px`;
+      dot.title = `${Math.round(k.t * r.panel.frames)}f`;
+      dot.onpointerdown = (e) => startKeyDrag(e, r, index, dot, px);
+      lane.append(dot);
+    });
+    node.append(lane);
+  }
+}
+const localFrame = (e, r, px) =>
+  Math.max(
+    0,
+    Math.min(
+      r.panel.frames,
+      Math.round(
+        (e.clientX - $("track").getBoundingClientRect().left) / px - r.start,
+      ),
+    ),
+  );
+function startKeyDrag(e, r, index, dot, px) {
+  e.stopPropagation();
+  stop();
+  let moved = false;
+  dot.setPointerCapture(e.pointerId);
+  const position = (v) => localFrame(v, r, px);
+  dot.onpointermove = (v) => {
+    moved = true;
+    dot.style.left = `${position(v) * px}px`;
+  };
+  const finish = (v, commit) => {
+    dot.onpointermove = dot.onpointerup = dot.onpointercancel = null;
+    if (!commit) return timeline();
+    const f = position(v);
+    edit((p) => {
+      const b = flatten(p).find((a) => a.panel.id === r.panel.id).panel;
+      if (moved) moveCameraKey(b, index, f / r.panel.frames);
+      cameraKey = Math.max(0, cameraKeyIndexAt(b, moved ? f : null, index));
+      return { active: r.panel.id, ids: [r.panel.id] };
+    });
+    if (!moved) render();
+  };
+  dot.onpointerup = (v) => finish(v, true);
+  dot.onpointercancel = (v) => finish(v, false);
+}
+// 移動後のキーは時刻順に並び替わるので、位置から選び直す。
+function cameraKeyIndexAt(b, f, fallback) {
+  if (f === null) return fallback;
+  const t = f / b.frames;
+  let best = 0;
+  b.camera.forEach((k, i) => {
+    if (Math.abs(k.t - t) < Math.abs(b.camera[best].t - t)) best = i;
+  });
+  return best;
 }
 function paint(preview = false) {
   const r = preview ? rowAtFrame(rows, frame) : current();
@@ -190,44 +638,50 @@ function paint(preview = false) {
     1280,
     720,
     preview ? cameraAt(r.panel, (frame - r.start) / r.panel.frames) : null,
+    images,
+    preview ? null : view,
   );
   $("time").textContent = `${Math.floor(frame / store.p.fps)}s : ${Math.floor(
     frame % store.p.fps,
   )
     .toString()
     .padStart(2, "0")}f`;
-  if ($("head")) $("head").style.left = `${frame * scale}px`;
+  $("head").style.left = `${frame * scale()}px`;
 }
 const acts = {
   add: () =>
     edit((p) => {
-      const r = flatten(p).find((r) => r.panel.id === active),
+      const r = flatten(p).find((r) => r.panel.id === activeId()),
         b = panel();
       r.shot.panels.splice(r.pi + 1, 0, b);
-      active = b.id;
-      selected = new Set([active]);
+      return { active: b.id, ids: [b.id] };
     }),
   duplicate: () =>
     edit((p) => {
+      const ids = new Set(store.selection.ids);
       for (const h of p.scenes.flatMap((s) => s.shots)) {
         h.panels = h.panels.flatMap((b) =>
-          selected.has(b.id) ? [b, { ...structuredClone(b), id: uid() }] : [b],
+          ids.has(b.id) ? [b, { ...structuredClone(b), id: uid() }] : [b],
         );
       }
     }),
   delete: () =>
     edit((p) => {
-      if (selected.size === rows.length)
+      const ids = new Set(store.selection.ids);
+      if (ids.size === flatten(p).length)
         throw Error("最低1つのPanelを残してください");
       for (const s of p.scenes) {
         for (const h of s.shots)
-          h.panels = h.panels.filter((b) => !selected.has(b.id));
+          h.panels = h.panels.filter((b) => !ids.has(b.id));
         s.shots = s.shots.filter((h) => h.panels.length);
       }
       p.scenes = p.scenes.filter((s) => s.shots.length);
+      // 消えたPanelに付いていた音も一緒に消す。孤児のクリップを残さない。
+      audio.pruneClips(p);
+      audio.pruneAudioAssets(p);
     }),
-  split: () => edit((p) => split(p, active)),
-  merge: () => edit((p) => merge(p, active)),
+  split: () => edit((p) => split(p, activeId())),
+  merge: () => edit((p) => merge(p, activeId())),
   scene: () =>
     edit((p) => {
       const b = panel();
@@ -236,21 +690,10 @@ const acts = {
         name: `シーン${p.scenes.length + 1}`,
         shots: [{ id: uid(), panels: [b] }],
       });
-      active = b.id;
-      selected = new Set([active]);
+      return { active: b.id, ids: [b.id] };
     }),
-  undo: () => {
-    stop();
-    store.undo();
-    dirty = true;
-    render();
-  },
-  redo: () => {
-    stop();
-    store.redo();
-    dirty = true;
-    render();
-  },
+  undo: () => history("undo"),
+  redo: () => history("redo"),
 };
 for (const [name, delta] of [
   ["left", -1],
@@ -258,7 +701,7 @@ for (const [name, delta] of [
 ])
   acts[name] = () =>
     edit((p) => {
-      const r = flatten(p).find((r) => r.panel.id === active),
+      const r = flatten(p).find((r) => r.panel.id === activeId()),
         to = r.pi + delta;
       if (to >= 0 && to < r.shot.panels.length) {
         const [b] = r.shot.panels.splice(r.pi, 1);
@@ -271,23 +714,52 @@ document
 for (const k of ["frames", "dialogue", "sound", "notes"])
   $(k).onchange = () =>
     edit((p) => {
+      const ids = new Set(store.selection.ids);
       for (const r of flatten(p))
-        if (selected.has(r.panel.id))
+        if (ids.has(r.panel.id))
           r.panel[k] = k === "frames" ? Number($(k).value) : $(k).value;
     });
 $("title").onchange = () => edit((p) => (p.title = $("title").value));
-$("key").onclick = () =>
+// キーは再生ヘッドがあるPanelへ置く。そのPanelを選択し直すので次の操作が続けやすい。
+$("key").onclick = () => {
+  const target = rowAtFrame(rows, Math.round(frame));
   edit((p) => {
-    const b = flatten(p).find((r) => r.panel.id === active).panel;
-    const k = {
-      t: 1,
-      x: Number($("cx").value),
-      y: Number($("cy").value),
-      zoom: Number($("cz").value),
-      rotation: Number($("cr").value),
-    };
-    b.camera = [b.camera[0], k];
+    const r = flatten(p).find((v) => v.panel.id === target.panel.id);
+    const local = Math.max(
+      0,
+      Math.min(r.panel.frames, Math.round(frame) - r.start),
+    );
+    cameraKey = setCameraKey(
+      r.panel,
+      local / r.panel.frames,
+      target.panel.id === activeId() ? values() : {},
+    );
+    return { active: r.panel.id, ids: [r.panel.id] };
   });
+};
+$("keyDelete").onclick = () =>
+  edit((p) => {
+    const b = flatten(p).find((v) => v.panel.id === activeId()).panel;
+    if (removeCameraKey(b, cameraKey)) cameraKey = Math.max(0, cameraKey - 1);
+  });
+$("keyList").onchange = () => {
+  cameraKey = Number($("keyList").value);
+  render();
+};
+const values = () =>
+  Object.fromEntries(
+    ["cx", "cy", "cz", "cr"].map((id, i) => [
+      CAMERA_FIELDS[i],
+      Number($(id).value),
+    ]),
+  );
+for (const id of ["cx", "cy", "cz", "cr"])
+  $(id).onchange = () =>
+    edit((p) => {
+      const b = flatten(p).find((v) => v.panel.id === activeId()).panel;
+      const key = b.camera[cameraKey];
+      if (key) Object.assign(key, values());
+    });
 $("play").onclick = () => {
   if (playing) {
     stop();
@@ -295,48 +767,94 @@ $("play").onclick = () => {
   }
   playing = true;
   $("play").textContent = "■ 停止";
-  if (frame >= rows.at(-1).end) frame = 0;
+  if (frame >= endFrame()) frame = 0;
   const start = performance.now(),
-    base = frame;
+    base = Math.round(frame);
+  frame = base;
+  // 音があるときは音声時計を基準にする。無いときだけ表示用の時計を使う。
+  const schedule = audio.scheduleFor(resolved, base, store.p.fps, endFrame());
+  if (schedule.length) sound.play(schedule, base, store.p.fps);
   const tick = (now) => {
-    frame = frameAtTime(base, start, now, store.p.fps, rows.at(-1).end);
-    if (frame >= rows.at(-1).end) {
-      frame = rows.at(-1).end;
+    frame =
+      sound.frameAt(store.p.fps) ??
+      frameAtTime(base, start, now, store.p.fps, endFrame());
+    frame = Math.max(base, Math.min(endFrame(), frame));
+    if (frame >= endFrame()) {
+      frame = endFrame();
       stop();
     }
     paint(true);
+    if ($("followHead").checked) {
+      const view = $("timeline");
+      view.scrollLeft = tl.follow(frame, scale(), view.scrollLeft, viewport());
+    }
     if (playing) raf = requestAnimationFrame(tick);
   };
   raf = requestAnimationFrame(tick);
 };
-$("zoom").oninput = () => {
-  const anchor = $("timeline").scrollLeft / scale;
-  scale = Number($("zoom").value);
-  $("timeline").scrollLeft = anchor * scale;
+function zoomTo(index, anchorFrame = frame) {
+  const previous = scale();
+  scaleIndex = Math.max(0, Math.min(tl.SCALES.length - 1, index));
+  $("zoom").value = scaleIndex;
+  $("timeline").scrollLeft = tl.anchorScroll(
+    $("timeline").scrollLeft,
+    previous,
+    scale(),
+    anchorFrame,
+    viewport(),
+  );
   timeline();
+}
+$("zoom").oninput = () => zoomTo(Number($("zoom").value));
+$("fitTime").onclick = () =>
+  zoomTo(tl.fitScaleIndex(endFrame(), viewport()), 0);
+// ホイールは指した時刻を基準に拡大縮小する。素の縦スクロールは横移動に使う。
+$("timeline").onwheel = (e) => {
+  const view = $("timeline");
+  if (e.ctrlKey || e.altKey || !e.deltaY) {
+    e.preventDefault();
+    const anchor = tl.frameAt(
+      e.clientX - $("track").getBoundingClientRect().left,
+      scale(),
+      endFrame(),
+    );
+    zoomTo(scaleIndex + (e.deltaY < 0 ? 1 : -1), anchor);
+    return;
+  }
+  if (!e.shiftKey) {
+    e.preventDefault();
+    view.scrollLeft += e.deltaY;
+  }
 };
 $("timeline").onscroll = () => timeline();
+// 目盛と空き領域はスクラブ。整数フレームでPanel境界をまたぐ。
 $("track").onpointerdown = (e) => {
-  if (e.target !== $("track")) return;
+  if (
+    ![$("track"), $("ruler"), $("clips"), $("cameraTrack")].includes(e.target)
+  )
+    return;
   stop();
+  const targets = $("snap").checked
+    ? tl.snapTargets(rows, store.p.fps, endFrame(), null)
+    : [];
   const seek = (v) => {
-    frame = Math.max(
-      0,
-      Math.min(
-        rows.at(-1).end,
-        (v.clientX - $("track").getBoundingClientRect().left) / scale,
-      ),
+    const raw = tl.frameAt(
+      v.clientX - $("track").getBoundingClientRect().left,
+      scale(),
+      endFrame(),
     );
+    frame = targets.length && !v.altKey ? tl.snap(raw, targets, scale()) : raw;
     paint(true);
   };
   $("track").setPointerCapture(e.pointerId);
   seek(e);
   $("track").onpointermove = seek;
-  $("track").onpointerup = () => {
+  $("track").onpointerup = $("track").onpointercancel = () => {
     $("track").onpointermove = null;
   };
 };
-function point(e) {
+// 画面座標→表示変換を戻した正規化座標。ズーム/パン中でも描いた位置がずれない。
+function point(e, clamp = true) {
   const r = $("drawing").getBoundingClientRect(),
     ratio = 16 / 9;
   let w = r.width,
@@ -345,51 +863,316 @@ function point(e) {
     h = r.height;
     w = h * ratio;
   }
+  const fit = (v) => (clamp ? Math.max(0, Math.min(1, v)) : v);
   return [
-    Math.max(0, Math.min(1, (e.clientX - r.left - (r.width - w) / 2) / w)),
-    Math.max(0, Math.min(1, (e.clientY - r.top - (r.height - h) / 2) / h)),
+    fit((e.clientX - r.left - (r.width - w) / 2) / w / view.zoom + view.x),
+    fit((e.clientY - r.top - (r.height - h) / 2) / h / view.zoom + view.y),
   ];
 }
+const pressure = (e) =>
+  e.pointerType === "pen" && e.pressure > 0
+    ? Math.max(0.05, Math.min(1, e.pressure))
+    : 1;
+function setView(zoom, x, y) {
+  view.zoom = Math.max(1, Math.min(8, zoom));
+  // 1倍では常に全体を表示し、拡大時も外側へ行き過ぎない。
+  const span = 1 - 1 / view.zoom;
+  view.x = Math.max(0, Math.min(span, x));
+  view.y = Math.max(0, Math.min(span, y));
+  $("viewInfo").textContent = `${Math.round(view.zoom * 100)}%`;
+  paint();
+}
+let panning = null;
 $("drawing").onpointerdown = (e) => {
-  if (e.button !== 0) return;
   stop();
-  stroke = [point(e)];
+  if (e.button === 1 || e.altKey) {
+    panning = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
+    $("drawing").setPointerCapture(e.pointerId);
+    e.preventDefault();
+    return;
+  }
+  if (e.button !== 0) return;
+  stroke = {
+    size: tool.size,
+    erase: tool.erase,
+    points: [[...point(e), pressure(e)]],
+  };
   $("drawing").setPointerCapture(e.pointerId);
 };
 $("drawing").onpointermove = (e) => {
+  if (panning) {
+    const r = $("drawing").getBoundingClientRect();
+    setView(
+      view.zoom,
+      panning.vx - (e.clientX - panning.x) / r.width / view.zoom,
+      panning.vy - (e.clientY - panning.y) / r.height / view.zoom,
+    );
+    return;
+  }
   if (!stroke) return;
-  stroke.push(point(e));
+  stroke.points.push([...point(e), pressure(e)]);
   draw(
     $("drawing").getContext("2d"),
     { ...current().panel, strokes: [...current().panel.strokes, stroke] },
     1280,
     720,
+    null,
+    images,
+    view,
   );
 };
 $("drawing").onpointerup = () => {
+  panning = null;
   if (stroke) {
     const s = stroke;
     stroke = null;
     edit(
       (p) =>
-        (flatten(p).find((r) => r.panel.id === active).panel.strokes = [
-          ...flatten(p).find((r) => r.panel.id === active).panel.strokes,
+        (flatten(p).find((r) => r.panel.id === activeId()).panel.strokes = [
+          ...flatten(p).find((r) => r.panel.id === activeId()).panel.strokes,
           s,
         ]),
     );
   }
 };
 $("drawing").onpointercancel = () => {
+  panning = null;
   stroke = null;
   paint();
 };
-$("save").onclick = () => {
+// ホイールはカーソル位置を基準に拡大縮小する。
+$("drawing").onwheel = (e) => {
+  e.preventDefault();
+  const [px, py] = point(e, false);
+  const zoom = Math.max(
+    1,
+    Math.min(8, view.zoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2)),
+  );
+  setView(
+    zoom,
+    px - (px - view.x) * (view.zoom / zoom),
+    py - (py - view.y) * (view.zoom / zoom),
+  );
+};
+$("fit").onclick = () => setView(1, 0, 0);
+for (const [id, erase] of [
+  ["brushTool", false],
+  ["eraserTool", true],
+])
+  $(id).onclick = () => {
+    tool.erase = erase;
+    $("brushTool").classList.toggle("on", !erase);
+    $("eraserTool").classList.toggle("on", erase);
+  };
+$("brush").oninput = () => {
+  tool.size = Math.max(
+    BRUSH.min,
+    Math.min(BRUSH.max, Number($("brush").value) / 1280),
+  );
+};
+// 画像取り込み：原本をAssetとして保存し、表示用は長辺2048pxまで縮小する。
+const MAX_DISPLAY = 2048;
+async function bitmapFor(blob) {
+  const raw = await createImageBitmap(blob);
+  if (Math.max(raw.width, raw.height) <= MAX_DISPLAY) return raw;
+  const scale = MAX_DISPLAY / Math.max(raw.width, raw.height);
+  const small = await createImageBitmap(raw, {
+    resizeWidth: Math.round(raw.width * scale),
+    resizeHeight: Math.round(raw.height * scale),
+  });
+  raw.close?.();
+  return small;
+}
+async function ensureImages(p) {
+  const missing = [];
+  for (const a of p.assets) {
+    if (a.kind !== "image" || images.has(a.id)) continue;
+    try {
+      const blob = await repo.getAsset(a.id);
+      if (!blob) throw Error("素材が見つかりません");
+      images.set(a.id, await bitmapFor(blob));
+    } catch {
+      missing.push(a.name);
+    }
+  }
+  return missing;
+}
+$("image").onclick = () => $("imageFile").click();
+$("imageFile").onchange = async () => {
+  const f = $("imageFile").files[0];
+  $("imageFile").value = "";
+  if (!f) return;
+  try {
+    if (!f.type.startsWith("image/")) throw Error("画像ファイルではありません");
+    if (f.size > 30e6) throw Error("30MBを超える画像は未対応です");
+    const source = await createImageBitmap(f);
+    const id = uid();
+    const meta = {
+      id,
+      kind: "image",
+      name: f.name.slice(0, 80),
+      mime: f.type,
+      bytes: f.size,
+      width: source.width,
+      height: source.height,
+    };
+    source.close?.();
+    // 先にバイナリを保存する。保存できない画像をプロジェクトへ参照させない。
+    await repo.putAsset(id, f);
+    images.set(id, await bitmapFor(f));
+    const target = activeId();
+    edit((p) => {
+      p.assets.push(meta);
+      flatten(p).find((r) => r.panel.id === target).panel.image = {
+        assetId: id,
+        opacity: Number($("imageOpacity").value) / 100 || 1,
+      };
+    });
+    notice(`${meta.name} を読み込みました（${meta.width}×${meta.height}）`);
+  } catch (e) {
+    notice(`画像を読み込めません：${e.message}`);
+  }
+};
+$("imageClear").onclick = () =>
+  edit((p) => {
+    const b = flatten(p).find((r) => r.panel.id === activeId()).panel;
+    b.image = null;
+    // どのPanelからも参照されない素材はプロジェクトから外す。
+    const used = new Set(
+      flatten(p)
+        .map((r) => r.panel.image?.assetId)
+        .filter(Boolean),
+    );
+    p.assets = p.assets.filter((a) => used.has(a.id));
+  });
+$("imageOpacity").onchange = () =>
+  edit((p) => {
+    const b = flatten(p).find((r) => r.panel.id === activeId()).panel;
+    if (b.image) b.image.opacity = Number($("imageOpacity").value) / 100;
+  });
+// 音声取り込み：原本をAssetへ保存し、デコードしてから再生ヘッド位置へ置く。
+$("audioAdd").onclick = () => $("audioFile").click();
+$("audioFile").onchange = async () => {
+  const file = $("audioFile").files[0];
+  $("audioFile").value = "";
+  if (!file) return;
+  try {
+    if (!file.type.startsWith("audio/"))
+      throw Error("音声ファイルではありません");
+    if (file.size > 80e6) throw Error("80MBを超える音声は未対応です");
+    const id = uid();
+    const buffer = await sound.decode(id, file);
+    await repo.putAsset(id, file);
+    const at = Math.round(frame);
+    const host = rowAtFrame(rows, at);
+    const frames = Math.max(1, Math.round(buffer.duration * store.p.fps));
+    edit((p) => {
+      p.assets.push({
+        id,
+        kind: "audio",
+        name: file.name.slice(0, 80),
+        mime: file.type,
+        bytes: file.size,
+      });
+      const clip = audio.addClip(p, {
+        assetId: id,
+        track: $("audioKind").value,
+        anchor: host.panel.id,
+        at: at - host.start,
+        frames,
+      });
+      clipId = clip.id;
+      return { active: host.panel.id, ids: [host.panel.id] };
+    });
+    notice(`${file.name} を配置しました（${buffer.duration.toFixed(2)}秒）`);
+  } catch (e) {
+    notice(`音声を読み込めません：${e.message}`);
+  }
+};
+const currentClip = () => store.p.audio.find((c) => c.id === clipId);
+$("clipList").onchange = () => {
+  clipId = $("clipList").value;
+  render();
+};
+$("clipGain").onchange = () =>
+  edit((p) => {
+    const clip = p.audio.find((c) => c.id === clipId);
+    if (clip) clip.gain = Number($("clipGain").value) / 100;
+  });
+for (const [id, key] of [
+  ["clipFrames", "frames"],
+  ["clipOffset", "offset"],
+])
+  $(id).onchange = () =>
+    edit((p) => {
+      const clip = p.audio.find((c) => c.id === clipId);
+      if (!clip) return;
+      const value = Math.max(
+        key === "frames" ? 1 : 0,
+        Math.round(Number($(id).value) || 0),
+      );
+      clip[key] = Math.min(864000, value);
+    });
+$("clipDelete").onclick = () =>
+  edit((p) => {
+    audio.removeClips(p, [clipId]);
+    audio.pruneAudioAssets(p);
+  });
+// 素材が見つからないクリップは、同じIDへ別のファイルを入れて直せる。
+$("clipRepair").onclick = () => {
+  const clip = currentClip();
+  if (!clip) return;
+  const picker = document.createElement("input");
+  picker.type = "file";
+  picker.accept = "audio/*";
+  picker.onchange = async () => {
+    const file = picker.files[0];
+    if (!file) return;
+    try {
+      sound.forget(clip.assetId);
+      await sound.decode(clip.assetId, file);
+      await repo.putAsset(clip.assetId, file);
+      edit((p) => {
+        const asset = p.assets.find((a) => a.id === clip.assetId);
+        if (asset)
+          Object.assign(asset, {
+            name: file.name.slice(0, 80),
+            mime: file.type,
+            bytes: file.size,
+          });
+      });
+      notice("素材を差し替えました");
+      render();
+    } catch (e) {
+      notice(`差し替えられません：${e.message}`);
+    }
+  };
+  picker.click();
+};
+for (const [id, key] of [
+  ["sceneName", "scene"],
+  ["shotName", "shot"],
+])
+  $(id).onchange = () =>
+    edit((p) => {
+      const r = flatten(p).find((v) => v.panel.id === activeId());
+      r[key].name = $(id).value.slice(0, 60);
+    });
+for (const tab of document.querySelectorAll(".tab"))
+  tab.onclick = () => {
+    for (const t of document.querySelectorAll(".tab"))
+      t.classList.toggle("on", t === tab);
+    for (const pane of document.querySelectorAll("#inspector .pane"))
+      pane.hidden = pane.dataset.pane !== tab.dataset.tab;
+  };
+$("save").onclick = async () => {
   download(
     new Blob([JSON.stringify(store.p)], { type: "application/json" }),
     "project.contp",
   );
-  dirty = false;
+  fileDirty = false;
   notice("プロジェクトをダウンロードしました");
+  await persist("manual");
 };
 $("open").onclick = () => $("file").click();
 $("file").onchange = async () => {
@@ -397,14 +1180,21 @@ $("file").onchange = async () => {
   if (!f) return;
   try {
     if (f.size > 50e6) throw Error("50MBを超えるファイルは未対応です");
+    // 読み込みに失敗しても現在のプロジェクトへは触れない。
     const p = load(await f.text());
-    if (dirty && !confirm("未保存の変更を破棄して開きますか？")) return;
+    if (
+      (fileDirty || saver.pending) &&
+      !confirm("編集中の内容を置き換えて開きますか？")
+    )
+      return;
     stop();
     store = new Store(p);
     frame = 0;
-    dirty = false;
+    fileDirty = false;
     render();
     notice("読み込み完了");
+    markDirty();
+    await loadImages();
   } catch (e) {
     notice(e.message);
   } finally {
@@ -412,13 +1202,24 @@ $("file").onchange = async () => {
   }
 };
 window.addEventListener("beforeunload", (e) => {
-  if (dirty) {
+  // ブラウザ内保存が済んでいれば次回の起動で復旧できるので引き止めない。
+  if (saver.pending || (!persistence && fileDirty)) {
     e.preventDefault();
     e.returnValue = "";
   }
 });
+for (const event of ["pagehide", "visibilitychange"])
+  window.addEventListener(event, () => {
+    if (event === "pagehide" || document.visibilityState === "hidden")
+      saver.flush();
+  });
 document.addEventListener("keydown", (e) => {
-  if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName) || $("paperDialog").open)
+  if (
+    /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) ||
+    $("paperDialog").open ||
+    $("animaticDialog").open ||
+    $("recoverDialog").open
+  )
     return;
   const mod = e.ctrlKey || e.metaKey,
     k = e.key.toLowerCase();
@@ -430,14 +1231,20 @@ document.addEventListener("keydown", (e) => {
   else if (mod && k === "k") fn = acts.split;
   else if (k === "n") fn = acts.add;
   else if (k === "k") fn = () => $("key").click();
-  else if (k === "+" || k === "=" || k === "-") fn = () => {
-    $("zoom").value=Math.max(1,Math.min(12,scale+(k==="-"?-1:1)));
-    $("zoom").dispatchEvent(new Event("input"));
-  };
+  else if (k === "e")
+    fn = () => $(tool.erase ? "brushTool" : "eraserTool").click();
+  else if (k === "0") fn = () => $("fit").click();
+  else if (k === "f") fn = () => $("fitTime").click();
+  else if (k === "delete" || k === "backspace")
+    fn = () => !$("keyDelete").disabled && $("keyDelete").click();
+  else if (k === "+" || k === "=" || k === "-")
+    fn = () => {
+      zoomTo(scaleIndex + (k === "-" ? -1 : 1));
+    };
   else if (k === " ") fn = () => $("play").click();
   else if (k === "arrowright" || k === "arrowleft")
     fn = () => {
-      const i = rows.findIndex((r) => r.panel.id === active);
+      const i = rows.findIndex((r) => r.panel.id === activeId());
       select(
         rows[
           Math.max(
@@ -450,8 +1257,9 @@ document.addEventListener("keydown", (e) => {
   else if (k === "[" || k === "]")
     fn = () =>
       edit((p) => {
+        const ids = new Set(store.selection.ids);
         for (const r of flatten(p))
-          if (selected.has(r.panel.id))
+          if (ids.has(r.panel.id))
             r.panel.frames = Math.max(
               1,
               Math.min(864000, r.panel.frames + (k === "]" ? 1 : -1)),
@@ -462,148 +1270,649 @@ document.addEventListener("keydown", (e) => {
     fn();
   }
 });
-const options = { ...defaults };
-for (const [key, title, min, max] of [
-  ["rows", "コマ / ページ", 1, 8],
-  ["margin", "余白 (px)", 20, 100],
-  ["font", "文字サイズ (px)", 12, 30],
-  ["imageWidth", "画像列幅 (%)", 20, 65],
-  ["header", "ヘッダー"],
-]) {
-  const l = document.createElement("label");
-  l.textContent = title;
-  const i = document.createElement("input");
-  i.type = key === "header" ? "text" : "number";
-  i.value = options[key];
-  if (min) {
-    i.min = min;
-    i.max = max;
+// 紙面設定はプロジェクトの一部。変更は履歴と自動保存に乗る。
+const paper = () => store.p.paper;
+const paperEdit = (change) => {
+  edit((p) => change(p.paper));
+  schedulePreview();
+};
+function paperSettings() {
+  const o = paper();
+  const box = $("paperSettings");
+  box.replaceChildren();
+  const field = (title, node) => {
+    const label = document.createElement("label");
+    label.textContent = title;
+    label.append(node);
+    box.append(label);
+    return node;
+  };
+  const select = (title, key, entries) => {
+    const node = document.createElement("select");
+    node.replaceChildren(
+      ...entries.map(([value, text]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = text;
+        option.selected = o[key] === value;
+        return option;
+      }),
+    );
+    node.onchange = () => paperEdit((paper) => (paper[key] = node.value));
+    return field(title, node);
+  };
+  select("用紙", "size", [
+    ["A4", "A4"],
+    ["A3", "A3"],
+    ["B4", "B4"],
+    ["letter", "Letter"],
+  ]);
+  select("向き", "orientation", [
+    ["portrait", "縦"],
+    ["landscape", "横"],
+  ]);
+  for (const [key, title, min, max] of [
+    ["rows", "コマ / ページ", 1, 12],
+    ["margin", "余白 (px)", 10, 150],
+    ["font", "文字サイズ (px)", 8, 40],
+  ]) {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = min;
+    input.max = max;
+    input.value = o[key];
+    input.onchange = () =>
+      paperEdit(
+        (paper) =>
+          (paper[key] = Math.max(
+            min,
+            Math.min(max, Math.round(Number(input.value)) || min),
+          )),
+      );
+    field(title, input);
   }
-  i.onchange = () => {
-    options[key] =
-      key === "header"
-        ? i.value
-        : Math.max(min, Math.min(max, Math.round(Number(i.value)) || min));
-    preview();
-  };
-  l.append(i);
-  $("paperSettings").append(l);
+  for (const [key, title] of [
+    ["header", "ヘッダー"],
+    ["footer", "フッター"],
+  ]) {
+    const input = document.createElement("input");
+    input.value = o[key];
+    input.placeholder = key === "header" ? store.p.title : "";
+    input.onchange = () =>
+      paperEdit((paper) => (paper[key] = input.value.slice(0, 80)));
+    field(title, input);
+  }
+  for (const [key, title] of [
+    ["duration", "尺"],
+    ["numbers", "階層番号"],
+    ["cameraMarks", "画像にCamera作画"],
+  ]) {
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = o[key];
+    input.onchange = () => paperEdit((paper) => (paper[key] = input.checked));
+    const label = document.createElement("label");
+    label.className = "check";
+    label.append(input, title);
+    box.append(label);
+  }
+  columnSettings();
 }
-for (const [key, title] of Object.entries({
-  cut: "CUT番号",
-  image: "コンテ画像",
-  duration: "尺",
-  dialogue: "台詞",
-  sound: "SE / BGM",
-  notes: "演出メモ",
-  camera: "Camera",
-  numbers: "階層番号",
-})) {
-  const l = document.createElement("label"),
-    i = document.createElement("input");
-  i.type = "checkbox";
-  i.checked = true;
-  i.onchange = () => {
-    options[key] = i.checked;
-    preview();
-  };
-  l.append(i, title);
-  $("paperSettings").append(l);
+// 列は順番・幅・表示/非表示をそのまま編集する。並びがそのまま紙面の並びになる。
+function columnSettings() {
+  const o = paper();
+  const list = $("paperColumns");
+  list.replaceChildren();
+  const used = new Map(o.columns.map((c) => [c.key, c]));
+  for (const key of PAPER_COLUMNS) {
+    const column = used.get(key);
+    const row = document.createElement("div");
+    row.className = "column";
+    const show = document.createElement("input");
+    show.type = "checkbox";
+    show.checked = !!column;
+    show.onchange = () =>
+      paperEdit((paper) => {
+        if (show.checked)
+          paper.columns.push({ key, width: 100 / (paper.columns.length + 1) });
+        else if (paper.columns.length > 1)
+          paper.columns = paper.columns.filter((c) => c.key !== key);
+      });
+    const name = document.createElement("span");
+    name.textContent = COLUMN_LABEL[key];
+    const width = document.createElement("input");
+    width.type = "number";
+    width.min = 1;
+    width.max = 100;
+    width.value = column ? Math.round(column.width) : "";
+    width.disabled = !column;
+    width.onchange = () =>
+      paperEdit((paper) => {
+        const target = paper.columns.find((c) => c.key === key);
+        if (target)
+          target.width = Math.max(1, Math.min(100, Number(width.value) || 1));
+      });
+    const move = (delta) =>
+      button(delta < 0 ? "↑" : "↓", () =>
+        paperEdit((paper) => {
+          const at = paper.columns.findIndex((c) => c.key === key);
+          const to = at + delta;
+          if (at < 0 || to < 0 || to >= paper.columns.length) return;
+          const [moved] = paper.columns.splice(at, 1);
+          paper.columns.splice(to, 0, moved);
+        }),
+      );
+    const up = move(-1),
+      down = move(1);
+    up.disabled = down.disabled = !column;
+    row.append(show, name, width, up, down);
+    list.append(row);
+  }
 }
 let pageIndex = 0,
-  groups = [],
-  hasOverflow = false;
+  pages = [],
+  job = null;
 const paging = document.createElement("div");
+paging.className = "paging";
 const previous = button("← 前ページ", () => {
   pageIndex = Math.max(0, pageIndex - 1);
   showPage();
 });
 const next = button("次ページ →", () => {
-  pageIndex = Math.min(groups.length - 1, pageIndex + 1);
+  pageIndex = Math.min(pages.length - 1, pageIndex + 1);
   showPage();
 });
 const pageLabel = document.createElement("span");
 paging.append(previous, pageLabel, next);
 $("pages").before(paging);
+const measureText = (() => {
+  const context = document.createElement("canvas").getContext("2d");
+  return (text, size) => {
+    context.font = `${size}px "Noto Sans JP", sans-serif`;
+    return context.measureText(text).width;
+  };
+})();
+// プレビューは表示するページだけを描く。全ページを走査しない。
 function showPage() {
-  const page = renderPage(
+  pageIndex = Math.max(0, Math.min(pageIndex, pages.length - 1));
+  const canvas = renderPage(
     store.p,
-    groups[pageIndex],
-    options,
+    pages[pageIndex] ?? [],
+    paper(),
     pageIndex,
-    groups.length,
+    pages.length,
+    images,
   );
-  $("pages").replaceChildren(page.canvas);
-  pageLabel.textContent = ` ${pageIndex + 1} / ${groups.length} `;
+  $("pages").replaceChildren(canvas);
+  pageLabel.textContent = ` ${pageIndex + 1} / ${pages.length} `;
   previous.disabled = pageIndex === 0;
-  next.disabled = pageIndex === groups.length - 1;
+  next.disabled = pageIndex >= pages.length - 1;
+}
+let previewTimer = null;
+function schedulePreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(preview, 120);
 }
 function preview() {
-  groups = paginate(store.p, options);
-  pageIndex = Math.min(pageIndex, groups.length - 1);
-  hasOverflow = false;
-  for (let i = 0; i < groups.length; i++) {
-    const page = renderPage(store.p, groups[i], options, i, groups.length);
-    hasOverflow ||= page.overflow > 0;
-    page.canvas.width = 0;
-    page.canvas.height = 0;
-  }
+  pages = layoutPages(store.p, paper(), measureText, rows);
   showPage();
-  $("print").disabled = hasOverflow;
-  $("png").disabled = hasOverflow;
+  const continued = pages.flat().filter((e) => e.continuation).length;
   notice(
-    hasOverflow
-      ? "文字が収まらないコマがあります。コマ数を減らすか文字を小さくしてください。"
-      : "紙コンテの準備完了",
+    `紙コンテ ${pages.length}ページ / ${rows.length} Panel${
+      continued ? ` · 続き行 ${continued}` : ""
+    }`,
   );
 }
-$("paper").onclick = () => {
+function progress(text, running) {
+  $("paperProgress").textContent = text;
+  $("cancelExport").hidden = !running;
+  for (const id of ["print", "png"]) $(id).disabled = running;
+}
+// 出力は1ページずつ。途中でキャンセルできるようJobを渡す。
+async function exportPages(handle, label) {
+  if (job) return null;
+  job = new Job();
+  progress(`${label} 0 / ${pages.length}`, true);
+  try {
+    const result = await forEachPage(
+      pages.length,
+      async (i) => {
+        const canvas = renderPage(
+          store.p,
+          pages[i],
+          paper(),
+          i,
+          pages.length,
+          images,
+        );
+        const value = await handle(canvas, i);
+        canvas.width = canvas.height = 0;
+        return value;
+      },
+      {
+        job,
+        onProgress: ({ done, total }) =>
+          progress(`${label} ${done} / ${total}`, true),
+      },
+    );
+    progress(`${label} 完了（${pages.length}ページ）`, false);
+    return result;
+  } catch (e) {
+    progress(
+      e instanceof Cancelled
+        ? "出力を中止しました"
+        : `出力に失敗：${e.message}`,
+      false,
+    );
+    return null;
+  } finally {
+    job = null;
+  }
+}
+$("cancelExport").onclick = () => job?.cancel();
+$("paper").onclick = async () => {
   stop();
   $("paperDialog").showModal();
+  await ensureImages(store.p);
+  paperSettings();
   preview();
 };
-$("closePaper").onclick = () => $("paperDialog").close();
+$("closePaper").onclick = () => {
+  job?.cancel();
+  $("paperDialog").close();
+};
 $("print").onclick = async () => {
-  const images = [];
-  for (let i = 0; i < groups.length; i++) {
-    const { canvas } = renderPage(
-      store.p,
-      groups[i],
-      options,
-      i,
-      groups.length,
-    );
+  const sheets = await exportPages(async (canvas) => {
     const img = new Image();
     img.src = canvas.toDataURL("image/png");
     await img.decode();
-    images.push(img);
-    canvas.width = 0;
-    canvas.height = 0;
-  }
-  $("pages").replaceChildren(...images);
+    return img;
+  }, "印刷用に生成");
+  if (!sheets) return showPage();
+  $("pages").replaceChildren(...sheets);
   window.print();
 };
 window.addEventListener("afterprint", () => {
   if ($("paperDialog").open) showPage();
 });
+// PNGは1ファイルのZIPにまとめる。連番の個別ダウンロードを何十回も許可させない。
 $("png").onclick = async () => {
-  for (let i = 0; i < groups.length; i++) {
-    const { canvas } = renderPage(
-      store.p,
-      groups[i],
-      options,
-      i,
-      groups.length,
-    );
-    const blob = await new Promise((resolve) =>
-      canvas.toBlob(resolve, "image/png"),
-    );
-    download(blob, `conte-${String(i + 1).padStart(3, "0")}.png`);
-    canvas.width = 0;
-    canvas.height = 0;
-  }
-  notice(
-    "PNG連番をダウンロードしました（複数ダウンロードの許可が必要な場合があります）",
+  const files = await exportPages(
+    async (canvas, i) => ({
+      name: `conte-${String(i + 1).padStart(3, "0")}.png`,
+      bytes: await canvasBytes(canvas),
+    }),
+    "PNGを生成",
   );
+  if (!files) return showPage();
+  // ファイル名に使えない記号を落とす。空になったらcontEの既定名にする。
+  const base =
+    store.p.title
+      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "")
+      .trim()
+      .slice(0, 40) || "conte";
+  const name = `${base}-png.zip`;
+  download(zip(files), name);
+  notice(`${files.length}枚のPNGを${name}にまとめました`);
+  showPage();
 };
+// Animatic出力。映像は再生と同じ評価、音は再生と同じ予約をストリームへ流す。
+let animaticJob = null;
+function animaticSetup() {
+  const fill = (id, entries, selected) => {
+    $(id).replaceChildren(
+      ...entries.map(([value, text]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = text;
+        option.selected = String(selected) === String(value);
+        return option;
+      }),
+    );
+  };
+  fill(
+    "animaticFormat",
+    Object.entries(animatic.FORMATS).map(([key, f]) => [key, f.label]),
+    "webm",
+  );
+  fill(
+    "animaticFps",
+    animatic.FPS_CHOICES.map((v) => [v, `${v} fps`]),
+    animatic.FPS_CHOICES.includes(store.p.fps) ? store.p.fps : 24,
+  );
+  fill(
+    "animaticSize",
+    Object.keys(animatic.RESOLUTIONS).map((key) => [
+      key,
+      `${key}（${animatic.RESOLUTIONS[key].join("×")}）`,
+    ]),
+    "720p",
+  );
+  for (const id of ["animaticFormat", "animaticFps", "animaticSize"])
+    $(id).onchange = animaticInfo;
+  animaticInfo();
+}
+function animaticSpec() {
+  return animatic.plan(
+    endFrame(),
+    store.p.fps,
+    Number($("animaticFps").value),
+    $("animaticSize").value,
+  );
+}
+function animaticInfo() {
+  const spec = animaticSpec();
+  const format = $("animaticFormat").value;
+  const mime = format === "webm" ? animatic.pickMime("webm") : null;
+  $("animaticStart").disabled = format === "webm" && !mime;
+  $("animaticInfo").textContent =
+    `${spec.seconds.toFixed(2)}秒 / ${spec.frames}フレーム / ${spec.width}×${spec.height}` +
+    (format === "webm"
+      ? mime
+        ? ` · ${mime}・音${resolved.length ? "あり" : "なし"}・録画に約${Math.ceil(spec.seconds)}秒`
+        : " · この環境では録画形式が使えません"
+      : " · フレームを1枚ずつ描いてZIPにまとめます");
+}
+function animaticProgress(text, running) {
+  $("animaticProgress").textContent = text;
+  $("animaticCancel").hidden = !running;
+  $("animaticStart").disabled = running;
+  for (const id of ["animaticFormat", "animaticFps", "animaticSize"])
+    $(id).disabled = running;
+}
+// PNG連番：フレーム厳密。再生時計に頼らず、出力フレームごとに時刻を決める。
+async function animaticFrames(spec) {
+  const canvas = $("animaticPreview");
+  canvas.width = spec.width;
+  canvas.height = spec.height;
+  const context = canvas.getContext("2d");
+  animaticJob = new Job();
+  const files = await forEachPage(
+    spec.frames,
+    async (i) => {
+      animatic.renderFrame(
+        context,
+        rows,
+        spec.sourceFrame(i),
+        spec.width,
+        spec.height,
+        images,
+      );
+      return {
+        name: `frame-${String(i + 1).padStart(5, "0")}.png`,
+        bytes: await canvasBytes(canvas),
+      };
+    },
+    {
+      job: animaticJob,
+      onProgress: ({ done, total }) =>
+        animaticProgress(`フレーム ${done} / ${total}`, true),
+    },
+  );
+  return zip(files);
+}
+// WebM：実時間の録画。音は再生と同じ予約を録音用の出力先へ流す。
+async function animaticRecord(spec, mime) {
+  const canvas = $("animaticPreview");
+  canvas.width = spec.width;
+  canvas.height = spec.height;
+  const context = canvas.getContext("2d");
+  const stream = canvas.captureStream(spec.outFps);
+  const schedule = audio.scheduleFor(resolved, 0, store.p.fps, endFrame());
+  if (schedule.length) {
+    const destination = sound.streamDestination();
+    for (const track of destination.stream.getAudioTracks())
+      stream.addTrack(track);
+    sound.play(schedule, 0, store.p.fps, 0.12, destination);
+  }
+  const recorder = new animatic.Recorder(stream, mime);
+  animaticJob = new Job();
+  recorder.start();
+  const started = performance.now();
+  try {
+    while (true) {
+      const clock = sound.frameAt(store.p.fps);
+      const elapsed =
+        clock !== null
+          ? clock / store.p.fps
+          : (performance.now() - started) / 1000;
+      if (elapsed >= spec.seconds) break;
+      animaticJob.check();
+      animatic.renderFrame(
+        context,
+        rows,
+        Math.max(0, Math.min(endFrame() - 1e-6, elapsed * store.p.fps)),
+        spec.width,
+        spec.height,
+        images,
+      );
+      const state = animatic.recordingProgress(Math.max(0, elapsed), spec);
+      animaticProgress(
+        `録画 ${state.done} / ${state.total}（残り約${Math.ceil(state.remaining)}秒）`,
+        true,
+      );
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    return await recorder.finish();
+  } catch (e) {
+    await recorder.discard();
+    throw e;
+  } finally {
+    sound.stop();
+    for (const track of stream.getVideoTracks()) track.stop();
+  }
+}
+$("animatic").onclick = () => {
+  stop();
+  animaticSetup();
+  animaticProgress("", false);
+  $("animaticDialog").showModal();
+};
+$("closeAnimatic").onclick = () => {
+  animaticJob?.cancel();
+  $("animaticDialog").close();
+};
+$("animaticCancel").onclick = () => animaticJob?.cancel();
+$("animaticStart").onclick = async () => {
+  if (animaticJob) return;
+  const spec = animaticSpec();
+  const format = $("animaticFormat").value;
+  try {
+    animaticProgress("準備中…", true);
+    // 出力中はプロジェクトへ触れない。失敗しても素材と編集内容は元のまま。
+    const blob =
+      format === "webm"
+        ? await animaticRecord(spec, animatic.pickMime("webm"))
+        : await animaticFrames(spec);
+    const name = animatic.outputName(
+      store.p.title,
+      animatic.FORMATS[format].extension,
+    );
+    download(blob, name);
+    animaticProgress(
+      `${name} を書き出しました（${(blob.size / 1e6).toFixed(2)}MB）`,
+      false,
+    );
+  } catch (e) {
+    animaticProgress(
+      e instanceof Cancelled
+        ? "出力を中止しました（途中のファイルは残していません）"
+        : `出力に失敗：${e.message}`,
+      false,
+    );
+  } finally {
+    animaticJob = null;
+    animaticProgress($("animaticProgress").textContent, false);
+  }
+};
+// ペインの幅/高さ。ドラッグで変え、次回の起動でも同じ配置で開く。
+// Timelineの初期高さは目盛・Panel・Camera・音声の4段が全部見える値にする。
+const layout = { tree: 220, inspector: 260, timeline: 270 };
+const limits = {
+  tree: [140, 480],
+  inspector: [180, 520],
+  timeline: [150, 560],
+};
+function applyLayout() {
+  for (const [key, value] of Object.entries(layout))
+    document.documentElement.style.setProperty(`--${key}`, `${value}px`);
+}
+for (const [id, key, axis, sign] of [
+  ["splitTree", "tree", "x", 1],
+  ["splitInspector", "inspector", "x", -1],
+  ["splitTimeline", "timeline", "y", -1],
+])
+  $(id).onpointerdown = (e) => {
+    e.preventDefault();
+    const node = $(id),
+      start = axis === "x" ? e.clientX : e.clientY,
+      base = layout[key];
+    node.setPointerCapture(e.pointerId);
+    node.onpointermove = (v) => {
+      const delta = ((axis === "x" ? v.clientX : v.clientY) - start) * sign;
+      const [min, max] = limits[key];
+      layout[key] = Math.round(Math.max(min, Math.min(max, base + delta)));
+      applyLayout();
+      timeline();
+    };
+    node.onpointerup = node.onpointercancel = () => {
+      node.onpointermove = null;
+      if (persistence) repo.setLayout({ ...layout }).catch(() => {});
+    };
+  };
+applyLayout();
 render();
+// 永続化はProjectRepositoryへ集約する。UIは保存の成否をそのまま表示する。
+const repo = new ProjectRepository(
+  IndexedDbStorage.available() ? new IndexedDbStorage() : new MemoryStorage(),
+);
+let persistence = false;
+const clock = (t) =>
+  new Date(t).toLocaleString("ja-JP", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+const saver = new Autosaver(repo, {
+  onState: ({ state, meta, message }) => {
+    $("savestate").textContent =
+      {
+        idle: "",
+        pending: "未保存の変更",
+        saving: "自動保存中…",
+        saved: meta ? `ブラウザに保存 ${clock(meta.savedAt)}` : "保存済み",
+        failed: `自動保存に失敗：${message}／保存ボタンでファイルへ`,
+      }[state] ?? "";
+    $("savestate").className = state;
+  },
+});
+function markDirty() {
+  fileDirty = true;
+  // 自動保存の失敗で編集操作そのものを止めない。
+  try {
+    if (persistence) saver.schedule(() => store.p);
+  } catch (e) {
+    notice(`自動保存を予約できません：${e.message}`);
+  }
+}
+async function persist(kind) {
+  if (!persistence) return null;
+  const snapshot = store.p;
+  try {
+    const meta = await repo.save(snapshot, { kind });
+    await repo.pruneAssets(snapshot).catch(() => {});
+    if (store.p === snapshot) saver.resolved(meta);
+    return meta;
+  } catch (e) {
+    notice(`ブラウザ内保存に失敗：${e.message}`);
+    return null;
+  }
+}
+// 音声素材をデコードしておく。見つからない素材は名前を控えて知らせる。
+async function ensureAudio(p) {
+  const missing = [];
+  for (const asset of p.assets) {
+    if (asset.kind !== "audio" || sound.has(asset.id)) continue;
+    try {
+      const blob = await repo.getAsset(asset.id);
+      if (!blob) throw Error("素材が見つかりません");
+      await sound.decode(asset.id, blob);
+    } catch {
+      missing.push(asset.name);
+    }
+  }
+  return missing;
+}
+// 素材のビットマップを用意し、見つからないものは黙って無視しない。
+async function loadImages() {
+  const missing = [
+    ...(await ensureImages(store.p)),
+    ...(await ensureAudio(store.p)),
+  ];
+  render();
+  if (missing.length)
+    notice(
+      `素材が${missing.length}件見つかりません（${missing[0]}ほか）。.contpに素材は含まれません。音は「音」タブから差し替えられます。`,
+    );
+  return missing;
+}
+function offerRecovery({ meta, project }) {
+  $("recoverInfo").textContent = `${clock(meta.savedAt)} ／ ${
+    meta.title
+  } ／ ${meta.panels} Panel ／ ${meta.kind === "manual" ? "手動保存" : "自動保存"}`;
+  $("recover").onclick = async () => {
+    $("recoverDialog").close();
+    stop();
+    store = new Store(project);
+    frame = 0;
+    fileDirty = true;
+    render();
+    saver.resolved(meta);
+    notice("前回の作業を復旧しました。ファイルへの保存は別に行ってください。");
+    await loadImages();
+  };
+  $("discardRecovery").onclick = async () => {
+    $("recoverDialog").close();
+    await repo.dismiss(meta.savedAt).catch(() => {});
+    notice("復旧候補を今回は使いません（保存データは残っています）");
+  };
+  $("recoverDialog").showModal();
+}
+(async () => {
+  try {
+    await repo.open();
+    persistence = true;
+    // 開き終わる前の編集も取りこぼさない。
+    if (fileDirty) markDirty();
+  } catch (e) {
+    // 保存できない環境でも編集と画像取り込みは続けられるようにする。
+    repo.storage = new MemoryStorage();
+    await repo.open();
+    $("savestate").textContent =
+      `自動保存を使えません：${e.message}／保存ボタンでファイルへ`;
+    $("savestate").className = "failed";
+    return;
+  }
+  const saved = await repo.getLayout().catch(() => null);
+  if (saved) {
+    Object.assign(layout, saved);
+    applyLayout();
+    timeline();
+  }
+  try {
+    const candidate = await repo.latest();
+    if (!candidate) return;
+    if (candidate.broken.length)
+      notice(
+        `読み取れない保存データを${candidate.broken.length}件読み飛ばしました（削除はしていません）`,
+      );
+    if (!candidate.project) return;
+    if (candidate.meta.savedAt <= (await repo.dismissed())) return;
+    offerRecovery(candidate);
+  } catch (e) {
+    notice(`復旧候補を確認できません：${e.message}`);
+  }
+})();

@@ -49,15 +49,50 @@ header strong {
 header input {
   width: 250px;
 }
-#status {
+#savestate {
   margin-left: auto;
+  color: #9caabd;
+  white-space: nowrap;
+}
+#savestate.pending,
+#savestate.saving {
+  color: #ffd479;
+}
+#savestate.failed {
+  color: #ff9f8e;
+}
+#status {
   color: #aab6c6;
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 main {
   display: grid;
-  grid-template-columns: 220px minmax(300px, 1fr) 260px;
+  grid-template-columns: var(--tree, 220px) 6px minmax(260px, 1fr) 6px var(
+      --inspector,
+      260px
+    );
   min-height: 0;
   flex: 1;
+}
+.splitter {
+  background: #232a33;
+  border-left: 1px solid #343b45;
+  border-right: 1px solid #343b45;
+  cursor: col-resize;
+  touch-action: none;
+}
+.splitter:hover {
+  background: #3a4655;
+}
+.splitter.horizontal {
+  cursor: row-resize;
+  height: 6px;
+  border: 0;
+  border-top: 1px solid #343b45;
+  border-bottom: 1px solid #343b45;
 }
 aside {
   padding: 12px;
@@ -99,6 +134,68 @@ aside {
 }
 #strip button {
   min-width: 100px;
+  position: relative;
+}
+#strip button.dragging {
+  opacity: 0.5;
+}
+#strip button.before,
+#strip button.after {
+  box-shadow: inset 3px 0 0 #73baff;
+}
+#strip button.after {
+  box-shadow: inset -3px 0 0 #73baff;
+}
+#tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+#tools button {
+  padding: 5px 9px;
+}
+#tools .tool.on {
+  background: #2f6ea8;
+  border-color: #73baff;
+}
+#tools .inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: #aab6c6;
+}
+#tools .inline input {
+  width: 90px;
+  margin: 0;
+}
+#viewInfo {
+  color: #8c9aad;
+}
+#tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+#tabs .tab {
+  flex: 1;
+  padding: 6px 4px;
+}
+#tabs .tab.on {
+  background: #2f6ea8;
+  border-color: #73baff;
+}
+#inspector .pane button {
+  margin: 4px 4px 4px 0;
+}
+#tree .shot {
+  color: #9acbff;
+  padding-left: 10px;
+}
+input.rename {
+  width: 100%;
+  margin: 2px 0;
 }
 label {
   display: block;
@@ -124,7 +221,7 @@ summary {
   cursor: pointer;
 }
 footer {
-  height: 180px;
+  height: var(--timeline, 270px);
   padding: 12px;
   border-top: 1px solid #414b58;
 }
@@ -144,23 +241,177 @@ footer label {
 }
 #timeline {
   overflow: auto;
-  height: 110px;
-  margin-top: 12px;
+  flex: 1;
+  min-height: 0;
+  margin-top: 10px;
 }
 #track {
-  height: 90px;
   position: relative;
-  background: repeating-linear-gradient(
-    90deg,
-    #202832 0,
-    #202832 71px,
-    #3b4653 72px
-  );
+  height: 100%;
+  min-height: 200px;
+  background: #202832;
+}
+#timebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+#timebar .inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+#timebar .inline input[type="range"] {
+  width: 130px;
+  margin: 0;
+}
+#timebar input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+#time,
+#range {
+  color: #aab6c6;
+  font-variant-numeric: tabular-nums;
+}
+#ruler {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 22px;
+  border-bottom: 1px solid #3b4653;
+}
+.tick {
+  position: absolute;
+  top: 0;
+  padding-left: 4px;
+  font-size: 10px;
+  color: #8c9aad;
+  border-left: 1px solid #3b4653;
+  height: 22px;
+  line-height: 22px;
+  white-space: nowrap;
+}
+.tick.second {
+  color: #b9c6d6;
+  border-left-color: #55637a;
+}
+#band {
+  position: absolute;
+  top: 22px;
+  bottom: 0;
+  background: #73baff18;
+  border-left: 1px solid #73baff66;
+  border-right: 1px solid #73baff66;
+  pointer-events: none;
+}
+#cameraTrack {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 88px;
+  height: 26px;
+}
+#audioTrack {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 118px;
+  height: 78px;
+}
+.audiolane {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 24px;
+  border-top: 1px dashed #39424f;
+}
+.audiolane > .label {
+  position: sticky;
+  left: 0;
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 10px;
+  color: #8c9aad;
+  background: #202832cc;
+  z-index: 1;
+  /* 見出しは目印だけ。下のクリップを掴む邪魔をしない。 */
+  pointer-events: none;
+}
+.sound {
+  position: absolute;
+  top: 2px;
+  height: 20px;
+  border: 1px solid #5f9c86;
+  background: #234a3d;
+  border-radius: 3px;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+.sound.selected {
+  border-color: #9fe8c8;
+  box-shadow: 0 0 0 1px #9fe8c8;
+}
+.sound.missing {
+  border-color: #ff9f8e;
+  background: #4a2a27;
+}
+.sound canvas {
+  display: block;
+  height: 18px;
+  width: 100%;
+}
+.sound .name {
+  position: absolute;
+  left: 4px;
+  top: 2px;
+  font-size: 10px;
+  color: #d8f3e7;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.sound .trim {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 8px;
+  height: 100%;
+  background: #9fe8c855;
+  cursor: ew-resize;
+}
+.lane {
+  position: absolute;
+  height: 26px;
+  border: 1px solid #4a5566;
+  border-radius: 3px;
+  background: #262f3a;
+}
+.lane.active {
+  border-color: #bb7f5f;
+  background: #33272a;
+}
+.camkey {
+  position: absolute;
+  top: 6px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background: #e0a06a;
+  border: 1px solid #2a2118;
+  transform: rotate(45deg);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.camkey.selected {
+  background: #ffd479;
+  box-shadow: 0 0 0 2px #ffd47955;
 }
 .clip {
   position: absolute;
-  top: 24px;
-  height: 50px;
+  top: 28px;
+  height: 54px;
   white-space: nowrap;
   overflow: hidden;
   text-align: left;
@@ -183,10 +434,15 @@ footer label {
 #head {
   position: absolute;
   top: 0;
-  height: 90px;
+  bottom: 0;
   width: 2px;
   background: #ffcc85;
   pointer-events: none;
+}
+footer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 kbd {
   font-size: 10px;
@@ -209,6 +465,53 @@ dialog::backdrop {
 #paperSettings label {
   width: 145px;
 }
+#paperSettings label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 190px;
+  margin: 4px 0;
+}
+#paperSettings label.check input {
+  width: auto;
+  margin: 0;
+}
+#paperColumns .column {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+#paperColumns .column span {
+  width: 90px;
+}
+#paperColumns .column input[type="number"] {
+  width: 70px;
+  margin: 0;
+}
+#paperColumns .column input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+#paperColumns .column button {
+  padding: 3px 9px;
+}
+#paperActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0 4px;
+}
+#paperProgress {
+  color: #aab6c6;
+}
+.paging {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #aab6c6;
+}
 #pages :is(canvas, img) {
   width: 100%;
   height: auto;
@@ -217,9 +520,10 @@ dialog::backdrop {
 }
 @media (max-width: 900px) {
   main {
-    grid-template-columns: 150px minmax(250px, 1fr);
+    grid-template-columns: 150px 6px minmax(250px, 1fr);
   }
-  #inspector {
+  #inspector,
+  #splitInspector {
     display: none;
   }
 }
@@ -227,7 +531,7 @@ dialog::backdrop {
   body > * {
     display: none !important;
   }
-  body > dialog {
+  body > #paperDialog {
     display: block !important;
     position: static;
     max-height: none;
@@ -235,10 +539,10 @@ dialog::backdrop {
     border: 0;
     padding: 0;
   }
-  dialog > * {
+  #paperDialog > * {
     display: none !important;
   }
-  dialog > #pages {
+  #paperDialog > #pages {
     display: block !important;
   }
   #pages :is(canvas, img) {
@@ -262,5 +566,59 @@ dialog::backdrop {
   margin-bottom: 5px;
   background: #fff;
 }
-#paperSettings label:has(input[type="checkbox"]) {display:flex;align-items:center;gap:8px;width:145px;margin:4px 0}
-#paperSettings input[type="checkbox"] {width:auto;margin:0}
+#paperSettings label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 145px;
+  margin: 4px 0;
+}
+#paperSettings input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+#animaticDialog {
+  width: min(720px, 94vw);
+  padding: 20px;
+}
+#animaticSettings {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+#animaticSettings label {
+  width: 200px;
+}
+#animaticActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+#animaticProgress {
+  color: #aab6c6;
+}
+#animaticPreview {
+  width: 100%;
+  height: auto;
+  background: #fff;
+  border: 1px solid #414b58;
+}
+#recoverDialog {
+  width: min(520px, 92vw);
+  padding: 20px;
+}
+#recoverDialog h2 {
+  margin: 0 0 12px;
+  font-size: 17px;
+}
+#recoverInfo {
+  background: #232a33;
+  border: 1px solid #414b58;
+  border-radius: 4px;
+  padding: 10px;
+}
+#recoverDialog button {
+  margin-right: 8px;
+}
