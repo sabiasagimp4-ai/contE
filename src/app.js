@@ -29,6 +29,7 @@ import { ProjectRepository, Autosaver } from "./repository.js";
 import { IndexedDbStorage, MemoryStorage } from "./storage.js";
 import { EditorSession } from "./editor-session.js";
 import { EditorController } from "./application/editor-controller.js";
+import { ImportController } from "./application/import-controller.js";
 const $ = (id) => document.getElementById(id);
 const session = new EditorSession(new Store());
 // 確定編集の入口はEditorControllerひとつ。副作用は下の購読で一度だけ行う。
@@ -82,6 +83,9 @@ function commitWith(after, run) {
 }
 const act = (name, args, after = null) =>
   commitWith(after, () => editor.execute(name, args));
+// 素材取り込みは開始時の対象とSessionを固定する。完了が遅れても別の対象や
+// 別の作品へは適用しない。
+const imports = new ImportController(editor);
 function stop() {
   playing = false;
   cancelAnimationFrame(raf);
@@ -1010,31 +1014,43 @@ $("imageFile").onchange = async () => {
   const f = $("imageFile").files[0];
   $("imageFile").value = "";
   if (!f) return;
+  // 取り込み先は押した時点のPanel。読み込み中に選択が変わっても移らない。
+  const target = activeId();
+  const opacity = Number($("imageOpacity").value) / 100 || 1;
   try {
     if (!f.type.startsWith("image/")) throw Error("画像ファイルではありません");
     if (f.size > 30e6) throw Error("30MBを超える画像は未対応です");
-    const source = await createImageBitmap(f);
-    const id = uid();
-    const meta = {
-      id,
-      kind: "image",
-      name: f.name.slice(0, 80),
-      mime: f.type,
-      bytes: f.size,
-      width: source.width,
-      height: source.height,
-    };
-    source.close?.();
-    // 先にバイナリを保存する。保存できない画像をプロジェクトへ参照させない。
-    await repo.putAsset(id, f);
-    images.set(id, await bitmapFor(f));
-    // TODO(R06): 対象の固定は取り込み開始時に行う。ここは現行の挙動のまま。
-    const target = activeId();
-    act("setPanelImage", {
-      panelId: target,
-      asset: meta,
-      opacity: Number($("imageOpacity").value) / 100 || 1,
+    const outcome = await imports.run({
+      key: `image:${target}`,
+      targetExists: () => !!panelById(target),
+      load: async () => {
+        const source = await createImageBitmap(f);
+        const id = uid();
+        const meta = {
+          id,
+          kind: "image",
+          name: f.name.slice(0, 80),
+          mime: f.type,
+          bytes: f.size,
+          width: source.width,
+          height: source.height,
+        };
+        source.close?.();
+        // 先にバイナリを保存する。保存できない画像をプロジェクトへ参照させない。
+        await repo.putAsset(id, f);
+        return { meta, bitmap: await bitmapFor(f) };
+      },
+      apply: ({ meta, bitmap }) => {
+        images.set(meta.id, bitmap);
+        return act("setPanelImage", { panelId: target, asset: meta, opacity });
+      },
+      release: ({ bitmap }) => bitmap?.close?.(),
     });
+    if (!outcome.applied) {
+      notice("画像の取り込みは適用しませんでした（対象が変わりました）");
+      return;
+    }
+    const { meta } = outcome.resource;
     notice(`${meta.name} を読み込みました（${meta.width}×${meta.height}）`);
   } catch (e) {
     notice(`画像を読み込めません：${e.message}`);
@@ -1056,34 +1072,53 @@ $("audioFile").onchange = async () => {
     if (!file.type.startsWith("audio/"))
       throw Error("音声ファイルではありません");
     if (file.size > 80e6) throw Error("80MBを超える音声は未対応です");
-    const id = uid();
-    const buffer = await sound.decode(id, file);
-    await repo.putAsset(id, file);
+    // 置き場所（再生ヘッドのPanelと相対位置）と種別を開始時に決める。
     const at = Math.round(frame);
     const host = rowAtFrame(rows, at);
-    const frames = Math.max(1, Math.round(buffer.duration * store.p.fps));
-    const added = uid();
-    act(
-      "addAudioClip",
-      {
-        clipId: added,
-        asset: {
-          id,
-          kind: "audio",
-          name: file.name.slice(0, 80),
-          mime: file.type,
-          bytes: file.size,
-        },
-        track: $("audioKind").value,
-        anchor: host.panel.id,
-        at: at - host.start,
-        frames,
+    const anchor = host.panel.id;
+    const offset = at - host.start;
+    const track = $("audioKind").value;
+    const fps = store.p.fps;
+    const outcome = await imports.run({
+      targetExists: () => !!panelById(anchor),
+      load: async () => {
+        const id = uid();
+        const buffer = await sound.decode(id, file);
+        await repo.putAsset(id, file);
+        return { id, buffer };
       },
-      (result) => {
-        if (result.changed) clipId = added;
+      apply: ({ id, buffer }) => {
+        const added = uid();
+        return act(
+          "addAudioClip",
+          {
+            clipId: added,
+            asset: {
+              id,
+              kind: "audio",
+              name: file.name.slice(0, 80),
+              mime: file.type,
+              bytes: file.size,
+            },
+            track,
+            anchor,
+            at: offset,
+            frames: Math.max(1, Math.round(buffer.duration * fps)),
+          },
+          (result) => {
+            if (result.changed) clipId = added;
+          },
+        );
       },
+      release: ({ id }) => sound.forget(id),
+    });
+    if (!outcome.applied) {
+      notice("音声の配置は適用しませんでした（対象が変わりました）");
+      return;
+    }
+    notice(
+      `${file.name} を配置しました（${outcome.resource.buffer.duration.toFixed(2)}秒）`,
     );
-    notice(`${file.name} を配置しました（${buffer.duration.toFixed(2)}秒）`);
   } catch (e) {
     notice(`音声を読み込めません：${e.message}`);
   }
@@ -1119,9 +1154,8 @@ $("clipDelete").onclick = () => act("deleteClip", { clipId });
 $("clipRepair").onclick = () => {
   const clip = currentClip();
   if (!clip) return;
-  // 取り込みの対象とSessionは開始時に固定する。
+  // 取り込みの対象は押した時点のClip。Sessionの照合はImportControllerが行う。
   const target = clip.id;
-  const token = editor.capture();
   const picker = document.createElement("input");
   picker.type = "file";
   picker.accept = "audio/*";
@@ -1132,31 +1166,34 @@ $("clipRepair").onclick = () => {
       if (!file.type.startsWith("audio/"))
         throw Error("音声ファイルではありません");
       if (file.size > 80e6) throw Error("80MBを超える音声は未対応です");
-      const id = uid();
-      const buffer = await sound.decode(id, file);
-      await repo.putAsset(id, file);
-      // 差し替え中に作品を開き直していたら、古い結果を新しい画面へ入れない。
-      if (!editor.isCurrent(token)) {
-        sound.forget(id);
-        return;
-      }
-      const result = act("replaceClipAsset", {
-        clipId: target,
-        asset: {
-          id,
-          kind: "audio",
-          name: file.name.slice(0, 80),
-          mime: file.type,
-          bytes: file.size,
+      const outcome = await imports.run({
+        key: `clip:${target}`,
+        targetExists: () => store.p.audio.some((c) => c.id === target),
+        load: async () => {
+          const id = uid();
+          const buffer = await sound.decode(id, file);
+          await repo.putAsset(id, file);
+          return { id, buffer };
         },
+        apply: ({ id }) =>
+          act("replaceClipAsset", {
+            clipId: target,
+            asset: {
+              id,
+              kind: "audio",
+              name: file.name.slice(0, 80),
+              mime: file.type,
+              bytes: file.size,
+            },
+          }),
+        release: ({ id }) => sound.forget(id),
       });
-      if (!result.changed) {
-        sound.forget(id);
-        notice("差し替える対象のクリップがありません");
+      if (!outcome.applied) {
+        notice("差し替えは適用しませんでした（対象が変わりました）");
         return;
       }
       notice(
-        `素材を差し替えました（${buffer.duration.toFixed(2)}秒／元に戻すで戻せます）`,
+        `素材を差し替えました（${outcome.resource.buffer.duration.toFixed(2)}秒／元に戻すで戻せます）`,
       );
     } catch (e) {
       notice(`差し替えられません：${e.message}`);
