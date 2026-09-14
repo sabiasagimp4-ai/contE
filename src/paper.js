@@ -1,4 +1,5 @@
 import { flatten, describeCamera } from "./model.js";
+import { resolveClips, soundNotes, soundText } from "./audio.js";
 import { draw } from "./drawing.js";
 export const defaults = {
   rows: 4,
@@ -89,6 +90,10 @@ export function cameraNotation(c, b, x, y, w, h) {
   c.restore();
 }
 export function renderPage(p, rows, o, page, total, images) {
+  // 全Panelの並びと音の解決は1ページにつき1度だけ行う。行ごとに数え直さない。
+  const all = flatten(p);
+  const clips = resolveClips(p, all);
+  const index = new Map(all.map((r, i) => [r.panel.id, i]));
   const canvas = document.createElement("canvas");
   canvas.width = 1240;
   canvas.height = 1754;
@@ -120,10 +125,7 @@ export function renderPage(p, rows, o, page, total, images) {
     c.font = `${o.font}px "Noto Sans JP", sans-serif`;
     c.fillStyle = "#111";
     let heading = [];
-    if (o.cut)
-      heading.push(
-        `CUT ${flatten(p).findIndex((v) => v.panel.id === r.panel.id) + 1}`,
-      );
+    if (o.cut) heading.push(`CUT ${(index.get(r.panel.id) ?? 0) + 1}`);
     if (o.numbers) heading.push(`S${r.si + 1} / SH${r.hi + 1} / P${r.pi + 1}`);
     if (o.duration)
       heading.push(
@@ -142,12 +144,17 @@ export function renderPage(p, rows, o, page, total, images) {
     }
     const tx = o.image ? ix + iw + 20 : ix;
     const blocks = [];
-    for (const [key, title] of [
-      ["dialogue", "台詞"],
-      ["sound", "SE / BGM"],
-      ["notes", "演出"],
-    ])
-      if (o[key]) blocks.push(`${title}: ${r.panel[key]}`);
+    if (o.dialogue && r.panel.dialogue)
+      blocks.push(`台詞: ${r.panel.dialogue}`);
+    if (o.sound) {
+      // 音注記は、明示的な注記欄と、時間が重なる音声クリップの両方から作る。
+      const placed = soundText(
+        soundNotes(p, all, r, clips).filter((n) => n.track !== "dialogue"),
+      );
+      const note = [r.panel.sound, placed].filter(Boolean).join(" / ");
+      if (note) blocks.push(`SE / BGM: ${note}`);
+    }
+    if (o.notes && r.panel.notes) blocks.push(`演出: ${r.panel.notes}`);
     if (o.camera) {
       const { keys, moves, hold } = describeCamera(r.panel);
       blocks.push(

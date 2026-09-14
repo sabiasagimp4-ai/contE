@@ -69,6 +69,7 @@
         <div id="tabs">
           <button class="tab on" data-tab="content">内容</button
           ><button class="tab" data-tab="camera">Camera</button
+          ><button class="tab" data-tab="sound">音</button
           ><button class="tab" data-tab="structure">構成</button>
         </div>
         <div class="pane" data-pane="content">
@@ -108,6 +109,44 @@
           ><button id="keyDelete">選択キーを削除</button>
           <p class="hint">
             キーは尺に対する比率で保持します。尺を変えるとCameraの動きも同じ比率で伸縮します。Timeline下段のキーはドラッグで移動、レーンのダブルクリックで追加できます。
+          </p>
+        </div>
+        <div class="pane" data-pane="sound" hidden>
+          <button id="audioAdd">音声を読み込む</button
+          ><input id="audioFile" type="file" accept="audio/*" hidden /><label
+            >トラック<select id="audioKind">
+              <option value="dialogue">台詞</option>
+              <option value="se" selected>SE</option>
+              <option value="bgm">BGM</option>
+            </select></label
+          >
+          <label
+            >このPanelにかかる音<select id="clipList" size="4"></select
+          ></label>
+          <label
+            >音量<input
+              id="clipGain"
+              type="range"
+              min="0"
+              max="200"
+              value="100" /></label
+          ><label
+            >長さ（フレーム）<input
+              id="clipFrames"
+              type="number"
+              min="1"
+              max="864000" /></label
+          ><label
+            >素材内の開始（フレーム）<input
+              id="clipOffset"
+              type="number"
+              min="0"
+              max="864000" /></label
+          ><button id="clipDelete">選択クリップを削除</button
+          ><button id="clipRepair">素材を差し替える</button>
+          <p id="clipInfo" class="hint"></p>
+          <p class="hint">
+            クリップは開始位置のPanelに属します。前のPanelの尺が変わると一緒に動き、Panelを削除すると音も消えます（Undoで戻ります）。
           </p>
         </div>
         <div class="pane" data-pane="structure" hidden>
@@ -150,6 +189,7 @@
           <div id="band"></div>
           <div id="clips"></div>
           <div id="cameraTrack"></div>
+          <div id="audioTrack"></div>
           <div id="head"></div>
         </div>
       </div>

@@ -56,6 +56,19 @@
 - Remaining: clips cannot be dragged along the timeline, there is no easing, camera cannot be manipulated directly on the canvas, and there are still no audio or dialogue tracks.
 - Next highest value: P3 — an Audio Engine with cached waveforms, clips for dialogue/SE/BGM on the timeline, and playback synchronised to the audio clock.
 
+## Cycle 6: audio clips, cached waveforms and a synchronised clock (P3)
+
+- Problem: sound existed only as a text note in the inspector. Nothing could be placed in time, nothing could be heard, and the paper output repeated whatever the user had typed rather than describing what was actually placed.
+- Change: schema v4 adds `project.audio` clips — asset reference, track (dialogue/SE/BGM), anchor panel, offset within the panel, length, source offset and gain — with a v3→v4 migration. `src/audio.js` is a new Audio Engine: clip resolution to absolute frames, scheduling maths, waveform peaks, sound notes for paper, and a decode/waveform cache around Web Audio. The timeline grew three audio lanes with waveforms, drag to move and an edge to trim; the inspector grew a sound tab with import, gain, length, source offset, delete and repair.
+- Position rule, stated: a clip belongs to the panel its start sits on and is stored relative to that panel. Change an earlier duration and the sound moves with its picture; delete the panel and the clip goes with it, returning together on undo. The rule is written in the README, in the sound tab and in the handover document.
+- Synchronisation: playback derives the frame from `AudioContext.currentTime` whenever clips are scheduled, and falls back to the display clock when the project is silent. Every play call stops the previous sources first, so repeated seeks and a hammered play button cannot stack two playbacks. Stopping silences everything.
+- Paper: sound notes now come from actual overlap — the typed note plus each clip that covers the panel, marked "（続き）" when it started earlier and "+12f" when it starts late.
+- Validation: 51 unit tests (9 new) cover clip resolution, the anchoring rule under duration changes, re-anchoring on move, orphan pruning, scheduling (including mid-playback offsets and the project end), sound notes, waveform peaks and an engine driven by a fake audio context. The browser run imports a generated 3-second WAV, checks the waveform, drags the clip, deletes the host panel and undoes it, then measures playback against wall time.
+- Measurement: 4 seconds of playback advanced 94 frames, a drift of −2 frames (≈83ms, which includes the deliberate 60ms scheduling lead and the resolution of the frame readout). The number is printed as `sync` by `npm run test:browser` so it can be compared between runs.
+- Two defects found and fixed while wiring this up: the audio lanes were taller than the default timeline pane so clips sat below the fold (the default height is now 270px and lane labels no longer swallow pointer events), and — older and more serious — `Store.edit` treated any truthy return value from an edit command as a selection. Since the assignment in the drawing command returns the strokes array, drawing on any panel but the first silently jumped the selection to panel 1. Selections are now only taken from objects that actually carry `active` or `ids`, with a test for values returned by assignment.
+- Remaining: no fades or volume curves, no mix of multiple channels for export, no audio in any exported file, and the waveform is drawn per clip on the UI thread.
+- Next highest value: P4 — paper settings in the project, long-text continuation instead of truncation, and a cancellable export with progress.
+
 ## UX evaluation
 
 Counts describe editor commands (a shortcut chord counts as one); typing values and operating OS dialogs are separate.
@@ -73,6 +86,7 @@ Counts describe editor commands (a shortcut chord counts as one); typing values 
 | Shot split / merge | 1 shortcut (valid boundary) |
 | Scene navigation | Open Scene, select Shot: 2 clicks |
 | Camera key at the playhead | 1 shortcut (K); 1 double click on the lane; drag to move |
+| Place a sound | 1 click plus the OS file dialog; drag to move, edge to trim |
 | Timeline fit / zoom | 1 shortcut (F) / 1 shortcut or wheel |
 | Paper output | 2 clicks to print dialog / PNG initiation; OS save extra |
 | Recovery | 1 undo chord restoring selection; last Panel deletion blocked; crash recovery offered on startup (1 click) |
@@ -98,3 +112,5 @@ Cycle 3 note: the numbers above were re-measured on 2026-09-13 with Playwright 1
 Cycle 4 note: the save/load numbers in the UX table above predate schema v3; the current figures are in the cycle 4 entry. Browser samples continue to include two animation frames of waiting and remain single samples, not distributions.
 
 Cycle 5 note: timings above were taken on Node 22.22 with the environment's Chromium 1194 and remain single browser samples. Engine timings are pure function calls and exclude layout and paint.
+
+Cycle 6 note: the synchronisation figure is one four-second headless sample on a machine with no audio hardware; it measures the app's own clock against wall time, not acoustic output.

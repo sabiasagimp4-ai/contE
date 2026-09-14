@@ -221,7 +221,7 @@ summary {
   cursor: pointer;
 }
 footer {
-  height: var(--timeline, 190px);
+  height: var(--timeline, 270px);
   padding: 12px;
   border-top: 1px solid #414b58;
 }
@@ -248,7 +248,7 @@ footer label {
 #track {
   position: relative;
   height: 100%;
-  min-height: 118px;
+  min-height: 200px;
   background: #202832;
 }
 #timebar {
@@ -310,8 +310,76 @@ footer label {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 4px;
+  top: 88px;
   height: 26px;
+}
+#audioTrack {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 118px;
+  height: 78px;
+}
+.audiolane {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 24px;
+  border-top: 1px dashed #39424f;
+}
+.audiolane > .label {
+  position: sticky;
+  left: 0;
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 10px;
+  color: #8c9aad;
+  background: #202832cc;
+  z-index: 1;
+  /* 見出しは目印だけ。下のクリップを掴む邪魔をしない。 */
+  pointer-events: none;
+}
+.sound {
+  position: absolute;
+  top: 2px;
+  height: 20px;
+  border: 1px solid #5f9c86;
+  background: #234a3d;
+  border-radius: 3px;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+.sound.selected {
+  border-color: #9fe8c8;
+  box-shadow: 0 0 0 1px #9fe8c8;
+}
+.sound.missing {
+  border-color: #ff9f8e;
+  background: #4a2a27;
+}
+.sound canvas {
+  display: block;
+  height: 18px;
+  width: 100%;
+}
+.sound .name {
+  position: absolute;
+  left: 4px;
+  top: 2px;
+  font-size: 10px;
+  color: #d8f3e7;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.sound .trim {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 8px;
+  height: 100%;
+  background: #9fe8c855;
+  cursor: ew-resize;
 }
 .lane {
   position: absolute;

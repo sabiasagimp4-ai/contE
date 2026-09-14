@@ -42,6 +42,31 @@ function testPng(width = 8, height = 8, rgb = [200, 90, 60]) {
     chunk("IEND", Buffer.alloc(0)),
   ]);
 }
+// テスト用の実WAV（16bit PCMのサイン波）。これも検証スクリプト内だけで使う。
+function testWav(seconds = 3, rate = 22050, freq = 440) {
+  const samples = Math.floor(seconds * rate);
+  const data = Buffer.alloc(samples * 2);
+  for (let i = 0; i < samples; i++)
+    data.writeInt16LE(
+      Math.round(Math.sin((i / rate) * freq * Math.PI * 2) * 12000),
+      i * 2,
+    );
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(rate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(data.length, 40);
+  return Buffer.concat([header, data]);
+}
 const server = await serve(resolve("."), 0);
 const browser = await chromium.launch({
   headless: true,
@@ -217,6 +242,77 @@ try {
   await page.keyboard.press("Control+z");
   await page.keyboard.press("Control+z");
   assert.equal(await page.locator(".camkey").count(), keysBefore);
+  // P3：音声を置き、波形・移動・再生・二重再生防止・同期のずれを確認する。
+  await page.locator('[data-tab="sound"]').click();
+  await page.locator("#audioFile").setInputFiles({
+    name: "tone.wav",
+    mimeType: "audio/wav",
+    buffer: testWav(3),
+  });
+  await page.waitForFunction(
+    () => document.querySelectorAll(".sound").length === 1,
+  );
+  assert.equal(await page.locator(".sound canvas").count(), 1, "no waveform");
+  assert.match(await page.locator("#clipInfo").innerText(), /3\.00秒/);
+  const clipBefore = await page.locator("#clipList option").first().innerText();
+  const clipBox = await page.locator(".sound").first().boundingBox();
+  await page.mouse.move(clipBox.x + 20, clipBox.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(clipBox.x + 70, clipBox.y + 10);
+  await page.mouse.move(clipBox.x + 120, clipBox.y + 10);
+  await page.mouse.up();
+  await page.waitForFunction(
+    (was) =>
+      document.querySelector("#clipList option")?.textContent !== was &&
+      document.querySelector("#clipList option"),
+    clipBefore,
+  );
+  // 音を置いたPanelを消すと音も消え、Undoで一緒に戻る。
+  const clipTitle = await page.locator("#clipList option").first().innerText();
+  await page.locator('[data-tab="structure"]').click();
+  await page.locator('[data-act="delete"]').click();
+  await page.waitForFunction(
+    () => document.querySelectorAll(".sound").length === 0,
+  );
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction(
+    () => document.querySelectorAll(".sound").length === 1,
+  );
+  await page.locator('[data-tab="sound"]').click();
+  assert.equal(
+    await page.locator("#clipList option").first().innerText(),
+    clipTitle,
+  );
+  // 同期：音声時計を基準に進むので、実時間とのずれをフレーム数で記録する。
+  const sync = await page.evaluate(async () => {
+    const parse = () => {
+      const [s, f] = document
+        .querySelector("#time")
+        .textContent.split(":")
+        .map((v) => parseInt(v, 10));
+      return s * 24 + f;
+    };
+    document.querySelector("#play").click();
+    const started = performance.now(),
+      from = parse();
+    // 連打しても二重に鳴らさないことを確かめるため、止めて掛け直す。
+    document.querySelector("#play").click();
+    document.querySelector("#play").click();
+    await new Promise((r) => setTimeout(r, 4000));
+    const ran = (performance.now() - started) / 1000;
+    const reached = parse();
+    document.querySelector("#play").click();
+    return {
+      seconds: +ran.toFixed(2),
+      advanced: reached - from,
+      driftFrames: +(reached - from - ran * 24).toFixed(1),
+    };
+  });
+  assert.ok(sync.advanced > 24, `playback advanced ${sync.advanced} frames`);
+  assert.ok(
+    Math.abs(sync.driftFrames) < 12,
+    `audio clock drifted ${sync.driftFrames} frames in ${sync.seconds}s`,
+  );
   await page.locator('[data-tab="content"]').click();
   const { project, panel, uid, BRUSH } = await import("../src/model.js");
   const data = project();
@@ -401,7 +497,11 @@ try {
   assert.equal(await page.locator("#print").isDisabled(), false);
   assert.deepEqual(errors, []);
   console.log(
-    JSON.stringify({ smoke: "passed", metrics, persisted, errors }, null, 2),
+    JSON.stringify(
+      { smoke: "passed", metrics, persisted, sync, errors },
+      null,
+      2,
+    ),
   );
 } finally {
   await browser.close();

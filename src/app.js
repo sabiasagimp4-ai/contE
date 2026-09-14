@@ -19,6 +19,8 @@ import {
 import { draw } from "./drawing.js";
 import { defaults, paginate, renderPage, download } from "./paper.js";
 import * as tl from "./timeline.js";
+import * as audio from "./audio.js";
+import { AudioEngine } from "./audio.js";
 import { ProjectRepository, Autosaver } from "./repository.js";
 import { IndexedDbStorage, MemoryStorage } from "./storage.js";
 const $ = (id) => document.getElementById(id);
@@ -31,6 +33,9 @@ let store = new Store(),
   stroke = null,
   fileDirty = false,
   cameraKey = 0;
+const sound = new AudioEngine();
+let clipId = null,
+  resolved = [];
 const scale = () => tl.scaleAt(scaleIndex);
 const endFrame = () => tl.total(rows);
 const viewport = () => $("timeline").clientWidth || 900;
@@ -45,6 +50,8 @@ const notice = (t) => ($("status").textContent = t);
 function stop() {
   playing = false;
   cancelAnimationFrame(raf);
+  // 停止時に音を残さない。次の再生は必ず予約し直す。
+  sound.stop();
   $("play").textContent = "▶ 再生";
 }
 function edit(fn) {
@@ -113,6 +120,7 @@ function render() {
   thumbnailObserver.disconnect();
   rows = flatten(store.p);
   store.select(store.selection);
+  resolved = audio.resolveClips(store.p, rows);
   const r = current();
   $("title").value = store.p.title;
   $("tree").replaceChildren();
@@ -173,6 +181,7 @@ function render() {
       }）`
     : "画像なし";
   cameraInspector(r);
+  soundInspector(r);
   $("strip").replaceChildren(
     ...r.shot.panels.map((p, i) => {
       const b = button(
@@ -224,6 +233,147 @@ function cameraInspector(r) {
     (id, i) => ($(id).value = key[CAMERA_FIELDS[i]]),
   );
   $("keyDelete").disabled = keys.length < 2;
+}
+// このPanelにかかる音のみを出す。重なりで判断し、推測で結びつけない。
+function soundInspector(r) {
+  const here = audio.clipsInRange(resolved, r.start, r.end);
+  if (!here.some((c) => c.clip.id === clipId))
+    clipId = here[0]?.clip.id ?? null;
+  $("clipList").replaceChildren(
+    ...here.map((c) => {
+      const option = document.createElement("option");
+      option.value = c.clip.id;
+      option.selected = c.clip.id === clipId;
+      option.textContent = `${audio.TRACK_LABEL[c.clip.track]} · ${
+        c.asset?.name ?? "素材不明"
+      } · ${c.start}f→${c.end}f`;
+      return option;
+    }),
+  );
+  const current = here.find((c) => c.clip.id === clipId);
+  for (const [id, value] of [
+    ["clipGain", Math.round((current?.clip.gain ?? 1) * 100)],
+    ["clipFrames", current?.clip.frames ?? ""],
+    ["clipOffset", current?.clip.offset ?? ""],
+  ])
+    $(id).value = value;
+  for (const id of ["clipGain", "clipFrames", "clipOffset", "clipDelete"])
+    $(id).disabled = !current;
+  const missing = current && !sound.has(current.clip.assetId);
+  $("clipRepair").hidden = !missing;
+  $("clipInfo").textContent = !current
+    ? "このPanelにかかる音はありません"
+    : missing
+      ? `${current.asset?.name ?? "素材"} が見つかりません。差し替えると同じ位置で鳴ります。`
+      : `${current.asset?.name} · ${sound.seconds(current.clip.assetId).toFixed(2)}秒の素材`;
+}
+// 音声レーン。波形は素材ごとに1度だけ計算し、クリップ幅に合わせて描く。
+function audioTrack(px, left, width) {
+  const node = $("audioTrack");
+  node.replaceChildren();
+  audio.AUDIO_TRACK_ORDER.forEach((track, index) => {
+    const lane = document.createElement("div");
+    lane.className = "audiolane";
+    lane.style.top = `${index * 26}px`;
+    const label = document.createElement("span");
+    label.className = "label";
+    label.textContent = audio.TRACK_LABEL[track];
+    lane.append(label);
+    for (const item of audio.clipsInRange(
+      resolved.filter((c) => c.clip.track === track),
+      (left - width) / px,
+      (left + width * 2) / px,
+    ))
+      lane.append(soundClip(item, px));
+    node.append(lane);
+  });
+}
+function soundClip(item, px) {
+  const el = document.createElement("div");
+  const missing = !sound.has(item.clip.assetId);
+  el.className = `sound${item.clip.id === clipId ? " selected" : ""}${
+    missing ? " missing" : ""
+  }`;
+  el.style.left = `${item.start * px}px`;
+  el.style.width = `${Math.max(6, item.clip.frames * px)}px`;
+  el.title = `${item.asset?.name ?? "素材不明"} · ${item.clip.frames}f`;
+  const columns = Math.max(2, Math.round(item.clip.frames * px));
+  const wave = sound.waveform(item.clip.assetId, columns);
+  if (wave) {
+    const canvas = document.createElement("canvas");
+    canvas.width = columns;
+    canvas.height = 18;
+    const c = canvas.getContext("2d");
+    c.fillStyle = "#8fdcc0";
+    for (let i = 0; i < columns; i++) {
+      const min = wave[i * 2],
+        max = wave[i * 2 + 1];
+      c.fillRect(i, 9 + min * 9, 1, Math.max(1, (max - min) * 9));
+    }
+    el.append(canvas);
+  }
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = missing ? "素材なし" : (item.asset?.name ?? "");
+  el.append(name);
+  const trim = document.createElement("span");
+  trim.className = "trim";
+  trim.onpointerdown = (e) => startClipTrim(e, item, trim, el, px);
+  el.append(trim);
+  el.onpointerdown = (e) => startClipDrag(e, item, el, px);
+  return el;
+}
+function startClipDrag(e, item, el, px) {
+  if (e.target.className === "trim") return;
+  stop();
+  clipId = item.clip.id;
+  const origin = e.clientX,
+    start = item.start;
+  let moved = false;
+  el.setPointerCapture(e.pointerId);
+  const targets = $("snap").checked
+    ? tl.snapTargets(rows, store.p.fps, endFrame(), frame)
+    : [];
+  const next = (v) => {
+    const raw = start + (v.clientX - origin) / px;
+    return Math.max(
+      0,
+      targets.length ? tl.snap(raw, targets, px) : Math.round(raw),
+    );
+  };
+  el.onpointermove = (v) => {
+    moved = true;
+    el.style.left = `${next(v) * px}px`;
+  };
+  const finish = (v, commit) => {
+    el.onpointermove = el.onpointerup = el.onpointercancel = null;
+    if (!commit || !moved) return render();
+    const at = next(v);
+    edit((p) => audio.placeClip(p, flatten(p), item.clip.id, at));
+  };
+  el.onpointerup = (v) => finish(v, true);
+  el.onpointercancel = (v) => finish(v, false);
+}
+function startClipTrim(e, item, trim, el, px) {
+  e.stopPropagation();
+  stop();
+  clipId = item.clip.id;
+  const origin = e.clientX,
+    frames = item.clip.frames;
+  trim.setPointerCapture(e.pointerId);
+  const next = (v) =>
+    Math.max(1, Math.round(frames + (v.clientX - origin) / px));
+  trim.onpointermove = (v) => {
+    el.style.width = `${next(v) * px}px`;
+  };
+  const finish = (v, commit) => {
+    trim.onpointermove = trim.onpointerup = trim.onpointercancel = null;
+    if (!commit) return render();
+    const value = next(v);
+    edit((p) => audio.trimClip(p, item.clip.id, value));
+  };
+  trim.onpointerup = (v) => finish(v, true);
+  trim.onpointercancel = (v) => finish(v, false);
 }
 // 選択が変わったときだけ視界へ入れる。ユーザーのスクロールを毎回奪わない。
 let revealed = null;
@@ -322,6 +472,7 @@ function timeline() {
   ruler(px, end, left, width);
   clips(px, left, width);
   cameraTrack(px, left, width);
+  audioTrack(px, left, width);
   const span = tl.selectionRange(rows, store.selection.ids);
   const band = $("band");
   band.style.left = `${span.start * px}px`;
@@ -522,6 +673,9 @@ const acts = {
         s.shots = s.shots.filter((h) => h.panels.length);
       }
       p.scenes = p.scenes.filter((s) => s.shots.length);
+      // 消えたPanelに付いていた音も一緒に消す。孤児のクリップを残さない。
+      audio.pruneClips(p);
+      audio.pruneAudioAssets(p);
     }),
   split: () => edit((p) => split(p, activeId())),
   merge: () => edit((p) => merge(p, activeId())),
@@ -612,9 +766,16 @@ $("play").onclick = () => {
   $("play").textContent = "■ 停止";
   if (frame >= endFrame()) frame = 0;
   const start = performance.now(),
-    base = frame;
+    base = Math.round(frame);
+  frame = base;
+  // 音があるときは音声時計を基準にする。無いときだけ表示用の時計を使う。
+  const schedule = audio.scheduleFor(resolved, base, store.p.fps, endFrame());
+  if (schedule.length) sound.play(schedule, base, store.p.fps);
   const tick = (now) => {
-    frame = frameAtTime(base, start, now, store.p.fps, endFrame());
+    frame =
+      sound.frameAt(store.p.fps) ??
+      frameAtTime(base, start, now, store.p.fps, endFrame());
+    frame = Math.max(base, Math.min(endFrame(), frame));
     if (frame >= endFrame()) {
       frame = endFrame();
       stop();
@@ -886,6 +1047,105 @@ $("imageOpacity").onchange = () =>
     const b = flatten(p).find((r) => r.panel.id === activeId()).panel;
     if (b.image) b.image.opacity = Number($("imageOpacity").value) / 100;
   });
+// 音声取り込み：原本をAssetへ保存し、デコードしてから再生ヘッド位置へ置く。
+$("audioAdd").onclick = () => $("audioFile").click();
+$("audioFile").onchange = async () => {
+  const file = $("audioFile").files[0];
+  $("audioFile").value = "";
+  if (!file) return;
+  try {
+    if (!file.type.startsWith("audio/"))
+      throw Error("音声ファイルではありません");
+    if (file.size > 80e6) throw Error("80MBを超える音声は未対応です");
+    const id = uid();
+    const buffer = await sound.decode(id, file);
+    await repo.putAsset(id, file);
+    const at = Math.round(frame);
+    const host = rowAtFrame(rows, at);
+    const frames = Math.max(1, Math.round(buffer.duration * store.p.fps));
+    edit((p) => {
+      p.assets.push({
+        id,
+        kind: "audio",
+        name: file.name.slice(0, 80),
+        mime: file.type,
+        bytes: file.size,
+      });
+      const clip = audio.addClip(p, {
+        assetId: id,
+        track: $("audioKind").value,
+        anchor: host.panel.id,
+        at: at - host.start,
+        frames,
+      });
+      clipId = clip.id;
+      return { active: host.panel.id, ids: [host.panel.id] };
+    });
+    notice(`${file.name} を配置しました（${buffer.duration.toFixed(2)}秒）`);
+  } catch (e) {
+    notice(`音声を読み込めません：${e.message}`);
+  }
+};
+const currentClip = () => store.p.audio.find((c) => c.id === clipId);
+$("clipList").onchange = () => {
+  clipId = $("clipList").value;
+  render();
+};
+$("clipGain").onchange = () =>
+  edit((p) => {
+    const clip = p.audio.find((c) => c.id === clipId);
+    if (clip) clip.gain = Number($("clipGain").value) / 100;
+  });
+for (const [id, key] of [
+  ["clipFrames", "frames"],
+  ["clipOffset", "offset"],
+])
+  $(id).onchange = () =>
+    edit((p) => {
+      const clip = p.audio.find((c) => c.id === clipId);
+      if (!clip) return;
+      const value = Math.max(
+        key === "frames" ? 1 : 0,
+        Math.round(Number($(id).value) || 0),
+      );
+      clip[key] = Math.min(864000, value);
+    });
+$("clipDelete").onclick = () =>
+  edit((p) => {
+    audio.removeClips(p, [clipId]);
+    audio.pruneAudioAssets(p);
+  });
+// 素材が見つからないクリップは、同じIDへ別のファイルを入れて直せる。
+$("clipRepair").onclick = () => {
+  const clip = currentClip();
+  if (!clip) return;
+  const picker = document.createElement("input");
+  picker.type = "file";
+  picker.accept = "audio/*";
+  picker.onchange = async () => {
+    const file = picker.files[0];
+    if (!file) return;
+    try {
+      sound.forget(clip.assetId);
+      await sound.decode(clip.assetId, file);
+      await repo.putAsset(clip.assetId, file);
+      edit((p) => {
+        const asset = p.assets.find((a) => a.id === clip.assetId);
+        if (asset)
+          Object.assign(asset, {
+            name: file.name.slice(0, 80),
+            mime: file.type,
+            bytes: file.size,
+          });
+      });
+      notice("素材を差し替えました");
+      render();
+    } catch (e) {
+      notice(`差し替えられません：${e.message}`);
+    }
+  };
+  picker.click();
+};
 for (const [id, key] of [
   ["sceneName", "scene"],
   ["shotName", "shot"],
@@ -1162,11 +1422,12 @@ $("png").onclick = async () => {
   );
 };
 // ペインの幅/高さ。ドラッグで変え、次回の起動でも同じ配置で開く。
-const layout = { tree: 220, inspector: 260, timeline: 190 };
+// Timelineの初期高さは目盛・Panel・Camera・音声の4段が全部見える値にする。
+const layout = { tree: 220, inspector: 260, timeline: 270 };
 const limits = {
   tree: [140, 480],
   inspector: [180, 520],
-  timeline: [120, 520],
+  timeline: [150, 560],
 };
 function applyLayout() {
   for (const [key, value] of Object.entries(layout))
@@ -1246,13 +1507,31 @@ async function persist(kind) {
     return null;
   }
 }
+// 音声素材をデコードしておく。見つからない素材は名前を控えて知らせる。
+async function ensureAudio(p) {
+  const missing = [];
+  for (const asset of p.assets) {
+    if (asset.kind !== "audio" || sound.has(asset.id)) continue;
+    try {
+      const blob = await repo.getAsset(asset.id);
+      if (!blob) throw Error("素材が見つかりません");
+      await sound.decode(asset.id, blob);
+    } catch {
+      missing.push(asset.name);
+    }
+  }
+  return missing;
+}
 // 素材のビットマップを用意し、見つからないものは黙って無視しない。
 async function loadImages() {
-  const missing = await ensureImages(store.p);
+  const missing = [
+    ...(await ensureImages(store.p)),
+    ...(await ensureAudio(store.p)),
+  ];
   render();
   if (missing.length)
     notice(
-      `画像素材が${missing.length}件見つかりません（${missing[0]}ほか）。.contpに素材は含まれません。`,
+      `素材が${missing.length}件見つかりません（${missing[0]}ほか）。.contpに素材は含まれません。音は「音」タブから差し替えられます。`,
     );
   return missing;
 }

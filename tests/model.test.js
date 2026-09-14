@@ -198,6 +198,26 @@ test("undo restores the selection the edit started from", () => {
   s.redo();
   assert.deepEqual(s.selection, { active: added, ids: [added] });
 });
+test("a command returning a plain value keeps the selection it had", () => {
+  const s = new Store();
+  s.edit((p) => p.scenes[0].shots[0].panels.push(panel(), panel()));
+  const second = flatten(s.p)[1].panel.id;
+  s.select({ active: second, ids: [second] });
+  // 代入式の戻り値（数値・真偽値・配列）を選択と取り違えない。
+  for (const command of [
+    (p) => (p.scenes[0].shots[0].panels[2].frames = 60),
+    (p) => true,
+    (p) =>
+      (p.scenes[0].shots[0].panels[1].strokes = [
+        { size: BRUSH.default, erase: false, points: [[0.2, 0.2, 1]] },
+      ]),
+    (p) => (p.title = `題 ${p.scenes[0].shots[0].panels[2].frames}`),
+  ]) {
+    s.edit(command);
+    assert.equal(s.selection.active, second);
+    assert.deepEqual(s.selection.ids, [second]);
+  }
+});
 test("deleting the selected panel moves selection to a surviving panel", () => {
   const s = new Store();
   s.edit((p) => p.scenes[0].shots[0].panels.push(panel(), panel()));

@@ -1,5 +1,5 @@
 export const uid = () => crypto.randomUUID();
-export const VERSION = 3;
+export const VERSION = 4;
 // ブラシ幅は画面幅に対する割合で持つ。出力サイズが変わっても線の太さが崩れない。
 export const BRUSH = { min: 0.0005, max: 0.05, default: 3 / 1280 };
 export const panel = () => ({
@@ -12,11 +12,13 @@ export const panel = () => ({
   image: null,
   camera: [{ t: 0, x: 0, y: 0, zoom: 1, rotation: 0 }],
 });
+export const AUDIO_TRACKS = ["dialogue", "se", "bgm"];
 export const project = () => ({
   version: VERSION,
   title: "無題のコンテ",
   fps: 24,
   assets: [],
+  audio: [],
   scenes: [
     {
       id: uid(),
@@ -65,6 +67,7 @@ export function validate(p) {
   // 素材はIDとメタデータだけを持つ。バイナリはProjectRepositoryが別に保持する。
   if (!Array.isArray(p.assets)) throw Error("不正な素材一覧");
   const assets = new Set();
+  const audioAssets = new Set();
   for (const a of p.assets) {
     id(a);
     if (
@@ -79,9 +82,11 @@ export function validate(p) {
     )
       throw Error("不正な素材");
     assets.add(a.id);
+    if (a.kind === "audio") audioAssets.add(a.id);
   }
   if (!Array.isArray(p.scenes) || !p.scenes.length)
     throw Error("Sceneが必要です");
+  const panels = new Set();
   for (const s of p.scenes) {
     id(s);
     if (typeof s.name !== "string" || !s.shots?.length)
@@ -155,8 +160,29 @@ export function validate(p) {
             k.zoom > 10
           )
             throw Error("不正なCamera");
+        panels.add(b.id);
       }
     }
+  }
+  // 音声クリップは素材IDと、基準にするPanelへの参照だけを持つ。
+  if (!Array.isArray(p.audio)) throw Error("不正な音声一覧");
+  for (const c of p.audio) {
+    id(c);
+    if (
+      !AUDIO_TRACKS.includes(c.track) ||
+      !audioAssets.has(c.assetId) ||
+      !panels.has(c.anchor) ||
+      !Number.isInteger(c.at) ||
+      !Number.isInteger(c.frames) ||
+      c.frames < 1 ||
+      c.frames > 864000 ||
+      !Number.isInteger(c.offset) ||
+      c.offset < 0 ||
+      !Number.isFinite(c.gain) ||
+      c.gain < 0 ||
+      c.gain > 4
+    )
+      throw Error("不正な音声クリップ");
   }
   return p;
 }
@@ -195,6 +221,7 @@ const migrations = {
       })),
     })),
   }),
+  3: (p) => ({ ...p, version: 4, audio: [] }),
 };
 export function migrate(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw))
@@ -242,6 +269,18 @@ export function sameProject(a, b) {
         "height",
       ]),
     ) &&
+    sameList(a.audio, b.audio, (x, y) =>
+      sameKeys(x, y, [
+        "id",
+        "assetId",
+        "track",
+        "anchor",
+        "at",
+        "frames",
+        "offset",
+        "gain",
+      ]),
+    ) &&
     sameList(
       a.scenes,
       b.scenes,
@@ -274,6 +313,11 @@ export function normalizeSelection(selection, p) {
       : (ids[0] ?? rows[0].panel.id);
   return { active, ids: ids.length ? ids : [active] };
 }
+const isSelection = (value) =>
+  !!value &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  ("active" in value || "ids" in value);
 const sameSelection = (a, b) =>
   a.active === b.active && sameList(a.ids, b.ids, (x, y) => x === y);
 export class Store {
@@ -292,6 +336,7 @@ export class Store {
     const next = {
       ...this.p,
       assets: this.p.assets.map((a) => ({ ...a })),
+      audio: this.p.audio.map((c) => ({ ...c })),
       scenes: this.p.scenes.map((s) => ({
         ...s,
         shots: s.shots.map((h) => ({
@@ -307,7 +352,11 @@ export class Store {
     const requested = fn(next);
     validate(next);
     const changed = !sameProject(this.p, next);
-    const selection = normalizeSelection(requested ?? this.selection, next);
+    // 選択を返したときだけ選択を変える。代入式の戻り値（配列や真偽値）は選択ではない。
+    const selection = normalizeSelection(
+      isSelection(requested) ? requested : this.selection,
+      next,
+    );
     if (!changed) {
       this.selection = selection;
       return false;
