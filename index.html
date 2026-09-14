@@ -22,7 +22,8 @@
       ><button data-act="duplicate">複製</button
       ><button data-act="undo">元に戻す</button
       ><button data-act="redo">やり直す</button><button id="play">▶ 再生</button
-      ><button id="paper">紙コンテ出力</button>
+      ><button id="paper">紙コンテ出力</button
+      ><button id="animatic">Animatic出力</button>
     </nav>
     <main>
       <aside id="tree"></aside>
@@ -212,6 +213,25 @@
         ><output id="paperProgress"></output>
       </div>
       <div id="pages"></div>
+    </dialog>
+    <dialog id="animaticDialog">
+      <h2>Animatic出力</h2>
+      <div id="animaticSettings">
+        <label>形式<select id="animaticFormat"></select></label
+        ><label>fps<select id="animaticFps"></select></label
+        ><label>解像度<select id="animaticSize"></select></label>
+      </div>
+      <p class="hint" id="animaticInfo"></p>
+      <p class="hint">
+        WebMは音つきですが、ブラウザの録画は実時間で進みます（3分のコンテは3分かかります）。フレームを正確に得たいときはPNG連番を選び、外部のエンコーダで組み立ててください。出力中は編集できません。中止しても途中のファイルは残しません。
+      </p>
+      <div id="animaticActions">
+        <button id="animaticStart">書き出す</button
+        ><button id="animaticCancel" hidden>中止</button
+        ><button id="closeAnimatic">閉じる</button
+        ><output id="animaticProgress"></output>
+      </div>
+      <canvas id="animaticPreview" width="854" height="480"></canvas>
     </dialog>
     <dialog id="recoverDialog">
       <h2>前回の作業が残っています</h2>

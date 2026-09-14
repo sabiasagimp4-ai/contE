@@ -187,8 +187,14 @@ export class AudioEngine {
     }
     return this.waves.get(key);
   }
+  // 書き出し用の出力先。録画では同じ予約をこのストリームへ流す。
+  streamDestination() {
+    const ctx = this.context();
+    this.stream ??= ctx.createMediaStreamDestination();
+    return this.stream;
+  }
   // 予約し直すたびに世代を進め、前の予約の音は必ず止める。二重再生を作らない。
-  play(schedule, fromFrame, fps, lead = 0.06) {
+  play(schedule, fromFrame, fps, lead = 0.06, destination = null) {
     this.stop();
     const ctx = this.context();
     ctx.resume?.();
@@ -201,7 +207,7 @@ export class AudioEngine {
       source.buffer = buffer;
       const gain = ctx.createGain();
       gain.gain.value = item.gain;
-      source.connect(gain).connect(ctx.destination);
+      source.connect(gain).connect(destination ?? ctx.destination);
       const offset = Math.min(
         item.offset,
         Math.max(0, buffer.duration - 0.001),

@@ -1,6 +1,6 @@
 # contE — 絵コンテ制作の基礎実装
 
-描く・Panelを増やす・尺を決める・Cameraを確認する・音を置く・紙コンテへ出す、を一画面で試せる初期版です。**完成したデスクトップアプリではありません。** ブラウザ上でローカル動作します。動画書き出し・レイヤーは未実装です。編集内容はブラウザ内へ自動保存され、次回起動時に復旧できます。配布可能なファイルは保存ボタンで別途書き出してください。
+描く・Panelを増やす・尺を決める・Cameraを確認する・音を置く・再生する・紙コンテとAnimaticへ出す、を一画面で完結できます。**完成したデスクトップアプリではありません。** ブラウザ上でローカル動作します（レイヤー、ファイルへの直接上書き、素材の同梱は未実装）。編集内容はブラウザ内へ自動保存され、次回起動時に復旧できます。配布可能なファイルは保存ボタンで別途書き出してください。
 
 ## 起動
 
@@ -33,7 +33,8 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 - 紙コンテ：**用紙（A4/A3/B4/Letter）と向き、列の順番・個別幅・表示/非表示、コマ数、余白、文字サイズ、ヘッダー/フッター**を調整でき、設定はプロジェクトに保存されます（Undo対象・自動保存対象）。
 - 列はCUT（番号・階層・尺）/ コンテ画像 / 台詞 / SE・BGM / 演出 / Camera。**長文は切り捨てず**、入り切らない分は次の行・次のページへ「（続き）」として送ります。
 - Cameraは全キーを通る軌道、開始枠（実線）/終了枠（破線）、矢印（PANは横・TILTは縦）、中間キーの点、HOLDとキー位置（フレーム）を描画。
-- 出力は**PNG連番（1つのZIPにまとめてダウンロード）**とブラウザ印刷/PDF保存。1ページずつ生成して進捗を表示し、途中で中止できます。印刷時は用紙サイズを設定と合わせ、余白なし・ヘッダー/フッターなしを選択してください。PDFは画像ベースで文字検索できません。
+- **Animatic出力**：音つきWebM（実時間で録画）と、フレーム厳密なPNG連番ZIP（音なし・外部エンコーダ用）。出力fpsと解像度（480p/720p/1080p）を選べ、進捗表示と中止に対応します。映像は再生とまったく同じフレーム評価（Panel境界・Camera補間）で描き、音は再生と同じ予約を録音経路へ流します。
+- 紙コンテの出力は**PNG連番（1つのZIPにまとめてダウンロード）**とブラウザ印刷/PDF保存。1ページずつ生成して進捗を表示し、途中で中止できます。印刷時は用紙サイズを設定と合わせ、余白なし・ヘッダー/フッターなしを選択してください。PDFは画像ベースで文字検索できません。
 
 ## 操作
 
@@ -61,9 +62,9 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 
 ## 構成と次の段階
 
-`src/model.js`：階層・検証・Migration・履歴・Panel移動・Cameraキー、`src/timeline.js`：Timeline Engine（範囲・目盛・スナップ・Zoom・追従）、`src/audio.js`：Audio Engine（クリップ解決・予約・波形・音注記）、`src/exporter.js`：Exporter（進捗・中止・ZIP）、`src/repository.js`：保存/復旧/素材と自動保存、`src/storage.js`：IndexedDB/メモリのStorage Adapter、`src/playback.js`：時刻計算・Panel検索、`src/drawing.js`：描画Adapter、`src/paper.js`：ページ生成・Camera表記、`src/app.js`：UI/Timeline操作。
+`src/model.js`：階層・検証・Migration・履歴・Panel移動・Cameraキー、`src/timeline.js`：Timeline Engine（範囲・目盛・スナップ・Zoom・追従）、`src/audio.js`：Audio Engine（クリップ解決・予約・波形・音注記）、`src/exporter.js`：Exporter（進捗・中止・ZIP）、`src/animatic.js`：Animatic（フレーム計画・評価・録画）、`src/repository.js`：保存/復旧/素材と自動保存、`src/storage.js`：IndexedDB/メモリのStorage Adapter、`src/playback.js`：時刻計算・Panel検索、`src/drawing.js`：描画Adapter、`src/paper.js`：ページ生成・Camera表記、`src/app.js`：UI/Timeline操作。
 
-[次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md)。次はAnimatic出力とWindowsデスクトップ化（P5）です。
+[次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md) / [デスクトップ化と動画書き出しの調査](docs/DESKTOP.md)。ロードマップのP0〜P5まで実装済みです。残るはデスクトップ化（[調査と判断基準](docs/DESKTOP.md)）とオフライン動画書き出しで、Windows実機での計測が必要です。
 
 ```sh
 npm test

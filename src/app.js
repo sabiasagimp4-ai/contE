@@ -20,6 +20,7 @@ import {
 import { draw } from "./drawing.js";
 import { layoutPages, renderPage, download, COLUMN_LABEL } from "./paper.js";
 import { forEachPage, Job, Cancelled, zip, canvasBytes } from "./exporter.js";
+import * as animatic from "./animatic.js";
 import * as tl from "./timeline.js";
 import * as audio from "./audio.js";
 import { AudioEngine } from "./audio.js";
@@ -1216,6 +1217,7 @@ document.addEventListener("keydown", (e) => {
   if (
     /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) ||
     $("paperDialog").open ||
+    $("animaticDialog").open ||
     $("recoverDialog").open
   )
     return;
@@ -1553,6 +1555,195 @@ $("png").onclick = async () => {
   download(zip(files), name);
   notice(`${files.length}枚のPNGを${name}にまとめました`);
   showPage();
+};
+// Animatic出力。映像は再生と同じ評価、音は再生と同じ予約をストリームへ流す。
+let animaticJob = null;
+function animaticSetup() {
+  const fill = (id, entries, selected) => {
+    $(id).replaceChildren(
+      ...entries.map(([value, text]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = text;
+        option.selected = String(selected) === String(value);
+        return option;
+      }),
+    );
+  };
+  fill(
+    "animaticFormat",
+    Object.entries(animatic.FORMATS).map(([key, f]) => [key, f.label]),
+    "webm",
+  );
+  fill(
+    "animaticFps",
+    animatic.FPS_CHOICES.map((v) => [v, `${v} fps`]),
+    animatic.FPS_CHOICES.includes(store.p.fps) ? store.p.fps : 24,
+  );
+  fill(
+    "animaticSize",
+    Object.keys(animatic.RESOLUTIONS).map((key) => [
+      key,
+      `${key}（${animatic.RESOLUTIONS[key].join("×")}）`,
+    ]),
+    "720p",
+  );
+  for (const id of ["animaticFormat", "animaticFps", "animaticSize"])
+    $(id).onchange = animaticInfo;
+  animaticInfo();
+}
+function animaticSpec() {
+  return animatic.plan(
+    endFrame(),
+    store.p.fps,
+    Number($("animaticFps").value),
+    $("animaticSize").value,
+  );
+}
+function animaticInfo() {
+  const spec = animaticSpec();
+  const format = $("animaticFormat").value;
+  const mime = format === "webm" ? animatic.pickMime("webm") : null;
+  $("animaticStart").disabled = format === "webm" && !mime;
+  $("animaticInfo").textContent =
+    `${spec.seconds.toFixed(2)}秒 / ${spec.frames}フレーム / ${spec.width}×${spec.height}` +
+    (format === "webm"
+      ? mime
+        ? ` · ${mime}・音${resolved.length ? "あり" : "なし"}・録画に約${Math.ceil(spec.seconds)}秒`
+        : " · この環境では録画形式が使えません"
+      : " · フレームを1枚ずつ描いてZIPにまとめます");
+}
+function animaticProgress(text, running) {
+  $("animaticProgress").textContent = text;
+  $("animaticCancel").hidden = !running;
+  $("animaticStart").disabled = running;
+  for (const id of ["animaticFormat", "animaticFps", "animaticSize"])
+    $(id).disabled = running;
+}
+// PNG連番：フレーム厳密。再生時計に頼らず、出力フレームごとに時刻を決める。
+async function animaticFrames(spec) {
+  const canvas = $("animaticPreview");
+  canvas.width = spec.width;
+  canvas.height = spec.height;
+  const context = canvas.getContext("2d");
+  animaticJob = new Job();
+  const files = await forEachPage(
+    spec.frames,
+    async (i) => {
+      animatic.renderFrame(
+        context,
+        rows,
+        spec.sourceFrame(i),
+        spec.width,
+        spec.height,
+        images,
+      );
+      return {
+        name: `frame-${String(i + 1).padStart(5, "0")}.png`,
+        bytes: await canvasBytes(canvas),
+      };
+    },
+    {
+      job: animaticJob,
+      onProgress: ({ done, total }) =>
+        animaticProgress(`フレーム ${done} / ${total}`, true),
+    },
+  );
+  return zip(files);
+}
+// WebM：実時間の録画。音は再生と同じ予約を録音用の出力先へ流す。
+async function animaticRecord(spec, mime) {
+  const canvas = $("animaticPreview");
+  canvas.width = spec.width;
+  canvas.height = spec.height;
+  const context = canvas.getContext("2d");
+  const stream = canvas.captureStream(spec.outFps);
+  const schedule = audio.scheduleFor(resolved, 0, store.p.fps, endFrame());
+  if (schedule.length) {
+    const destination = sound.streamDestination();
+    for (const track of destination.stream.getAudioTracks())
+      stream.addTrack(track);
+    sound.play(schedule, 0, store.p.fps, 0.12, destination);
+  }
+  const recorder = new animatic.Recorder(stream, mime);
+  animaticJob = new Job();
+  recorder.start();
+  const started = performance.now();
+  try {
+    while (true) {
+      const clock = sound.frameAt(store.p.fps);
+      const elapsed =
+        clock !== null
+          ? clock / store.p.fps
+          : (performance.now() - started) / 1000;
+      if (elapsed >= spec.seconds) break;
+      animaticJob.check();
+      animatic.renderFrame(
+        context,
+        rows,
+        Math.max(0, Math.min(endFrame() - 1e-6, elapsed * store.p.fps)),
+        spec.width,
+        spec.height,
+        images,
+      );
+      const state = animatic.recordingProgress(Math.max(0, elapsed), spec);
+      animaticProgress(
+        `録画 ${state.done} / ${state.total}（残り約${Math.ceil(state.remaining)}秒）`,
+        true,
+      );
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    return await recorder.finish();
+  } catch (e) {
+    await recorder.discard();
+    throw e;
+  } finally {
+    sound.stop();
+    for (const track of stream.getVideoTracks()) track.stop();
+  }
+}
+$("animatic").onclick = () => {
+  stop();
+  animaticSetup();
+  animaticProgress("", false);
+  $("animaticDialog").showModal();
+};
+$("closeAnimatic").onclick = () => {
+  animaticJob?.cancel();
+  $("animaticDialog").close();
+};
+$("animaticCancel").onclick = () => animaticJob?.cancel();
+$("animaticStart").onclick = async () => {
+  if (animaticJob) return;
+  const spec = animaticSpec();
+  const format = $("animaticFormat").value;
+  try {
+    animaticProgress("準備中…", true);
+    // 出力中はプロジェクトへ触れない。失敗しても素材と編集内容は元のまま。
+    const blob =
+      format === "webm"
+        ? await animaticRecord(spec, animatic.pickMime("webm"))
+        : await animaticFrames(spec);
+    const name = animatic.outputName(
+      store.p.title,
+      animatic.FORMATS[format].extension,
+    );
+    download(blob, name);
+    animaticProgress(
+      `${name} を書き出しました（${(blob.size / 1e6).toFixed(2)}MB）`,
+      false,
+    );
+  } catch (e) {
+    animaticProgress(
+      e instanceof Cancelled
+        ? "出力を中止しました（途中のファイルは残していません）"
+        : `出力に失敗：${e.message}`,
+      false,
+    );
+  } finally {
+    animaticJob = null;
+    animaticProgress($("animaticProgress").textContent, false);
+  }
 };
 // ペインの幅/高さ。ドラッグで変え、次回の起動でも同じ配置で開く。
 // Timelineの初期高さは目盛・Panel・Camera・音声の4段が全部見える値にする。

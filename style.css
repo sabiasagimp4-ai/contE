@@ -577,6 +577,34 @@ dialog::backdrop {
   width: auto;
   margin: 0;
 }
+#animaticDialog {
+  width: min(720px, 94vw);
+  padding: 20px;
+}
+#animaticSettings {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+#animaticSettings label {
+  width: 200px;
+}
+#animaticActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+#animaticProgress {
+  color: #aab6c6;
+}
+#animaticPreview {
+  width: 100%;
+  height: auto;
+  background: #fff;
+  border: 1px solid #414b58;
+}
 #recoverDialog {
   width: min(520px, 92vw);
   padding: 20px;

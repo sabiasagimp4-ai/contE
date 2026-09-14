@@ -70,10 +70,17 @@ function testWav(seconds = 3, rate = 22050, freq = 440) {
 const server = await serve(resolve("."), 0);
 const browser = await chromium.launch({
   headless: true,
+  // 音を含むAnimaticの録画を無人で走らせるため、自動再生の制限だけ外す。
+  args: ["--autoplay-policy=no-user-gesture-required"],
   ...(process.env.CHROMIUM_EXECUTABLE
     ? {
         executablePath: process.env.CHROMIUM_EXECUTABLE,
-        args: ["--no-sandbox", "--no-zygote", "--disable-dev-shm-usage"],
+        args: [
+          "--no-sandbox",
+          "--no-zygote",
+          "--disable-dev-shm-usage",
+          "--autoplay-policy=no-user-gesture-required",
+        ],
       }
     : {}),
 });
@@ -316,6 +323,101 @@ try {
     Math.abs(sync.driftFrames) < 12,
     `audio clock drifted ${sync.driftFrames} frames in ${sync.seconds}s`,
   );
+  // P5：Animatic出力。フレーム厳密なPNG連番と、音つきWebMの実録画。
+  await page.locator("#animatic").click();
+  const animaticInfo = await page.locator("#animaticInfo").innerText();
+  assert.match(animaticInfo, /フレーム/);
+  await page.locator("#animaticFormat").selectOption("frames");
+  await page.locator("#animaticFps").selectOption("8");
+  await page.locator("#animaticSize").selectOption("480p");
+  const framesZip = page.waitForEvent("download");
+  await page.locator("#animaticStart").click();
+  assert.match((await framesZip).suggestedFilename(), /-animatic\.zip$/);
+  assert.match(
+    await page.locator("#animaticProgress").innerText(),
+    /書き出しました/,
+  );
+  // WebM：録画したファイルを再生して、尺・音・絵の切り替わりを確かめる。
+  // 録画したファイルを調べたいので、この間だけダウンロードを横取りする。
+  await page.evaluate(() => {
+    window.__captured = null;
+    window.__realClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      if (this.download && this.href.startsWith("blob:")) {
+        window.__captured = this.href;
+        return;
+      }
+      return window.__realClick.call(this);
+    };
+  });
+  await page.locator("#animaticFormat").selectOption("webm");
+  await page.locator("#animaticFps").selectOption("24");
+  const expected = Number(
+    (await page.locator("#animaticInfo").innerText()).match(/([\d.]+)秒/)[1],
+  );
+  await page.locator("#animaticStart").click();
+  await page.waitForFunction(() => window.__captured, null, { timeout: 90000 });
+  const animatic = await page.evaluate(async (expectedSeconds) => {
+    const blob = await (await fetch(window.__captured)).blob();
+    const out = { bytes: blob.size };
+    const ctx = new AudioContext();
+    const buffer = await ctx.decodeAudioData(await blob.arrayBuffer());
+    let peak = 0;
+    for (const v of buffer.getChannelData(0))
+      peak = Math.max(peak, Math.abs(v));
+    out.audio = {
+      seconds: +buffer.duration.toFixed(2),
+      peak: +peak.toFixed(3),
+    };
+    const video = document.createElement("video");
+    video.src = window.__captured;
+    video.muted = true;
+    await new Promise((r) => (video.onloadedmetadata = r));
+    video.currentTime = 1e6;
+    await new Promise((r) => (video.onseeked = r));
+    out.seconds = +video.duration.toFixed(2);
+    out.size = [video.videoWidth, video.videoHeight];
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const c = canvas.getContext("2d");
+    const darkAt = async (t) => {
+      video.currentTime = t;
+      await new Promise((r) => (video.onseeked = r));
+      c.drawImage(video, 0, 0);
+      const d = c.getImageData(0, 0, canvas.width, canvas.height).data;
+      let dark = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] < 150) dark++;
+      return dark;
+    };
+    out.first = await darkAt(Math.min(0.4, expectedSeconds / 4));
+    out.later = await darkAt(expectedSeconds * 0.8);
+    out.drift = +(out.seconds - expectedSeconds).toFixed(2);
+    return out;
+  }, expected);
+  assert.deepEqual(animatic.size, [854, 480]);
+  // 実時間の録画なので、予約リードと停止の後始末のぶんだけ長くなる。
+  // どれだけ長いかは数値で出し、大きくずれたときだけ失敗させる。
+  assert.ok(
+    animatic.drift >= -0.2 && animatic.drift < 0.8,
+    `recorded ${animatic.seconds}s for a ${expected}s project`,
+  );
+  assert.ok(animatic.audio.peak > 0.01, "the recording carries no audio");
+  // 音声トラックの長さは鳴っている区間に依存する（末尾の無音は詰められる）。
+  // 長さそのものは記録に留め、音が入っていることと絵の尺だけを条件にする。
+  animatic.expected = expected;
+  animatic.audioDrift = +(animatic.audio.seconds - expected).toFixed(2);
+  assert.ok(animatic.first > 0, "the first panel is blank in the recording");
+  assert.notEqual(
+    animatic.first,
+    animatic.later,
+    "the recording never changes panel",
+  );
+  // 横取りを戻す。以降のダウンロードは普通に保存されるようにする。
+  await page.evaluate(() => {
+    HTMLAnchorElement.prototype.click = window.__realClick;
+  });
+  await page.locator("#closeAnimatic").click();
   await page.locator('[data-tab="content"]').click();
   const { project, panel, uid, BRUSH } = await import("../src/model.js");
   const data = project();
@@ -563,7 +665,15 @@ try {
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
-      { smoke: "passed", metrics, persisted, sync, paperReady, errors },
+      {
+        smoke: "passed",
+        metrics,
+        persisted,
+        sync,
+        paperReady,
+        animatic,
+        errors,
+      },
       null,
       2,
     ),

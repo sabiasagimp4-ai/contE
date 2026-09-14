@@ -81,6 +81,18 @@
 - Remaining: the PDF is still an image of each page (no selectable text), row heights are uniform, there is no template to reuse settings across projects, and generation still happens on the UI thread between frames. Windows printing and PDF saving remain untested — there is no Windows machine in this environment.
 - Next highest value: P5 — animatic export driven by the same frame evaluation as playback, then the desktop shell comparison.
 
+## Cycle 8: animatic export, and the desktop question left open (P5)
+
+- Problem: everything the editor knew about timing, camera and sound could be seen on screen or printed, but not handed to anyone as a movie. The roadmap's last phase also asked for a Windows desktop build — which cannot be decided, let alone measured, from this Linux container.
+- Change: `src/animatic.js` plans an export (output fps, resolution, frame-to-time mapping), evaluates each frame through the *same* `rowAtFrame` + `cameraAt` + `draw` path as playback, and wraps `MediaRecorder`. Two formats: WebM (VP9/VP8 + Opus, sound included, recorded in real time) and a frame-exact PNG sequence zipped for an external encoder. The audio engine gained a stream destination, so a recording schedules exactly the same clips as playback, just routed to the recorder.
+- Cancellation and safety: both formats use the exporter's `Job`. A cancelled recording discards the chunks it had rather than handing over a truncated file, export never writes to the project, and an unsupported codec is reported in the dialog with the button disabled instead of failing at click time.
+- Validation: 63 unit tests (5 new) cover the frame plan across fps changes, frame evaluation at panel boundaries and mid-move (compared against `cameraAt` directly), filename sanitising, recording progress, and codec fallback. The browser run exports a PNG sequence, then records a WebM and *plays it back inside the browser* to measure it: duration, decoded audio (length and peak), frame size, and dark-pixel counts at two times to prove the picture changes with the timeline.
+- Measured on this environment (headless Chromium 1194). Short project, in the smoke run: 6.46s of project recorded 6.54s of video (+0.08s, two frames at 24fps) at 854×480 with audio present (peak 0.37); the audio track measured 4.44s because the project's sound stops before the end — trailing silence is not encoded, which does not move the sound.
+- The roadmap's actual acceptance case was run end to end: a three-minute project (90 panels, 4320 frames, 854×480, 24fps) with a ten-second sound at the one-minute mark. It took 180.2s of wall clock (real-time recording), produced 180.09s of video in 1.09MB, and the sound landed at 60.13s–70.08s against 60s–70s in the project — the 0.12s offset is the deliberate scheduling lead, which holds frame 0 at the head rather than desynchronising picture from sound. Panels were identified by giving each a different number of strokes: sampling the recording at panels 0, 1, 2, 3, 4, 45 (the one with a camera move) and 89 returned exactly the expected pictures. Real-time recording means a three-minute animatic costs three minutes; the frame-exact PNG path exists for when that is unacceptable.
+- Not done, and not claimable: the Windows desktop build. There is no Windows machine here, so pen input, file overwrite, audio latency and memory cannot be measured, and picking a shell without those numbers would be guessing. `docs/DESKTOP.md` records what to measure, the candidate shells with their trade-offs, and the codec/licence position (VP9 + Opus by default because they are royalty-free; H.264 only through an external encoder, with the patent pool called out).
+- Remaining: offline (faster than real time) export via WebCodecs or an external encoder, H.264/ProRes options, audio fades and mixing, and the whole desktop shell with direct file saving and bundled assets.
+- Next highest value: measure the six Windows items in `docs/DESKTOP.md` on real hardware, then move persistence to native files before touching the exporter again.
+
 ## UX evaluation
 
 Counts describe editor commands (a shortcut chord counts as one); typing values and operating OS dialogs are separate.
@@ -101,6 +113,7 @@ Counts describe editor commands (a shortcut chord counts as one); typing values 
 | Place a sound | 1 click plus the OS file dialog; drag to move, edge to trim |
 | Timeline fit / zoom | 1 shortcut (F) / 1 shortcut or wheel |
 | Paper output | 2 clicks to print dialog / PNG initiation; OS save extra; settings persist with the project |
+| Animatic export | 2 clicks (dialog, 書き出す); WebM runs in real time, PNG sequence is frame-exact |
 | Paper settings | changed in place, undoable, saved with the project |
 | Recovery | 1 undo chord restoring selection; last Panel deletion blocked; crash recovery offered on startup (1 click) |
 | 100–500 Panel model | benchmark in `scripts/bench.mjs`, synthetic strokes |
