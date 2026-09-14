@@ -16,6 +16,7 @@ import {
   describeCamera,
   CAMERA_FIELDS,
   PAPER_COLUMNS,
+  clearPanelImage,
 } from "./model.js";
 import { draw } from "./drawing.js";
 import { layoutPages, renderPage, download, COLUMN_LABEL } from "./paper.js";
@@ -87,8 +88,8 @@ function select(id, e = {}) {
       ? store.selection.ids.filter((v) => v !== id)
       : [...store.selection.ids, id];
   else ids = [id];
-  store.select({ active: id, ids });
-  frame = rows.find((r) => r.panel.id === id).start;
+  const selection = store.select({ active: id, ids });
+  frame = rows.find((r) => r.panel.id === selection.active).start;
   render();
 }
 function history(step) {
@@ -1034,17 +1035,7 @@ $("imageFile").onchange = async () => {
   }
 };
 $("imageClear").onclick = () =>
-  edit((p) => {
-    const b = flatten(p).find((r) => r.panel.id === activeId()).panel;
-    b.image = null;
-    // どのPanelからも参照されない素材はプロジェクトから外す。
-    const used = new Set(
-      flatten(p)
-        .map((r) => r.panel.image?.assetId)
-        .filter(Boolean),
-    );
-    p.assets = p.assets.filter((a) => used.has(a.id));
-  });
+  edit((p) => clearPanelImage(p, activeId()));
 $("imageOpacity").onchange = () =>
   edit((p) => {
     const b = flatten(p).find((r) => r.panel.id === activeId()).panel;
@@ -1823,7 +1814,9 @@ async function persist(kind) {
   const snapshot = store.p;
   try {
     const meta = await repo.save(snapshot, { kind });
-    await repo.pruneAssets(snapshot).catch(() => {});
+    // 保存世代とUndo/Redoから戻せる素材はGCの対象にしない。
+    const history = [...store.past, ...store.future].map((entry) => entry.p);
+    await repo.pruneAssets(snapshot, history).catch(() => {});
     if (store.p === snapshot) saver.resolved(meta);
     return meta;
   } catch (e) {

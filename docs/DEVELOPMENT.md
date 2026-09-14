@@ -93,6 +93,16 @@
 - Remaining: offline (faster than real time) export via WebCodecs or an external encoder, H.264/ProRes options, audio fades and mixing, and the whole desktop shell with direct file saving and bundled assets.
 - Next highest value: measure the six Windows items in `docs/DESKTOP.md` on real hardware, then move persistence to native files before touching the exporter again.
 
+## Cycle 9: post-merge data safety and selection invariants
+
+- Problem: review of PR #2 found three reproducible regressions. Asset garbage collection considered only the current project, so a binary could disappear while a retained snapshot or Undo state still referenced it. Clearing a Panel image filtered `project.assets` using image IDs and therefore removed every audio asset. Ctrl/Cmd-clicking the active Panel out of a multi-selection could leave the Inspector's `active` Panel outside the bulk-edit `ids`.
+- Cause: binary reachability stopped at the current project; image cleanup did not distinguish asset kinds; selection normalisation validated existence but did not enforce `active ∈ ids`.
+- Change: `ProjectRepository.pruneAssets` now computes reachability across the current project, every readable retained snapshot and supplied Undo/Redo projects. Image removal moved into `clearPanelImage`, which removes only unreferenced image metadata and preserves audio. Selection normalisation moves `active` to a remaining selected Panel when the previous active Panel is toggled out, and the playhead follows the normalised active Panel.
+- Validation: three regression tests were added (66 unit tests total). They cover retained-snapshot and Undo asset reachability, image removal in a project with a valid audio clip, and the active/selected invariant. `npm test`, `npm run build`, `git diff --check` and the complete browser smoke test pass. Browser results: 501-Panel UI 14.0ms, Scene navigation 26.0ms, Timeline scroll 29.5ms, zoom 32.8ms, playback start 36.1ms, autosave 1318.3ms, no page errors.
+- Improvement: recovery generations and Undo/Redo no longer lose their image/audio binaries during garbage collection; image clearing works in sound-bearing projects; Inspector, bulk edit target and playhead stay aligned after multi-selection changes.
+- Remaining: corrupt retained snapshots cannot contribute reachability because their payload cannot be parsed; the current policy keeps them for diagnosis but continues collection using readable generations. Asset reachability is recalculated at save time and has not yet been profiled with many thousands of assets.
+- Next highest value: snapshot paper-export inputs at job start so changing paper settings cannot mutate a multi-page export in progress, then bound or stream PNG-sequence animatic memory use.
+
 ## UX evaluation
 
 Counts describe editor commands (a shortcut chord counts as one); typing values and operating OS dialogs are separate.

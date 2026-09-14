@@ -387,11 +387,30 @@ export function normalizeSelection(selection, p) {
   const rows = flatten(p);
   const known = new Set(rows.map((r) => r.panel.id));
   const ids = (selection?.ids ?? []).filter((id) => known.has(id));
-  const active =
+  const requested =
     selection?.active && known.has(selection.active)
       ? selection.active
       : (ids[0] ?? rows[0].panel.id);
+  // Inspectorの表示対象と一括編集の対象を常に一致させる。
+  const active = ids.length && !ids.includes(requested) ? ids[0] : requested;
   return { active, ids: ids.length ? ids : [active] };
+}
+
+// Panel画像だけを外し、他のPanelからも使われていない画像メタデータを整理する。
+// 音声素材は画像の参照集合に含まれないため、ここでは決して削除しない。
+export function clearPanelImage(p, panelId) {
+  const target = flatten(p).find((r) => r.panel.id === panelId)?.panel;
+  if (!target?.image) return false;
+  target.image = null;
+  const usedImages = new Set(
+    flatten(p)
+      .map((r) => r.panel.image?.assetId)
+      .filter(Boolean),
+  );
+  p.assets = p.assets.filter(
+    (asset) => asset.kind !== "image" || usedImages.has(asset.id),
+  );
+  return true;
 }
 const isSelection = (value) =>
   !!value &&

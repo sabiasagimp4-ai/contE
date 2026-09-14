@@ -114,9 +114,21 @@ export class ProjectRepository {
   async assetIds() {
     return this.storage.keys("assets");
   }
-  // プロジェクトから参照されなくなったバイナリだけを捨てる。
-  async pruneAssets(p) {
-    const used = new Set(p.assets.map((a) => a.id));
+  // 現在値、保持中の保存世代、Undo/Redoのどこからも参照されない素材だけを捨てる。
+  async pruneAssets(p, history = []) {
+    const used = new Set();
+    const collect = (project) => {
+      for (const asset of project?.assets ?? []) used.add(asset.id);
+    };
+    collect(p);
+    for (const project of history) collect(project);
+    for (const meta of await this.list()) {
+      try {
+        collect(await this.load(meta.id));
+      } catch {
+        // 読めない保存データは復旧不能なので、他の正常な世代のGCは継続する。
+      }
+    }
     let removed = 0;
     for (const id of await this.assetIds())
       if (!used.has(id)) {

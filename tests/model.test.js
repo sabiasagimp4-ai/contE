@@ -15,6 +15,7 @@ import {
   moveCameraKey,
   removeCameraKey,
   describeCamera,
+  clearPanelImage,
 } from "../src/model.js";
 import { layoutPages } from "../src/paper.js";
 test("split and merge preserve frames, order and undo identity", () => {
@@ -236,6 +237,53 @@ test("deleting the selected panel moves selection to a surviving panel", () => {
   assert.deepEqual(s.selection.ids, [a]);
   s.undo();
   assert.equal(s.selection.active, b);
+});
+test("active selection always remains inside the selected panel ids", () => {
+  const s = new Store();
+  s.edit((p) => p.scenes[0].shots[0].panels.push(panel()));
+  const [a, b] = flatten(s.p).map((r) => r.panel.id);
+  s.select({ active: b, ids: [a, b] });
+  const selection = s.select({ active: b, ids: [a] });
+  assert.deepEqual(selection, { active: a, ids: [a] });
+});
+test("clearing an image preserves audio asset metadata and clips", () => {
+  const p = project();
+  const target = flatten(p)[0].panel;
+  p.assets.push(
+    {
+      id: "image-1",
+      kind: "image",
+      name: "board.png",
+      mime: "image/png",
+      bytes: 4,
+      width: 2,
+      height: 2,
+    },
+    {
+      id: "audio-1",
+      kind: "audio",
+      name: "voice.wav",
+      mime: "audio/wav",
+      bytes: 8,
+    },
+  );
+  target.image = { assetId: "image-1", opacity: 1 };
+  p.audio.push({
+    id: "clip-1",
+    assetId: "audio-1",
+    track: "dialogue",
+    anchor: target.id,
+    at: 0,
+    frames: 24,
+    offset: 0,
+    gain: 1,
+  });
+  assert.equal(clearPanelImage(p, target.id), true);
+  assert.deepEqual(
+    p.assets.map((asset) => asset.id),
+    ["audio-1"],
+  );
+  assert.doesNotThrow(() => new Store(p));
 });
 test("camera keys can be added, moved and removed at any time", () => {
   const b = panel();

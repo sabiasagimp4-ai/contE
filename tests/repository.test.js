@@ -135,6 +135,35 @@ test("asset binaries live outside the project and orphans are pruned", async () 
   assert.deepEqual([...(await repo.getAsset("asset-1"))], [1, 2, 3, 4]);
   assert.deepEqual((await repo.load(meta.id)).assets, p.assets);
 });
+test("asset pruning preserves references from snapshots and undo history", async () => {
+  const { repo } = repository({ limit: 1 });
+  const withImage = project();
+  withImage.assets.push({
+    id: "old-image",
+    kind: "image",
+    name: "old.png",
+    mime: "image/png",
+    bytes: 1,
+  });
+  withImage.scenes[0].shots[0].panels[0].image = {
+    assetId: "old-image",
+    opacity: 1,
+  };
+  await repo.putAsset("old-image", new Uint8Array([7]));
+  const old = await repo.save(withImage, { kind: "manual" });
+
+  const current = project();
+  await repo.save(current);
+  assert.equal(await repo.pruneAssets(current), 0);
+  assert.deepEqual([...(await repo.getAsset("old-image"))], [7]);
+  assert.equal((await repo.load(old.id)).assets[0].id, "old-image");
+
+  await repo.remove(old.id);
+  assert.equal(await repo.pruneAssets(current, [withImage]), 0);
+  assert.deepEqual([...(await repo.getAsset("old-image"))], [7]);
+  assert.equal(await repo.pruneAssets(current), 1);
+  assert.equal(await repo.getAsset("old-image"), undefined);
+});
 test("autosave waits, writes once and reports its state", async () => {
   const { repo } = repository();
   const states = [];
