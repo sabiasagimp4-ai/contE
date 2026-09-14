@@ -68,15 +68,16 @@ export function soundNotes(p, rows, row, resolved = resolveClips(p, rows)) {
 export const soundText = (notes) =>
   notes.map((n) => `${TRACK_LABEL[n.track] ?? n.track}: ${n.text}`).join(" / ");
 // 波形のピーク。1列あたりの最小/最大を1度だけ計算してキャッシュする。
-export function peaks(samples, columns) {
+// from/toは素材内のサンプル位置。素材の外にはみ出した範囲は無音として描く。
+export function peaks(samples, columns, from = 0, to = samples.length) {
   const out = new Float32Array(columns * 2);
-  const per = samples.length / columns;
+  const per = (to - from) / columns;
   for (let c = 0; c < columns; c++) {
-    const from = Math.floor(c * per),
-      to = Math.min(samples.length, Math.floor((c + 1) * per));
+    const start = Math.max(0, Math.floor(from + c * per)),
+      stop = Math.min(samples.length, Math.floor(from + (c + 1) * per));
     let min = 0,
       max = 0;
-    for (let i = from; i < to; i++) {
+    for (let i = start; i < stop; i++) {
       const v = samples[i];
       if (v < min) min = v;
       if (v > max) max = v;
@@ -85,6 +86,12 @@ export function peaks(samples, columns) {
     out[c * 2 + 1] = max;
   }
   return out;
+}
+// v5のoffsetとframesはProjectのfpsで数えた整数フレーム。素材内の位置へ直すときは
+// 一度秒へ直し、素材自身のsampleRateでサンプル位置にする（計画 §18.5 R08）。
+export function sampleRange({ offset = 0, frames, fps }, sampleRate) {
+  const from = Math.round((offset / fps) * sampleRate);
+  return { from, to: from + Math.round((frames / fps) * sampleRate) };
 }
 export function addClip(
   p,
@@ -179,13 +186,21 @@ export class AudioEngine {
   seconds(assetId) {
     return this.buffers.get(assetId)?.duration ?? 0;
   }
-  waveform(assetId, columns) {
-    const key = `${assetId}:${columns}`;
-    if (!this.waves.has(key)) {
-      const buffer = this.buffers.get(assetId);
-      if (!buffer) return null;
-      this.waves.set(key, peaks(buffer.getChannelData(0), columns));
-    }
+  // 表示するのはクリップが実際に使う区間だけ。offsetやtrimを変えれば形も変わる。
+  // 波形はChannel 0だけを見る（現行仕様。混合や左右別表示は別の変更とする）。
+  waveform(assetId, columns, segment = null) {
+    const buffer = this.buffers.get(assetId);
+    if (!buffer) return null;
+    const { from, to } = segment
+      ? sampleRange(segment, buffer.sampleRate)
+      : { from: 0, to: buffer.length };
+    // 同じ素材でも区間と解像度が違えば別の波形。キャッシュキーに両方を含める。
+    const key = `${assetId}:${columns}:${from}:${to}`;
+    if (!this.waves.has(key))
+      this.waves.set(
+        key,
+        peaks(buffer.getChannelData(0), columns, from, to),
+      );
     return this.waves.get(key);
   }
   // 書き出し用の出力先。録画では同じ予約をこのストリームへ流す。

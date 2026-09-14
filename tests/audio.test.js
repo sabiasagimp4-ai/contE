@@ -7,6 +7,7 @@ import {
   soundNotes,
   soundText,
   peaks,
+  sampleRange,
   addClip,
   placeClip,
   trimClip,
@@ -226,4 +227,50 @@ test("the engine caches decodes and never leaves two playbacks running", async (
   engine.forget("sound-1");
   assert.equal(engine.has("sound-1"), false);
   assert.equal(engine.waveform("sound-1", 8), null);
+});
+
+test("waveform shows the segment the clip actually uses", () => {
+  // 前半1秒は無音、後半1秒だけ振れる素材。offsetを動かすと形が変わるはず。
+  const rate = 100;
+  const samples = new Float32Array(rate * 2);
+  for (let i = rate; i < samples.length; i++) samples[i] = i % 2 ? 0.8 : -0.8;
+  const engine = new AudioEngine(() => ({}));
+  engine.buffers.set("sound-1", {
+    duration: 2,
+    length: samples.length,
+    sampleRate: rate,
+    getChannelData: () => samples,
+  });
+  const fps = 24;
+  const head = engine.waveform("sound-1", 4, { offset: 0, frames: 24, fps });
+  const tail = engine.waveform("sound-1", 4, { offset: 24, frames: 24, fps });
+  assert.deepEqual([...head], [0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.ok(
+    [...tail].some((v) => Math.abs(v) > 0.5),
+    "使用区間のピークが出ていない",
+  );
+  // 素材の終わりを越えた分は無音として描く。形が引き伸ばされない。
+  const beyond = engine.waveform("sound-1", 4, { offset: 24, frames: 96, fps });
+  assert.ok(Math.abs(beyond[0]) > 0.5, "先頭は素材内なので振れるはず");
+  assert.deepEqual([...beyond.slice(4)], [0, 0, 0, 0]);
+  // 区間ごとに別のキャッシュを持ち、同じ要求は同じ配列を返す。
+  assert.equal(
+    engine.waveform("sound-1", 4, { offset: 24, frames: 24, fps }),
+    tail,
+  );
+  assert.notEqual(head, tail);
+  engine.forget("sound-1");
+  assert.equal(engine.waves.size, 0);
+});
+
+test("sample ranges convert project frames through the source rate", () => {
+  assert.deepEqual(sampleRange({ offset: 24, frames: 48, fps: 24 }, 48000), {
+    from: 48000,
+    to: 144000,
+  });
+  // fpsが違えば同じフレーム数でも別の秒数になる。
+  assert.deepEqual(sampleRange({ offset: 0, frames: 30, fps: 30 }, 22050), {
+    from: 0,
+    to: 22050,
+  });
 });

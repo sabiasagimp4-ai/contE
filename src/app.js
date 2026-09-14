@@ -339,8 +339,13 @@ function soundClip(item, px) {
   el.style.left = `${item.start * px}px`;
   el.style.width = `${Math.max(6, item.clip.frames * px)}px`;
   el.title = `${item.asset?.name ?? "素材不明"} · ${item.clip.frames}f`;
-  const columns = Math.max(2, Math.round(item.clip.frames * px));
-  const wave = sound.waveform(item.clip.assetId, columns);
+  // 列数は表示幅に合わせるが上限を持つ。長いクリップで巨大なCanvasを作らない。
+  const columns = Math.max(2, Math.min(2000, Math.round(item.clip.frames * px)));
+  const wave = sound.waveform(item.clip.assetId, columns, {
+    offset: item.clip.offset,
+    frames: item.clip.frames,
+    fps: store.p.fps,
+  });
   if (wave) {
     const canvas = document.createElement("canvas");
     canvas.width = columns;
