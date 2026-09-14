@@ -65,33 +65,59 @@ export class IndexedDbStorage {
     this.version = version;
     this.db = null;
     this.opening = null;
+    this.generation = 0;
   }
+  // 接続要求は1つだけ生かす。決着した要求は必ず片付け、失敗した後も再試行できる。
+  // 世代は「この要求の接続を今も公開してよいか」の判定に使い、closeで進める。
   open() {
     if (this.db) return Promise.resolve(this);
     if (!this.factory) return Promise.reject(Error("IndexedDBが使えません"));
     if (this.opening) return this.opening;
+    const generation = ++this.generation;
+    let abandoned = false;
     const opening = new Promise((resolve, reject) => {
-      const request = this.factory.open(this.name, this.version);
+      const fail = (error) => {
+        abandoned = true;
+        reject(error);
+      };
+      let request;
+      try {
+        request = this.factory.open(this.name, this.version);
+      } catch (e) {
+        fail(e);
+        return;
+      }
       request.onupgradeneeded = () => {
         for (const store of STORES)
           if (!request.result.objectStoreNames.contains(store))
             request.result.createObjectStore(store);
       };
       request.onsuccess = () => {
-        this.db = request.result;
+        const db = request.result;
+        // onblocked/errorで失敗を返した後、close後、別の要求へ進んだ後に届いた
+        // 接続は呼び出し元のものではない。黙って公開せず閉じる。
+        if (abandoned || generation !== this.generation) {
+          db.close?.();
+          fail(Error("IndexedDBの接続は破棄されました"));
+          return;
+        }
+        this.db = db;
         // 別タブが新しい形式へ上げた場合は握ったままにしない。
-        this.db.onversionchange = () => this.close();
+        db.onversionchange = () => this.close();
         resolve(this);
       };
       request.onerror = () =>
-        reject(request.error ?? Error("IndexedDBを開けません"));
-      request.onblocked = () =>
-        reject(Error("IndexedDBが他のタブで使用中です"));
+        fail(request.error ?? Error("IndexedDBを開けません"));
+      request.onblocked = () => fail(Error("IndexedDBが他のタブで使用中です"));
     });
-    this.opening = opening.finally(() => {
+    const done = () => {
       if (this.opening === opening) this.opening = null;
-    });
-    return this.opening;
+    };
+    // 同じ参照を保持したまま決着を待つ。ここで失敗も受け取るので、呼び出し元が
+    // 握り潰しても未処理のrejectionにならない。
+    opening.then(done, done);
+    this.opening = opening;
+    return opening;
   }
   #run(store, mode, body) {
     return new Promise((resolve, reject) => {
@@ -157,8 +183,11 @@ export class IndexedDbStorage {
     });
   }
   close() {
+    // 進行中の要求が後から接続を公開しないよう世代を進める。次のopenは新しい要求。
+    this.generation++;
     this.db?.close();
     this.db = null;
+    this.opening = null;
   }
 }
 
