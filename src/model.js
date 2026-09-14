@@ -567,20 +567,52 @@ export function removeCameraKey(b, index) {
   b.camera.splice(index, 1);
   return true;
 }
+// 動きの向きは全キーを通して拾う。閾値より小さい揺れは動きとして数えず、
+// 閾値を超えて向きが変わったところだけを折り返しとして記録する。
+// 始点と終点だけを比べると、0→0.5→0のような往復を静止と誤って要約してしまう。
+function swingDirections(values, epsilon) {
+  const directions = [];
+  let pivot = values[0],
+    extreme = values[0],
+    direction = 0;
+  for (const value of values.slice(1)) {
+    if (!direction) {
+      if (Math.abs(value - pivot) > epsilon) {
+        direction = Math.sign(value - pivot);
+        directions.push(direction);
+        extreme = value;
+      }
+      continue;
+    }
+    // 同じ向きへ伸びる間は先端を更新し、戻りが閾値を超えたら折り返しとする。
+    if ((value - extreme) * direction > 0) extreme = value;
+    else if ((extreme - value) * direction > epsilon) {
+      direction = -direction;
+      directions.push(direction);
+      pivot = extreme;
+      extreme = value;
+    }
+  }
+  return directions;
+}
+const CAMERA_MOVES = [
+  { field: "x", epsilon: 0.005, labels: { 1: "PAN →", "-1": "PAN ←" } },
+  { field: "y", epsilon: 0.005, labels: { 1: "TILT ↓", "-1": "TILT ↑" } },
+  { field: "zoom", epsilon: 0.005, labels: { 1: "ZOOM IN", "-1": "ZOOM OUT" } },
+  { field: "rotation", epsilon: 0.5, labels: { 1: "ROLL ↻", "-1": "ROLL ↺" } },
+];
 // 紙コンテ・Inspector・再生で同じ言葉を使うためのCamera動作の要約。
 export function describeCamera(b) {
   const keys = [...b.camera].sort((x, y) => x.t - y.t);
-  const first = keys[0],
-    last = keys.at(-1);
   const moves = [];
-  const dx = last.x - first.x,
-    dy = last.y - first.y,
-    dr = last.rotation - first.rotation;
-  if (Math.abs(dx) > 0.005) moves.push(dx > 0 ? "PAN →" : "PAN ←");
-  if (Math.abs(dy) > 0.005) moves.push(dy > 0 ? "TILT ↓" : "TILT ↑");
-  if (Math.abs(last.zoom - first.zoom) > 0.005)
-    moves.push(last.zoom > first.zoom ? "ZOOM IN" : "ZOOM OUT");
-  if (Math.abs(dr) > 0.5) moves.push(dr > 0 ? "ROLL ↻" : "ROLL ↺");
+  for (const { field, epsilon, labels } of CAMERA_MOVES) {
+    const directions = swingDirections(
+      keys.map((k) => k[field]),
+      epsilon,
+    );
+    // 同じ向きは一度だけ書く。往復は出た順に両方の向きを残す。
+    for (const direction of [...new Set(directions)]) moves.push(labels[direction]);
+  }
   return { keys, moves, hold: !moves.length };
 }
 export function cameraAt(b, t) {

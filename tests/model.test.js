@@ -400,3 +400,51 @@ test("split reuses the shot factory so new shots stay valid", () => {
   assert.equal(typeof created.id, "string");
   assert.deepEqual(load(JSON.stringify(s.p)), s.p);
 });
+test("round trips are described as movement, not HOLD", () => {
+  const b = panel();
+  setCameraKey(b, 0.5, { x: 0.5 });
+  setCameraKey(b, 1, { x: 0 });
+  const pan = describeCamera(b);
+  // 始点と終点だけを比べると静止に見えるが、途中のCamera値は実際に動いている。
+  assert.equal(pan.hold, false);
+  assert.deepEqual(pan.moves, ["PAN →", "PAN ←"]);
+  assert.equal(cameraAt(b, 0.5).x, 0.5);
+
+  const zoom = panel();
+  setCameraKey(zoom, 0.5, { zoom: 2 });
+  setCameraKey(zoom, 1, { zoom: 1 });
+  assert.deepEqual(describeCamera(zoom).moves, ["ZOOM IN", "ZOOM OUT"]);
+
+  const roll = panel();
+  setCameraKey(roll, 0.5, { rotation: -20 });
+  setCameraKey(roll, 1, { rotation: 0 });
+  assert.deepEqual(describeCamera(roll).moves, ["ROLL ↺", "ROLL ↻"]);
+
+  const tilt = panel();
+  setCameraKey(tilt, 0.4, { y: 0.3 });
+  setCameraKey(tilt, 1, { y: -0.3 });
+  assert.deepEqual(describeCamera(tilt).moves, ["TILT ↓", "TILT ↑"]);
+});
+test("camera description ignores wobble but keeps gradual moves", () => {
+  const still = panel();
+  setCameraKey(still, 0.5, { x: 0.002, zoom: 1.001, rotation: 0.2 });
+  setCameraKey(still, 1, { x: 0, zoom: 1, rotation: 0 });
+  // 閾値より小さい揺れは動きにしない。全キーが同じならHOLDのまま。
+  assert.deepEqual(describeCamera(still).moves, []);
+  assert.equal(describeCamera(still).hold, true);
+
+  const gradual = panel();
+  setCameraKey(gradual, 0.25, { x: 0.003 });
+  setCameraKey(gradual, 0.5, { x: 0.006 });
+  setCameraKey(gradual, 1, { x: 0.02 });
+  // 1区間ずつは閾値以下でも、同じ向きへ進み続ける動きは拾う。
+  assert.deepEqual(describeCamera(gradual).moves, ["PAN →"]);
+
+  const many = panel();
+  setCameraKey(many, 0.25, { x: 0.5 });
+  setCameraKey(many, 0.5, { x: 0 });
+  setCameraKey(many, 0.75, { x: 0.5 });
+  setCameraKey(many, 1, { x: 0 });
+  // 何度往復しても同じ向きは一度だけ書く。表記が伸び続けない。
+  assert.deepEqual(describeCamera(many).moves, ["PAN →", "PAN ←"]);
+});

@@ -21,6 +21,7 @@ import {
   flatten,
   paperDefaults,
   validate,
+  setCameraKey,
 } from "../src/model.js";
 import { addClip } from "../src/audio.js";
 // 1文字の幅をフォントサイズの0.6倍と見なす簡易計測。実ブラウザの代わりに使う。
@@ -192,4 +193,16 @@ test("ZipBuilder matches zip and accepts files incrementally", async () => {
   assert.equal(view.getUint32(end, true), 0x06054b50);
   assert.equal(view.getUint16(end + 10, true), 2);
   assert.equal(view.getUint32(14, true), crc32(new Uint8Array([1, 2])));
+});
+test("paper camera column draws the trajectory of a round trip", () => {
+  const p = project();
+  const rows = flatten(p);
+  setCameraKey(rows[0].panel, 0.5, { zoom: 2 });
+  setCameraKey(rows[0].panel, 1, { zoom: 1 });
+  validate(p);
+  const text = columnText(p, rows, undefined, rows[0], settings(), "camera");
+  assert.notEqual(text, "HOLD");
+  assert.match(text, /ZOOM IN \/ ZOOM OUT/);
+  // 表記にはキーの位置も並ぶので、往復が読み取れる。
+  assert.match(text, /0f → 24f → 48f/);
 });
