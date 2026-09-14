@@ -299,7 +299,7 @@ DOM / Pointer / Keyboard
   → Store.edit(fn)
   → validate + history + selection normalize
   → markDirty()
-  → Autosaver.schedule(() => store.p)
+  → Autosaver.schedule(() => store.p, editor.capture())
   → render()
 ```
 
