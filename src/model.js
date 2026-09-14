@@ -399,11 +399,12 @@ export function normalizeSelection(selection, p) {
 // Panel画像だけを外し、他のPanelからも使われていない画像メタデータを整理する。
 // 音声素材は画像の参照集合に含まれないため、ここでは決して削除しない。
 export function clearPanelImage(p, panelId) {
-  const target = flatten(p).find((r) => r.panel.id === panelId)?.panel;
+  const rows = flatten(p);
+  const target = rows.find((r) => r.panel.id === panelId)?.panel;
   if (!target?.image) return false;
   target.image = null;
   const usedImages = new Set(
-    flatten(p)
+    rows
       .map((r) => r.panel.image?.assetId)
       .filter(Boolean),
   );

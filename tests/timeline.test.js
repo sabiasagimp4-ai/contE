@@ -69,6 +69,19 @@ test("snapping prefers the nearest boundary within the pixel tolerance", () => {
   // 拡大するほど吸着範囲はフレーム単位では狭くなる。
   assert.equal(snap(50, targets, 24), 50);
 });
+test("snap candidates stay bounded for an extremely long project", () => {
+  const rows = [
+    { start: 0, end: 864000 },
+    { start: 864000, end: 864000000 },
+  ];
+  const started = performance.now();
+  const targets = snapTargets(rows, 24, 864000000, 123456);
+  const elapsed = performance.now() - started;
+  assert.ok(targets.length <= 20005, `generated ${targets.length} targets`);
+  assert.ok(elapsed < 100, `candidate generation took ${elapsed.toFixed(1)}ms`);
+  assert.ok(targets.includes(123456));
+  assert.ok(targets.includes(864000));
+});
 test("zoom keeps the anchored frame under the same pixel", () => {
   // 画面左から300pxの位置にある100フレーム目を掴んだまま2倍にする。
   assert.equal(anchorScroll(0, 3, 6, 100, 900), 300);

@@ -42,11 +42,13 @@ export class IndexedDbStorage {
     this.factory = factory;
     this.version = version;
     this.db = null;
+    this.opening = null;
   }
   open() {
     if (this.db) return Promise.resolve(this);
     if (!this.factory) return Promise.reject(Error("IndexedDBが使えません"));
-    return new Promise((resolve, reject) => {
+    if (this.opening) return this.opening;
+    const opening = new Promise((resolve, reject) => {
       const request = this.factory.open(this.name, this.version);
       request.onupgradeneeded = () => {
         for (const store of STORES)
@@ -64,6 +66,10 @@ export class IndexedDbStorage {
       request.onblocked = () =>
         reject(Error("IndexedDBが他のタブで使用中です"));
     });
+    this.opening = opening.finally(() => {
+      if (this.opening === opening) this.opening = null;
+    });
+    return this.opening;
   }
   #run(store, mode, body) {
     return new Promise((resolve, reject) => {

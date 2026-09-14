@@ -30,11 +30,12 @@ export async function forEachPage(
   { job = new Job(), onProgress = () => {}, yieldEvery = 1 } = {},
 ) {
   const results = [];
+  const interval = Number.isInteger(yieldEvery) && yieldEvery > 0 ? yieldEvery : 1;
   for (let i = 0; i < count; i++) {
     job.check();
     results.push(await produce(i));
     onProgress({ done: i + 1, total: count });
-    if ((i + 1) % yieldEvery === 0) await nextFrame();
+    if ((i + 1) % interval === 0) await nextFrame();
   }
   return results;
 }
@@ -48,56 +49,71 @@ export function crc32(bytes) {
   for (const byte of bytes) c = crcTable[(c ^ byte) & 0xff] ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
 }
-// 無圧縮ZIP。追加ライブラリを持ち込まずに連番PNGを1ファイルへまとめる。
-export function zip(files) {
-  const encoder = new TextEncoder();
-  const chunks = [];
-  const central = [];
-  let offset = 0;
-  const view = (length) => {
-    const buffer = new ArrayBuffer(length);
-    return { buffer: new Uint8Array(buffer), data: new DataView(buffer) };
-  };
-  for (const file of files) {
+// 無圧縮ZIP。追加ライブラリを持ち込まず、連番出力を1件ずつ追加できる。
+// Builderを使う経路ではフレーム全件のメタデータ配列を保持しない。
+export class ZipBuilder {
+  constructor() {
+    this.encoder = new TextEncoder();
+    this.chunks = [];
+    this.central = [];
+    this.offset = 0;
+    this.count = 0;
+  }
+  add(file) {
+    const { encoder } = this;
     const name = encoder.encode(file.name);
     const body = file.bytes;
     const sum = crc32(body);
-    const local = view(30 + name.length);
-    local.data.setUint32(0, 0x04034b50, true);
-    local.data.setUint16(4, 20, true);
-    local.data.setUint16(6, 0x0800, true); // 名前はUTF-8
-    local.data.setUint16(8, 0, true); // 無圧縮
-    local.data.setUint32(14, sum, true);
-    local.data.setUint32(18, body.length, true);
-    local.data.setUint32(22, body.length, true);
-    local.data.setUint16(26, name.length, true);
-    local.buffer.set(name, 30);
-    chunks.push(local.buffer, body);
-    const entry = view(46 + name.length);
-    entry.data.setUint32(0, 0x02014b50, true);
-    entry.data.setUint16(4, 20, true);
-    entry.data.setUint16(6, 20, true);
-    entry.data.setUint16(8, 0x0800, true);
-    entry.data.setUint16(10, 0, true);
-    entry.data.setUint32(16, sum, true);
-    entry.data.setUint32(20, body.length, true);
-    entry.data.setUint32(24, body.length, true);
-    entry.data.setUint16(28, name.length, true);
-    entry.data.setUint32(42, offset, true);
-    entry.buffer.set(name, 46);
-    central.push(entry.buffer);
-    offset += local.buffer.length + body.length;
+    const localBuffer = new ArrayBuffer(30 + name.length);
+    const local = new Uint8Array(localBuffer);
+    const localData = new DataView(localBuffer);
+    localData.setUint32(0, 0x04034b50, true);
+    localData.setUint16(4, 20, true);
+    localData.setUint16(6, 0x0800, true); // 名前はUTF-8
+    localData.setUint16(8, 0, true); // 無圧縮
+    localData.setUint32(14, sum, true);
+    localData.setUint32(18, body.length, true);
+    localData.setUint32(22, body.length, true);
+    localData.setUint16(26, name.length, true);
+    local.set(name, 30);
+    this.chunks.push(localBuffer, body);
+    const entryBuffer = new ArrayBuffer(46 + name.length);
+    const entry = new Uint8Array(entryBuffer);
+    const entryData = new DataView(entryBuffer);
+    entryData.setUint32(0, 0x02014b50, true);
+    entryData.setUint16(4, 20, true);
+    entryData.setUint16(6, 20, true);
+    entryData.setUint16(8, 0x0800, true);
+    entryData.setUint16(10, 0, true);
+    entryData.setUint32(16, sum, true);
+    entryData.setUint32(20, body.length, true);
+    entryData.setUint32(24, body.length, true);
+    entryData.setUint16(28, name.length, true);
+    entryData.setUint32(42, this.offset, true);
+    entry.set(name, 46);
+    this.central.push(entryBuffer);
+    this.offset += localBuffer.byteLength + body.length;
+    this.count++;
+    return this;
   }
-  const directory = central.reduce((sum, e) => sum + e.length, 0);
-  const end = view(22);
-  end.data.setUint32(0, 0x06054b50, true);
-  end.data.setUint16(8, files.length, true);
-  end.data.setUint16(10, files.length, true);
-  end.data.setUint32(12, directory, true);
-  end.data.setUint32(16, offset, true);
-  return new Blob([...chunks, ...central, end.buffer], {
-    type: "application/zip",
-  });
+  finish() {
+    const directory = this.central.reduce((sum, entry) => sum + entry.byteLength, 0);
+    const endBuffer = new ArrayBuffer(22);
+    const end = new DataView(endBuffer);
+    end.setUint32(0, 0x06054b50, true);
+    end.setUint16(8, this.count, true);
+    end.setUint16(10, this.count, true);
+    end.setUint32(12, directory, true);
+    end.setUint32(16, this.offset, true);
+    return new Blob([...this.chunks, ...this.central, endBuffer], {
+      type: "application/zip",
+    });
+  }
+}
+export function zip(files) {
+  const builder = new ZipBuilder();
+  for (const file of files) builder.add(file);
+  return builder.finish();
 }
 export const canvasBytes = async (canvas) => {
   const blob = await new Promise((resolve) =>

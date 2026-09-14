@@ -28,7 +28,7 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 - CameraキーはPanel内の任意の時刻に何本でも置けます（X/Y/Zoom/Rotation、キー間は線形補間）。キーは尺に対する比率で保持するため、**尺を変えるとCameraの動きも同じ比率で伸縮します**。再生・紙コンテ・Inspectorは同じ補間関数と同じ要約（PAN / TILT / ZOOM / ROLL / HOLD）を共有します。
 - 80段階のUndo/Redo。無効な編集は原子的に拒否。描画データは不変共有して履歴コストを削減。変更のない操作は履歴段数を消費せず、Undo/Redoで選択Panelと再生位置も戻ります。
 - `.contp` JSON v5の保存/読み込み。v1〜v4のファイルは読み込み時に順番へMigrationします。破損データ・重複ID・未知Versionを拒否します。保存はブラウザのダウンロードで、既存ファイルへの直接上書きではありません。
-- 変更の1.2秒後（最長8秒）にIndexedDBへ自動保存し、ヘッダーに保存状態を表示します。最大8世代を保持し、起動時に前回の作業を日時・タイトル・Panel数つきで提示して復旧/破棄を選べます。読めない保存データは削除せず読み飛ばし、直前の正常な世代を提示します。容量不足のときは古い世代を減らして一度だけ再試行し、それでも失敗した場合は失敗として表示します（成功表示にしません）。
+- 変更の0.6秒後（連続編集中は最長4秒）にIndexedDBへ自動保存し、ヘッダーに保存状態を表示します。最大8世代を保持し、起動時に前回の作業を日時・タイトル・Panel数つきで提示して復旧/破棄を選べます。読めない保存データは削除せず読み飛ばし、直前の正常な世代を提示します。容量不足のときは古い世代を減らして一度だけ再試行し、それでも失敗した場合は失敗として表示します（成功表示にしません）。
 - 素材（画像/音声）はIDとメタデータのみをプロジェクトに持ち、バイナリは別ストアへ保存します。`.contp`に素材は同梱されないため、別環境では素材の差し替えが必要です。
 - 紙コンテ：**用紙（A4/A3/B4/Letter）と向き、列の順番・個別幅・表示/非表示、コマ数、余白、文字サイズ、ヘッダー/フッター**を調整でき、設定はプロジェクトに保存されます（Undo対象・自動保存対象）。
 - 列はCUT（番号・階層・尺）/ コンテ画像 / 台詞 / SE・BGM / 演出 / Camera。**長文は切り捨てず**、入り切らない分は次の行・次のページへ「（続き）」として送ります。
@@ -64,7 +64,7 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 
 `src/model.js`：階層・検証・Migration・履歴・Panel移動・Cameraキー、`src/timeline.js`：Timeline Engine（範囲・目盛・スナップ・Zoom・追従）、`src/audio.js`：Audio Engine（クリップ解決・予約・波形・音注記）、`src/exporter.js`：Exporter（進捗・中止・ZIP）、`src/animatic.js`：Animatic（フレーム計画・評価・録画）、`src/repository.js`：保存/復旧/素材と自動保存、`src/storage.js`：IndexedDB/メモリのStorage Adapter、`src/playback.js`：時刻計算・Panel検索、`src/drawing.js`：描画Adapter、`src/paper.js`：ページ生成・Camera表記、`src/app.js`：UI/Timeline操作。
 
-[次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md) / [デスクトップ化と動画書き出しの調査](docs/DESKTOP.md)。ロードマップのP0〜P5まで実装済みです。残るはデスクトップ化（[調査と判断基準](docs/DESKTOP.md)）とオフライン動画書き出しで、Windows実機での計測が必要です。
+[現行アーキテクチャ](docs/ARCHITECTURE.md) / [次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md) / [デスクトップ化と動画書き出しの調査](docs/DESKTOP.md)。ロードマップのP0〜P5まで実装済みです。残るはデスクトップ化（[調査と判断基準](docs/DESKTOP.md)）とオフライン動画書き出しで、Windows実機での計測が必要です。
 
 ```sh
 npm test

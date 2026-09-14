@@ -20,7 +20,14 @@ import {
 } from "./model.js";
 import { draw } from "./drawing.js";
 import { layoutPages, renderPage, download, COLUMN_LABEL } from "./paper.js";
-import { forEachPage, Job, Cancelled, zip, canvasBytes } from "./exporter.js";
+import {
+  forEachPage,
+  Job,
+  Cancelled,
+  zip,
+  ZipBuilder,
+  canvasBytes,
+} from "./exporter.js";
 import * as animatic from "./animatic.js";
 import * as tl from "./timeline.js";
 import * as audio from "./audio.js";
@@ -1457,24 +1464,33 @@ function preview() {
 function progress(text, running) {
   $("paperProgress").textContent = text;
   $("cancelExport").hidden = !running;
-  for (const id of ["print", "png"]) $(id).disabled = running;
+  for (const node of document.querySelectorAll(
+    "#paperSettings input, #paperSettings select, #paperColumns input, #paperColumns button, #print, #png",
+  ))
+    node.disabled = running;
 }
 // 出力は1ページずつ。途中でキャンセルできるようJobを渡す。
 async function exportPages(handle, label) {
   if (job) return null;
   job = new Job();
-  progress(`${label} 0 / ${pages.length}`, true);
+  // 生成中に編集されても、1つの出力内で設定やProjectが混ざらないよう固定する。
+  const exportProject = store.p;
+  const exportPaper = paper();
+  const exportPagesList = pages.slice();
+  const exportImages = new Map(images);
+  const total = exportPagesList.length;
+  progress(`${label} 0 / ${total}`, true);
   try {
     const result = await forEachPage(
-      pages.length,
+      total,
       async (i) => {
         const canvas = renderPage(
-          store.p,
-          pages[i],
-          paper(),
+          exportProject,
+          exportPagesList[i],
+          exportPaper,
           i,
-          pages.length,
-          images,
+          total,
+          exportImages,
         );
         const value = await handle(canvas, i);
         canvas.width = canvas.height = 0;
@@ -1486,7 +1502,7 @@ async function exportPages(handle, label) {
           progress(`${label} ${done} / ${total}`, true),
       },
     );
-    progress(`${label} 完了（${pages.length}ページ）`, false);
+    progress(`${label} 完了（${total}ページ）`, false);
     return result;
   } catch (e) {
     progress(
@@ -1618,7 +1634,8 @@ async function animaticFrames(spec) {
   canvas.height = spec.height;
   const context = canvas.getContext("2d");
   animaticJob = new Job();
-  const files = await forEachPage(
+  const builder = new ZipBuilder();
+  await forEachPage(
     spec.frames,
     async (i) => {
       animatic.renderFrame(
@@ -1629,18 +1646,22 @@ async function animaticFrames(spec) {
         spec.height,
         images,
       );
-      return {
+      builder.add({
         name: `frame-${String(i + 1).padStart(5, "0")}.png`,
         bytes: await canvasBytes(canvas),
-      };
+      });
+      return null;
     },
     {
       job: animaticJob,
+      // 4フレーム単位で制御を返し、PNG連番の不要な1フレーム待ちを減らす。
+      // 各フレームのcancel判定は維持するため、中止の応答性は変えない。
+      yieldEvery: 4,
       onProgress: ({ done, total }) =>
         animaticProgress(`フレーム ${done} / ${total}`, true),
     },
   );
-  return zip(files);
+  return builder.finish();
 }
 // WebM：実時間の録画。音は再生と同じ予約を録音用の出力先へ流す。
 async function animaticRecord(spec, mime) {

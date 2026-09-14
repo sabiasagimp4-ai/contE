@@ -11,6 +11,7 @@ export const TRACK_LABEL = {
 // 尺を変えてもそのPanelに付いて動き、Panelを消せばクリップも一緒に消える。
 export function resolveClips(p, rows = flatten(p)) {
   const starts = new Map(rows.map((r) => [r.panel.id, r.start]));
+  const assets = new Map(p.assets.map((asset) => [asset.id, asset]));
   return p.audio
     .map((clip) => {
       const base = starts.get(clip.anchor);
@@ -18,7 +19,7 @@ export function resolveClips(p, rows = flatten(p)) {
       const start = base + clip.at;
       return {
         clip,
-        asset: p.assets.find((a) => a.id === clip.assetId) ?? null,
+        asset: assets.get(clip.assetId) ?? null,
         start,
         end: start + clip.frames,
       };

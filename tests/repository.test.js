@@ -164,6 +164,28 @@ test("asset pruning preserves references from snapshots and undo history", async
   assert.equal(await repo.pruneAssets(current), 1);
   assert.equal(await repo.getAsset("old-image"), undefined);
 });
+test("asset pruning uses snapshot metadata without reparsing every payload", async () => {
+  const { repo } = repository();
+  const p = project();
+  p.assets.push({
+    id: "kept",
+    kind: "image",
+    name: "kept.png",
+    mime: "image/png",
+    bytes: 1,
+  });
+  await repo.putAsset("kept", new Uint8Array([1]));
+  await repo.save(p);
+  const originalLoad = repo.load.bind(repo);
+  let loads = 0;
+  repo.load = async (...args) => {
+    loads++;
+    return originalLoad(...args);
+  };
+  await repo.pruneAssets(project());
+  assert.equal(loads, 0, "new snapshots should carry asset reachability metadata");
+  assert.deepEqual([...(await repo.getAsset("kept"))], [1]);
+});
 test("autosave waits, writes once and reports its state", async () => {
   const { repo } = repository();
   const states = [];

@@ -55,12 +55,22 @@ export function ticks(fps, scale, scrollLeft, width, end, minPx = 70) {
   return out;
 }
 // スナップ候補：Panelの境界、秒の目盛、再生ヘッド、プロジェクトの末尾。
-export function snapTargets(rows, fps, end, playhead) {
-  const targets = [0, end];
-  for (const r of rows) targets.push(r.start, r.end);
-  for (let f = 0; f <= end; f += fps) targets.push(f);
-  if (Number.isFinite(playhead)) targets.push(Math.round(playhead));
-  return targets;
+// 長尺プロジェクトでも候補配列を膨らませない。秒の目盛は十分な密度を
+// 保ちつつ上限を設け、細かいPanel境界は常にすべて残す。
+export function snapTargets(
+  rows,
+  fps,
+  end,
+  playhead,
+  { maxSecondTicks = 4096 } = {},
+) {
+  const targets = new Set([0, end]);
+  for (const r of rows) targets.add(r.start).add(r.end);
+  const seconds = Math.floor(end / fps) + 1;
+  const stride = Math.max(1, Math.ceil(seconds / maxSecondTicks));
+  for (let f = 0; f <= end; f += fps * stride) targets.add(f);
+  if (Number.isFinite(playhead)) targets.add(Math.round(playhead));
+  return [...targets];
 }
 export function snap(frame, targets, scale, tolerancePx = 8) {
   let best = frame,

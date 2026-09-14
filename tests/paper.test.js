@@ -7,7 +7,14 @@ import {
   layoutPages,
   COLUMN_LABEL,
 } from "../src/paper.js";
-import { forEachPage, Job, Cancelled, zip, crc32 } from "../src/exporter.js";
+import {
+  forEachPage,
+  Job,
+  Cancelled,
+  zip,
+  ZipBuilder,
+  crc32,
+} from "../src/exporter.js";
 import {
   project,
   panel,
@@ -151,6 +158,14 @@ test("export runs page by page, reports progress and stops when cancelled", asyn
   );
   assert.deepEqual(made, [0, 1], "cancel must stop the next page");
 });
+test("invalid export yield intervals still yield safely", async () => {
+  const seen = [];
+  await forEachPage(2, async (i) => i, {
+    yieldEvery: 0,
+    onProgress: ({ done }) => seen.push(done),
+  });
+  assert.deepEqual(seen, [1, 2]);
+});
 test("the zip container keeps each file readable", async () => {
   const bytes = new Uint8Array([1, 2, 3, 4, 5]);
   const blob = zip([
@@ -166,4 +181,15 @@ test("the zip container keeps each file readable", async () => {
   const end = data.length - 22;
   assert.equal(view.getUint32(end, true), 0x06054b50);
   assert.equal(view.getUint16(end + 10, true), 2);
+});
+test("ZipBuilder matches zip and accepts files incrementally", async () => {
+  const builder = new ZipBuilder();
+  builder.add({ name: "a.txt", bytes: new Uint8Array([1, 2]) });
+  builder.add({ name: "b.txt", bytes: new Uint8Array([3]) });
+  const data = new Uint8Array(await builder.finish().arrayBuffer());
+  const view = new DataView(data.buffer);
+  const end = data.length - 22;
+  assert.equal(view.getUint32(end, true), 0x06054b50);
+  assert.equal(view.getUint16(end + 10, true), 2);
+  assert.equal(view.getUint32(14, true), crc32(new Uint8Array([1, 2])));
 });

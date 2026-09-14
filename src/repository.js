@@ -33,6 +33,8 @@ export class ProjectRepository {
       version: p.version,
       panels: countPanels(p),
       bytes: data.length,
+      // 素材GCはスナップショット本体を再パースせずに到達性を判定する。
+      assetIds: p.assets.map((asset) => asset.id),
     };
     try {
       await this.#write(meta, data);
@@ -123,10 +125,14 @@ export class ProjectRepository {
     collect(p);
     for (const project of history) collect(project);
     for (const meta of await this.list()) {
+      if (Array.isArray(meta.assetIds)) {
+        for (const id of meta.assetIds) used.add(id);
+        continue;
+      }
       try {
         collect(await this.load(meta.id));
       } catch {
-        // 読めない保存データは復旧不能なので、他の正常な世代のGCは継続する。
+        // 旧形式または読めない保存は、正常な世代のGCを妨げない。
       }
     }
     let removed = 0;
@@ -143,8 +149,8 @@ export class Autosaver {
   constructor(
     repo,
     {
-      delay = 1200,
-      maxDelay = 8000,
+      delay = 600,
+      maxDelay = 4000,
       onState = () => {},
       now = () => Date.now(),
       setTimer = (fn, ms) => setTimeout(fn, ms),
