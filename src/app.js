@@ -15,9 +15,11 @@ import {
   removeCameraKey,
   describeCamera,
   CAMERA_FIELDS,
+  PAPER_COLUMNS,
 } from "./model.js";
 import { draw } from "./drawing.js";
-import { defaults, paginate, renderPage, download } from "./paper.js";
+import { layoutPages, renderPage, download, COLUMN_LABEL } from "./paper.js";
+import { forEachPage, Job, Cancelled, zip, canvasBytes } from "./exporter.js";
 import * as tl from "./timeline.js";
 import * as audio from "./audio.js";
 import { AudioEngine } from "./audio.js";
@@ -1266,160 +1268,291 @@ document.addEventListener("keydown", (e) => {
     fn();
   }
 });
-const options = { ...defaults };
-for (const [key, title, min, max] of [
-  ["rows", "コマ / ページ", 1, 8],
-  ["margin", "余白 (px)", 20, 100],
-  ["font", "文字サイズ (px)", 12, 30],
-  ["imageWidth", "画像列幅 (%)", 20, 65],
-  ["header", "ヘッダー"],
-]) {
-  const l = document.createElement("label");
-  l.textContent = title;
-  const i = document.createElement("input");
-  i.type = key === "header" ? "text" : "number";
-  i.value = options[key];
-  if (min) {
-    i.min = min;
-    i.max = max;
+// 紙面設定はプロジェクトの一部。変更は履歴と自動保存に乗る。
+const paper = () => store.p.paper;
+const paperEdit = (change) => {
+  edit((p) => change(p.paper));
+  schedulePreview();
+};
+function paperSettings() {
+  const o = paper();
+  const box = $("paperSettings");
+  box.replaceChildren();
+  const field = (title, node) => {
+    const label = document.createElement("label");
+    label.textContent = title;
+    label.append(node);
+    box.append(label);
+    return node;
+  };
+  const select = (title, key, entries) => {
+    const node = document.createElement("select");
+    node.replaceChildren(
+      ...entries.map(([value, text]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = text;
+        option.selected = o[key] === value;
+        return option;
+      }),
+    );
+    node.onchange = () => paperEdit((paper) => (paper[key] = node.value));
+    return field(title, node);
+  };
+  select("用紙", "size", [
+    ["A4", "A4"],
+    ["A3", "A3"],
+    ["B4", "B4"],
+    ["letter", "Letter"],
+  ]);
+  select("向き", "orientation", [
+    ["portrait", "縦"],
+    ["landscape", "横"],
+  ]);
+  for (const [key, title, min, max] of [
+    ["rows", "コマ / ページ", 1, 12],
+    ["margin", "余白 (px)", 10, 150],
+    ["font", "文字サイズ (px)", 8, 40],
+  ]) {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = min;
+    input.max = max;
+    input.value = o[key];
+    input.onchange = () =>
+      paperEdit(
+        (paper) =>
+          (paper[key] = Math.max(
+            min,
+            Math.min(max, Math.round(Number(input.value)) || min),
+          )),
+      );
+    field(title, input);
   }
-  i.onchange = () => {
-    options[key] =
-      key === "header"
-        ? i.value
-        : Math.max(min, Math.min(max, Math.round(Number(i.value)) || min));
-    preview();
-  };
-  l.append(i);
-  $("paperSettings").append(l);
+  for (const [key, title] of [
+    ["header", "ヘッダー"],
+    ["footer", "フッター"],
+  ]) {
+    const input = document.createElement("input");
+    input.value = o[key];
+    input.placeholder = key === "header" ? store.p.title : "";
+    input.onchange = () =>
+      paperEdit((paper) => (paper[key] = input.value.slice(0, 80)));
+    field(title, input);
+  }
+  for (const [key, title] of [
+    ["duration", "尺"],
+    ["numbers", "階層番号"],
+    ["cameraMarks", "画像にCamera作画"],
+  ]) {
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = o[key];
+    input.onchange = () => paperEdit((paper) => (paper[key] = input.checked));
+    const label = document.createElement("label");
+    label.className = "check";
+    label.append(input, title);
+    box.append(label);
+  }
+  columnSettings();
 }
-for (const [key, title] of Object.entries({
-  cut: "CUT番号",
-  image: "コンテ画像",
-  duration: "尺",
-  dialogue: "台詞",
-  sound: "SE / BGM",
-  notes: "演出メモ",
-  camera: "Camera",
-  numbers: "階層番号",
-})) {
-  const l = document.createElement("label"),
-    i = document.createElement("input");
-  i.type = "checkbox";
-  i.checked = true;
-  i.onchange = () => {
-    options[key] = i.checked;
-    preview();
-  };
-  l.append(i, title);
-  $("paperSettings").append(l);
+// 列は順番・幅・表示/非表示をそのまま編集する。並びがそのまま紙面の並びになる。
+function columnSettings() {
+  const o = paper();
+  const list = $("paperColumns");
+  list.replaceChildren();
+  const used = new Map(o.columns.map((c) => [c.key, c]));
+  for (const key of PAPER_COLUMNS) {
+    const column = used.get(key);
+    const row = document.createElement("div");
+    row.className = "column";
+    const show = document.createElement("input");
+    show.type = "checkbox";
+    show.checked = !!column;
+    show.onchange = () =>
+      paperEdit((paper) => {
+        if (show.checked)
+          paper.columns.push({ key, width: 100 / (paper.columns.length + 1) });
+        else if (paper.columns.length > 1)
+          paper.columns = paper.columns.filter((c) => c.key !== key);
+      });
+    const name = document.createElement("span");
+    name.textContent = COLUMN_LABEL[key];
+    const width = document.createElement("input");
+    width.type = "number";
+    width.min = 1;
+    width.max = 100;
+    width.value = column ? Math.round(column.width) : "";
+    width.disabled = !column;
+    width.onchange = () =>
+      paperEdit((paper) => {
+        const target = paper.columns.find((c) => c.key === key);
+        if (target)
+          target.width = Math.max(1, Math.min(100, Number(width.value) || 1));
+      });
+    const move = (delta) =>
+      button(delta < 0 ? "↑" : "↓", () =>
+        paperEdit((paper) => {
+          const at = paper.columns.findIndex((c) => c.key === key);
+          const to = at + delta;
+          if (at < 0 || to < 0 || to >= paper.columns.length) return;
+          const [moved] = paper.columns.splice(at, 1);
+          paper.columns.splice(to, 0, moved);
+        }),
+      );
+    const up = move(-1),
+      down = move(1);
+    up.disabled = down.disabled = !column;
+    row.append(show, name, width, up, down);
+    list.append(row);
+  }
 }
 let pageIndex = 0,
-  groups = [],
-  hasOverflow = false;
+  pages = [],
+  job = null;
 const paging = document.createElement("div");
+paging.className = "paging";
 const previous = button("← 前ページ", () => {
   pageIndex = Math.max(0, pageIndex - 1);
   showPage();
 });
 const next = button("次ページ →", () => {
-  pageIndex = Math.min(groups.length - 1, pageIndex + 1);
+  pageIndex = Math.min(pages.length - 1, pageIndex + 1);
   showPage();
 });
 const pageLabel = document.createElement("span");
 paging.append(previous, pageLabel, next);
 $("pages").before(paging);
+const measureText = (() => {
+  const context = document.createElement("canvas").getContext("2d");
+  return (text, size) => {
+    context.font = `${size}px "Noto Sans JP", sans-serif`;
+    return context.measureText(text).width;
+  };
+})();
+// プレビューは表示するページだけを描く。全ページを走査しない。
 function showPage() {
-  const page = renderPage(
+  pageIndex = Math.max(0, Math.min(pageIndex, pages.length - 1));
+  const canvas = renderPage(
     store.p,
-    groups[pageIndex],
-    options,
+    pages[pageIndex] ?? [],
+    paper(),
     pageIndex,
-    groups.length,
+    pages.length,
     images,
   );
-  $("pages").replaceChildren(page.canvas);
-  pageLabel.textContent = ` ${pageIndex + 1} / ${groups.length} `;
+  $("pages").replaceChildren(canvas);
+  pageLabel.textContent = ` ${pageIndex + 1} / ${pages.length} `;
   previous.disabled = pageIndex === 0;
-  next.disabled = pageIndex === groups.length - 1;
+  next.disabled = pageIndex >= pages.length - 1;
+}
+let previewTimer = null;
+function schedulePreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(preview, 120);
 }
 function preview() {
-  groups = paginate(store.p, options);
-  pageIndex = Math.min(pageIndex, groups.length - 1);
-  hasOverflow = false;
-  for (let i = 0; i < groups.length; i++) {
-    const page = renderPage(
-      store.p,
-      groups[i],
-      options,
-      i,
-      groups.length,
-      images,
-    );
-    hasOverflow ||= page.overflow > 0;
-    page.canvas.width = 0;
-    page.canvas.height = 0;
-  }
+  pages = layoutPages(store.p, paper(), measureText, rows);
   showPage();
-  $("print").disabled = hasOverflow;
-  $("png").disabled = hasOverflow;
+  const continued = pages.flat().filter((e) => e.continuation).length;
   notice(
-    hasOverflow
-      ? "文字が収まらないコマがあります。コマ数を減らすか文字を小さくしてください。"
-      : "紙コンテの準備完了",
+    `紙コンテ ${pages.length}ページ / ${rows.length} Panel${
+      continued ? ` · 続き行 ${continued}` : ""
+    }`,
   );
 }
+function progress(text, running) {
+  $("paperProgress").textContent = text;
+  $("cancelExport").hidden = !running;
+  for (const id of ["print", "png"]) $(id).disabled = running;
+}
+// 出力は1ページずつ。途中でキャンセルできるようJobを渡す。
+async function exportPages(handle, label) {
+  if (job) return null;
+  job = new Job();
+  progress(`${label} 0 / ${pages.length}`, true);
+  try {
+    const result = await forEachPage(
+      pages.length,
+      async (i) => {
+        const canvas = renderPage(
+          store.p,
+          pages[i],
+          paper(),
+          i,
+          pages.length,
+          images,
+        );
+        const value = await handle(canvas, i);
+        canvas.width = canvas.height = 0;
+        return value;
+      },
+      {
+        job,
+        onProgress: ({ done, total }) =>
+          progress(`${label} ${done} / ${total}`, true),
+      },
+    );
+    progress(`${label} 完了（${pages.length}ページ）`, false);
+    return result;
+  } catch (e) {
+    progress(
+      e instanceof Cancelled
+        ? "出力を中止しました"
+        : `出力に失敗：${e.message}`,
+      false,
+    );
+    return null;
+  } finally {
+    job = null;
+  }
+}
+$("cancelExport").onclick = () => job?.cancel();
 $("paper").onclick = async () => {
   stop();
   $("paperDialog").showModal();
   await ensureImages(store.p);
+  paperSettings();
   preview();
 };
-$("closePaper").onclick = () => $("paperDialog").close();
+$("closePaper").onclick = () => {
+  job?.cancel();
+  $("paperDialog").close();
+};
 $("print").onclick = async () => {
-  const sheets = [];
-  for (let i = 0; i < groups.length; i++) {
-    const { canvas } = renderPage(
-      store.p,
-      groups[i],
-      options,
-      i,
-      groups.length,
-      images,
-    );
+  const sheets = await exportPages(async (canvas) => {
     const img = new Image();
     img.src = canvas.toDataURL("image/png");
     await img.decode();
-    sheets.push(img);
-    canvas.width = 0;
-    canvas.height = 0;
-  }
+    return img;
+  }, "印刷用に生成");
+  if (!sheets) return showPage();
   $("pages").replaceChildren(...sheets);
   window.print();
 };
 window.addEventListener("afterprint", () => {
   if ($("paperDialog").open) showPage();
 });
+// PNGは1ファイルのZIPにまとめる。連番の個別ダウンロードを何十回も許可させない。
 $("png").onclick = async () => {
-  for (let i = 0; i < groups.length; i++) {
-    const { canvas } = renderPage(
-      store.p,
-      groups[i],
-      options,
-      i,
-      groups.length,
-      images,
-    );
-    const blob = await new Promise((resolve) =>
-      canvas.toBlob(resolve, "image/png"),
-    );
-    download(blob, `conte-${String(i + 1).padStart(3, "0")}.png`);
-    canvas.width = 0;
-    canvas.height = 0;
-  }
-  notice(
-    "PNG連番をダウンロードしました（複数ダウンロードの許可が必要な場合があります）",
+  const files = await exportPages(
+    async (canvas, i) => ({
+      name: `conte-${String(i + 1).padStart(3, "0")}.png`,
+      bytes: await canvasBytes(canvas),
+    }),
+    "PNGを生成",
   );
+  if (!files) return showPage();
+  // ファイル名に使えない記号を落とす。空になったらcontEの既定名にする。
+  const base =
+    store.p.title
+      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "")
+      .trim()
+      .slice(0, 40) || "conte";
+  const name = `${base}-png.zip`;
+  download(zip(files), name);
+  notice(`${files.length}枚のPNGを${name}にまとめました`);
+  showPage();
 };
 // ペインの幅/高さ。ドラッグで変え、次回の起動でも同じ配置で開く。
 // Timelineの初期高さは目盛・Panel・Camera・音声の4段が全部見える値にする。

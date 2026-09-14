@@ -465,6 +465,53 @@ dialog::backdrop {
 #paperSettings label {
   width: 145px;
 }
+#paperSettings label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 190px;
+  margin: 4px 0;
+}
+#paperSettings label.check input {
+  width: auto;
+  margin: 0;
+}
+#paperColumns .column {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+#paperColumns .column span {
+  width: 90px;
+}
+#paperColumns .column input[type="number"] {
+  width: 70px;
+  margin: 0;
+}
+#paperColumns .column input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+#paperColumns .column button {
+  padding: 3px 9px;
+}
+#paperActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0 4px;
+}
+#paperProgress {
+  color: #aab6c6;
+}
+.paging {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #aab6c6;
+}
 #pages :is(canvas, img) {
   width: 100%;
   height: auto;

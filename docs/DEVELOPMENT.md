@@ -69,6 +69,18 @@
 - Remaining: no fades or volume curves, no mix of multiple channels for export, no audio in any exported file, and the waveform is drawn per clip on the UI thread.
 - Next highest value: P4 — paper settings in the project, long-text continuation instead of truncation, and a cancellable export with progress.
 
+## Cycle 7: paper as a production output (P4)
+
+- Problem: the paper output was A4 portrait only, its columns were a fixed image-plus-text pair, long text was cut with an ellipsis (and the export was blocked when that happened), the preview rendered every page synchronously to detect overflow, and PNG export fired one download per page.
+- Change: schema v5 stores `project.paper` — size (A4/A3/B4/Letter), orientation, rows, margin, font, header, footer, ordered columns with individual widths and visibility, and switches for duration, hierarchy numbers and camera marks — with a v4→v5 migration. `src/paper.js` became a renderer over a computed geometry (page box, row height, column boxes) plus `layoutPages`, which wraps each column's text and moves whatever does not fit onto the next row or page. `src/exporter.js` is new: page-by-page iteration that yields to the browser between pages, progress callbacks, a cancellable job, and a dependency-free store-only ZIP writer.
+- No text is lost: a panel whose text overruns its row continues on the next row, marked "（続き）" under its CUT number, and the unit test asserts that all 600 characters of a long line survive the split. The export is no longer blocked; there is nothing to block on.
+- The preview now renders only the page being viewed. PNG export produces one ZIP named after the project instead of N browser downloads, and both print and PNG show "n / total" with a 中止 button.
+- Validation: 58 unit tests (7 new) cover geometry for each size and orientation, column order and width distribution, wrapping (including explicit newlines), continuation without loss, pagination at 1/4/8 rows, column text for numbers, duration, sound and camera, export progress and cancellation, and the ZIP container. The ZIP was also opened with Python's `zipfile` (including a UTF-8 filename) to check it against a real reader, not just against my own byte offsets.
+- Browser checks: A4 → A3 → landscape → A4 switches the canvas between 1240×1754, 1754×2480 and 2480×1754; long Japanese text with ……！？＜＞＆「」〜①㈱♪ continues instead of truncating; the ZIP downloads under the project name; with 500 panels (125 pages) the first preview came back in 82ms and a PNG export was cancelled at page 17 with the dialog still responsive. Printing a 7-panel project through headless Chromium produced a 2-page PDF with zero margins.
+- Measurement: `layoutPages` for 500 panels runs at a median of 2.51ms (p95 6.97ms) with a synthetic text measurer; in the browser the first preview including real text measurement and one page render took 82ms.
+- Remaining: the PDF is still an image of each page (no selectable text), row heights are uniform, there is no template to reuse settings across projects, and generation still happens on the UI thread between frames. Windows printing and PDF saving remain untested — there is no Windows machine in this environment.
+- Next highest value: P5 — animatic export driven by the same frame evaluation as playback, then the desktop shell comparison.
+
 ## UX evaluation
 
 Counts describe editor commands (a shortcut chord counts as one); typing values and operating OS dialogs are separate.
@@ -88,7 +100,8 @@ Counts describe editor commands (a shortcut chord counts as one); typing values 
 | Camera key at the playhead | 1 shortcut (K); 1 double click on the lane; drag to move |
 | Place a sound | 1 click plus the OS file dialog; drag to move, edge to trim |
 | Timeline fit / zoom | 1 shortcut (F) / 1 shortcut or wheel |
-| Paper output | 2 clicks to print dialog / PNG initiation; OS save extra |
+| Paper output | 2 clicks to print dialog / PNG initiation; OS save extra; settings persist with the project |
+| Paper settings | changed in place, undoable, saved with the project |
 | Recovery | 1 undo chord restoring selection; last Panel deletion blocked; crash recovery offered on startup (1 click) |
 | 100–500 Panel model | benchmark in `scripts/bench.mjs`, synthetic strokes |
 | 500 Panel UI duration | 12.6 / 23.5ms in two headless smoke samples |
@@ -114,3 +127,5 @@ Cycle 4 note: the save/load numbers in the UX table above predate schema v3; the
 Cycle 5 note: timings above were taken on Node 22.22 with the environment's Chromium 1194 and remain single browser samples. Engine timings are pure function calls and exclude layout and paint.
 
 Cycle 6 note: the synchronisation figure is one four-second headless sample on a machine with no audio hardware; it measures the app's own clock against wall time, not acoustic output.
+
+Cycle 7 note: paper figures come from one headless run each; the PDF check used Chromium's own print pipeline, which is not the same as a Windows printer driver.

@@ -16,7 +16,7 @@ import {
   removeCameraKey,
   describeCamera,
 } from "../src/model.js";
-import { paginate, defaults } from "../src/paper.js";
+import { layoutPages } from "../src/paper.js";
 test("split and merge preserve frames, order and undo identity", () => {
   const s = new Store();
   s.edit((p) => p.scenes[0].shots[0].panels.push(panel(), panel()));
@@ -68,7 +68,11 @@ test("camera interpolates and clamps endpoint", () => {
 test("500 panels paginate exactly once with continuous frame boundaries", () => {
   const p = project();
   p.scenes[0].shots[0].panels = Array.from({ length: 500 }, panel);
-  const pages = paginate(p, { ...defaults, rows: 6 });
+  const pages = layoutPages(
+    p,
+    { ...p.paper, rows: 6 },
+    (text, size) => [...text].length * size * 0.6,
+  );
   assert.equal(pages.length, 84);
   assert.equal(pages.flat().length, 500);
   assert.equal(flatten(p).at(-1).end, 24000);

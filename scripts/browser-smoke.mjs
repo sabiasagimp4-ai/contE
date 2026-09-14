@@ -85,6 +85,9 @@ try {
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("dialog", (d) => d.accept());
   await page.goto(`http://127.0.0.1:${server.address().port}`);
+  // 書き出し名はプロジェクト名から作るので、最初に名前を付けておく。
+  await page.locator("#title").fill("conte-smoke");
+  await page.locator("#title").blur();
   await page.mouse.move(500, 300);
   await page.mouse.down();
   await page.mouse.move(700, 400, { steps: 10 });
@@ -106,7 +109,7 @@ try {
   assert.equal(await page.locator("#print").isDisabled(), false);
   const png = page.waitForEvent("download");
   await page.locator("#png").click();
-  assert.equal((await png).suggestedFilename(), "conte-001.png");
+  assert.equal((await png).suggestedFilename(), "conte-smoke-png.zip");
   await page.locator("#closePaper").click();
   const drag = await page.locator(".handle").first().boundingBox();
   await page.mouse.move(drag.x + 5, drag.y + 20);
@@ -377,6 +380,41 @@ try {
       ),
     };
   });
+  // P4：用紙設定・長文の続き・PNGのZIPまとめ。
+  // 読み込んだプロジェクトには元の名前が入っているので、付け直してから書き出す。
+  await page.locator("#title").fill("conte-paper");
+  await page.locator("#title").blur();
+  await page.locator("#dialogue").fill("セリフ：" + "あいうえお、".repeat(40));
+  await page.locator("#dialogue").blur();
+  await page.locator("#paper").click();
+  await page.waitForFunction(() =>
+    document.querySelector("#status").textContent.includes("ページ"),
+  );
+  const a4 = await page.evaluate(() => {
+    const c = document.querySelector("#pages canvas");
+    return [c.width, c.height];
+  });
+  assert.deepEqual(a4, [1240, 1754]);
+  await page.locator("#paperSettings select").first().selectOption("A3");
+  await page.waitForFunction(
+    () => document.querySelector("#pages canvas").width === 1754,
+  );
+  await page.locator("#paperSettings select").nth(1).selectOption("landscape");
+  await page.waitForFunction(
+    () => document.querySelector("#pages canvas").height === 1754,
+  );
+  await page.locator("#paperSettings select").first().selectOption("A4");
+  await page.locator("#paperSettings select").nth(1).selectOption("portrait");
+  await page.waitForFunction(
+    () => document.querySelector("#pages canvas").width === 1240,
+  );
+  // 長文は切れずに続き行へ送られる。
+  assert.match(await page.locator("#status").innerText(), /続き行 [1-9]/);
+  const zipDownload = page.waitForEvent("download");
+  await page.locator("#png").click();
+  assert.equal((await zipDownload).suggestedFilename(), "conte-paper-png.zip");
+  assert.match(await page.locator("#paperProgress").innerText(), /完了/);
+  await page.locator("#closePaper").click();
   // P2：500 Panelでも生成するクリップは画面分だけ。全体表示と境界スクラブも確認する。
   const clipCount = await page.locator(".clip").count();
   assert.ok(clipCount < 40, `laid out ${clipCount} clips for 500 panels`);
@@ -492,13 +530,40 @@ try {
     ),
     paneWidth,
   );
+  // P4：500 Panelでもプレビューが返り、出力は途中で止められる。
+  const paperStart = Date.now();
   await page.locator("#paper").click();
+  await page.waitForFunction(
+    () => document.querySelector("#status").textContent.includes("ページ"),
+    null,
+    { timeout: 30000 },
+  );
+  const paperReady = Date.now() - paperStart;
   assert.equal(await page.locator("#pages canvas").count(), 1);
   assert.equal(await page.locator("#print").isDisabled(), false);
+  await page.locator("#png").click();
+  // 0ページ目の表示ではなく、1ページ以上できた時点を待つ。
+  await page.waitForFunction(() =>
+    /[1-9]\d* \/ \d+/.test(
+      document.querySelector("#paperProgress").textContent,
+    ),
+  );
+  const partial = await page.locator("#paperProgress").innerText();
+  await page.locator("#cancelExport").click();
+  await page.waitForFunction(() =>
+    document.querySelector("#paperProgress").textContent.includes("中止"),
+  );
+  const cancelled = Number(partial.match(/(\d+) \//)?.[1] ?? 0);
+  assert.ok(cancelled > 0, "cancel happened before any page was rendered");
+  assert.ok(
+    cancelled < Number(partial.match(/\/ (\d+)/)?.[1] ?? 0),
+    "cancel did not stop the export",
+  );
+  await page.locator("#closePaper").click();
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
-      { smoke: "passed", metrics, persisted, sync, errors },
+      { smoke: "passed", metrics, persisted, sync, paperReady, errors },
       null,
       2,
     ),

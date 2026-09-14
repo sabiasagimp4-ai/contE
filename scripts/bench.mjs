@@ -3,6 +3,7 @@ import { project, panel, Store, flatten, load, BRUSH } from "../src/model.js";
 import { ProjectRepository } from "../src/repository.js";
 import { MemoryStorage } from "../src/storage.js";
 import * as timeline from "../src/timeline.js";
+import * as paper from "../src/paper.js";
 for (const count of [100, 500]) {
   const p = project();
   p.scenes[0].shots[0].panels = Array.from({ length: count }, () => ({
@@ -57,5 +58,10 @@ for (const count of [100, 500]) {
   );
   const targets = timeline.snapTargets(rows, p.fps, end, 100);
   await bench("timeline snap", () => timeline.snap(4321, targets, 3));
+  // 紙コンテのページ割り。文字幅は簡易計測で代用し、レイアウト計算だけを測る。
+  const measure = (text, size) => [...text].length * size * 0.6;
+  await bench("paper layout", () =>
+    paper.layoutPages(p, p.paper, measure, rows),
+  );
   console.log("bytes", Buffer.byteLength(text));
 }

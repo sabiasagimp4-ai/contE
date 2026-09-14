@@ -197,8 +197,20 @@
     <dialog id="paperDialog">
       <h2>紙コンテ</h2>
       <div id="paperSettings"></div>
-      <button id="print">印刷 / PDF</button><button id="png">PNG連番</button
-      ><button id="closePaper">閉じる</button>
+      <details id="paperColumnsBox" open>
+        <summary>列の順番・幅・表示</summary>
+        <div id="paperColumns"></div>
+        <p class="hint">
+          上から順に左から並びます。幅は合計を100とした比率で扱うので、合計が100でなくても構いません。
+        </p>
+      </details>
+      <div id="paperActions">
+        <button id="print">印刷 / PDF</button
+        ><button id="png">PNG連番（ZIP）</button
+        ><button id="cancelExport" hidden>中止</button
+        ><button id="closePaper">閉じる</button
+        ><output id="paperProgress"></output>
+      </div>
       <div id="pages"></div>
     </dialog>
     <dialog id="recoverDialog">

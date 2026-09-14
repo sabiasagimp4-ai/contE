@@ -1,5 +1,5 @@
 export const uid = () => crypto.randomUUID();
-export const VERSION = 4;
+export const VERSION = 5;
 // ブラシ幅は画面幅に対する割合で持つ。出力サイズが変わっても線の太さが崩れない。
 export const BRUSH = { min: 0.0005, max: 0.05, default: 3 / 1280 };
 export const panel = () => ({
@@ -13,12 +13,47 @@ export const panel = () => ({
   camera: [{ t: 0, x: 0, y: 0, zoom: 1, rotation: 0 }],
 });
 export const AUDIO_TRACKS = ["dialogue", "se", "bgm"];
+// 紙コンテの用紙。mmと150dpiのピクセル数を持ち、向きで縦横を入れ替える。
+export const PAPER_SIZES = {
+  A4: { mm: [210, 297], px: [1240, 1754] },
+  A3: { mm: [297, 420], px: [1754, 2480] },
+  B4: { mm: [257, 364], px: [1517, 2150] },
+  letter: { mm: [216, 279], px: [1275, 1650] },
+};
+export const PAPER_COLUMNS = [
+  "cut",
+  "image",
+  "dialogue",
+  "sound",
+  "notes",
+  "camera",
+];
+export const paperDefaults = () => ({
+  size: "A4",
+  orientation: "portrait",
+  rows: 4,
+  margin: 45,
+  font: 18,
+  header: "",
+  footer: "",
+  columns: [
+    { key: "cut", width: 10 },
+    { key: "image", width: 40 },
+    { key: "dialogue", width: 18 },
+    { key: "sound", width: 16 },
+    { key: "notes", width: 16 },
+  ],
+  duration: true,
+  numbers: true,
+  cameraMarks: true,
+});
 export const project = () => ({
   version: VERSION,
   title: "無題のコンテ",
   fps: 24,
   assets: [],
   audio: [],
+  paper: paperDefaults(),
   scenes: [
     {
       id: uid(),
@@ -164,6 +199,7 @@ export function validate(p) {
       }
     }
   }
+  validatePaper(p.paper);
   // 音声クリップは素材IDと、基準にするPanelへの参照だけを持つ。
   if (!Array.isArray(p.audio)) throw Error("不正な音声一覧");
   for (const c of p.audio) {
@@ -185,6 +221,47 @@ export function validate(p) {
       throw Error("不正な音声クリップ");
   }
   return p;
+}
+// 紙面設定はプロジェクトと一緒に保存する。壊れた設定で出力を始めない。
+export function validatePaper(o) {
+  if (!o || typeof o !== "object") throw Error("不正な紙面設定");
+  if (
+    !PAPER_SIZES[o.size] ||
+    !["portrait", "landscape"].includes(o.orientation)
+  )
+    throw Error("不正な用紙");
+  if (
+    !Number.isInteger(o.rows) ||
+    o.rows < 1 ||
+    o.rows > 12 ||
+    !Number.isFinite(o.margin) ||
+    o.margin < 0 ||
+    o.margin > 200 ||
+    !Number.isFinite(o.font) ||
+    o.font < 8 ||
+    o.font > 48 ||
+    typeof o.header !== "string" ||
+    typeof o.footer !== "string" ||
+    ["duration", "numbers", "cameraMarks"].some(
+      (k) => typeof o[k] !== "boolean",
+    )
+  )
+    throw Error("不正な紙面設定");
+  if (!Array.isArray(o.columns) || !o.columns.length)
+    throw Error("列がありません");
+  const seen = new Set();
+  for (const column of o.columns) {
+    if (
+      !PAPER_COLUMNS.includes(column.key) ||
+      seen.has(column.key) ||
+      !Number.isFinite(column.width) ||
+      column.width <= 0 ||
+      column.width > 100
+    )
+      throw Error("不正な列");
+    seen.add(column.key);
+  }
+  return o;
 }
 // 旧形式は読み込み時に一段ずつ持ち上げる。元データは変更しない。
 const migrations = {
@@ -222,6 +299,7 @@ const migrations = {
     })),
   }),
   3: (p) => ({ ...p, version: 4, audio: [] }),
+  4: (p) => ({ ...p, version: 5, paper: paperDefaults() }),
 };
 export function migrate(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw))
@@ -258,6 +336,8 @@ export function sameProject(a, b) {
   if (a === b) return true;
   return (
     sameKeys(a, b, ["version", "title", "fps"]) &&
+    // 紙面設定は項目数が少ないのでJSONで比較して十分。
+    JSON.stringify(a.paper) === JSON.stringify(b.paper) &&
     sameList(a.assets, b.assets, (x, y) =>
       sameKeys(x, y, [
         "id",
@@ -336,6 +416,10 @@ export class Store {
     const next = {
       ...this.p,
       assets: this.p.assets.map((a) => ({ ...a })),
+      paper: {
+        ...this.p.paper,
+        columns: this.p.paper.columns.map((c) => ({ ...c })),
+      },
       audio: this.p.audio.map((c) => ({ ...c })),
       scenes: this.p.scenes.map((s) => ({
         ...s,

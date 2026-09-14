@@ -27,11 +27,13 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 - 再生は音声時計に同期します。再生・停止を繰り返しても二重に鳴りません。素材が見つからないクリップは「音」タブから差し替えて直せます。
 - CameraキーはPanel内の任意の時刻に何本でも置けます（X/Y/Zoom/Rotation、キー間は線形補間）。キーは尺に対する比率で保持するため、**尺を変えるとCameraの動きも同じ比率で伸縮します**。再生・紙コンテ・Inspectorは同じ補間関数と同じ要約（PAN / TILT / ZOOM / ROLL / HOLD）を共有します。
 - 80段階のUndo/Redo。無効な編集は原子的に拒否。描画データは不変共有して履歴コストを削減。変更のない操作は履歴段数を消費せず、Undo/Redoで選択Panelと再生位置も戻ります。
-- `.contp` JSON v4の保存/読み込み。v1〜v3のファイルは読み込み時に順番へMigrationします。破損データ・重複ID・未知Versionを拒否します。保存はブラウザのダウンロードで、既存ファイルへの直接上書きではありません。
+- `.contp` JSON v5の保存/読み込み。v1〜v4のファイルは読み込み時に順番へMigrationします。破損データ・重複ID・未知Versionを拒否します。保存はブラウザのダウンロードで、既存ファイルへの直接上書きではありません。
 - 変更の1.2秒後（最長8秒）にIndexedDBへ自動保存し、ヘッダーに保存状態を表示します。最大8世代を保持し、起動時に前回の作業を日時・タイトル・Panel数つきで提示して復旧/破棄を選べます。読めない保存データは削除せず読み飛ばし、直前の正常な世代を提示します。容量不足のときは古い世代を減らして一度だけ再試行し、それでも失敗した場合は失敗として表示します（成功表示にしません）。
 - 素材（画像/音声）はIDとメタデータのみをプロジェクトに持ち、バイナリは別ストアへ保存します。`.contp`に素材は同梱されないため、別環境では素材の差し替えが必要です。
-- 紙コンテ：コマ数、画像列幅、表示項目、余白、文字サイズ、ヘッダーを調整。CUT・画像・尺・台詞・SE/BGM（注記欄＋時間が重なる音声クリップ）・演出・Camera・階層番号。Cameraは全キーを通る軌道、開始枠（実線）/終了枠（破線）、矢印、中間キー、HOLDとキー位置（フレーム）を描画。
-- 紙コンテのPNG連番とブラウザ印刷/PDF保存。A4縦の初期実装です。自由な用紙サイズ・各テキスト列の独立幅・任意軌道は後続です。文字あふれがある場合は出力を止めます。印刷時は用紙A4、余白なし、ヘッダー/フッターなしを選択してください。PDFは画像ベースで文字検索できません。
+- 紙コンテ：**用紙（A4/A3/B4/Letter）と向き、列の順番・個別幅・表示/非表示、コマ数、余白、文字サイズ、ヘッダー/フッター**を調整でき、設定はプロジェクトに保存されます（Undo対象・自動保存対象）。
+- 列はCUT（番号・階層・尺）/ コンテ画像 / 台詞 / SE・BGM / 演出 / Camera。**長文は切り捨てず**、入り切らない分は次の行・次のページへ「（続き）」として送ります。
+- Cameraは全キーを通る軌道、開始枠（実線）/終了枠（破線）、矢印（PANは横・TILTは縦）、中間キーの点、HOLDとキー位置（フレーム）を描画。
+- 出力は**PNG連番（1つのZIPにまとめてダウンロード）**とブラウザ印刷/PDF保存。1ページずつ生成して進捗を表示し、途中で中止できます。印刷時は用紙サイズを設定と合わせ、余白なし・ヘッダー/フッターなしを選択してください。PDFは画像ベースで文字検索できません。
 
 ## 操作
 
@@ -59,9 +61,9 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 
 ## 構成と次の段階
 
-`src/model.js`：階層・検証・Migration・履歴・Panel移動・Cameraキー、`src/timeline.js`：Timeline Engine（範囲・目盛・スナップ・Zoom・追従）、`src/audio.js`：Audio Engine（クリップ解決・予約・波形・音注記）、`src/repository.js`：保存/復旧/素材と自動保存、`src/storage.js`：IndexedDB/メモリのStorage Adapter、`src/playback.js`：時刻計算・Panel検索、`src/drawing.js`：描画Adapter、`src/paper.js`：ページ生成・Camera表記、`src/app.js`：UI/Timeline操作。
+`src/model.js`：階層・検証・Migration・履歴・Panel移動・Cameraキー、`src/timeline.js`：Timeline Engine（範囲・目盛・スナップ・Zoom・追従）、`src/audio.js`：Audio Engine（クリップ解決・予約・波形・音注記）、`src/exporter.js`：Exporter（進捗・中止・ZIP）、`src/repository.js`：保存/復旧/素材と自動保存、`src/storage.js`：IndexedDB/メモリのStorage Adapter、`src/playback.js`：時刻計算・Panel検索、`src/drawing.js`：描画Adapter、`src/paper.js`：ページ生成・Camera表記、`src/app.js`：UI/Timeline操作。
 
-[次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md)。次は紙コンテの本番化（P4）、その後にAnimatic出力とデスクトップ化です。
+[次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md)。次はAnimatic出力とWindowsデスクトップ化（P5）です。
 
 ```sh
 npm test
