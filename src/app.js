@@ -10,9 +10,15 @@ import {
   cameraAt,
   movePanels,
   BRUSH,
+  setCameraKey,
+  moveCameraKey,
+  removeCameraKey,
+  describeCamera,
+  CAMERA_FIELDS,
 } from "./model.js";
 import { draw } from "./drawing.js";
 import { defaults, paginate, renderPage, download } from "./paper.js";
+import * as tl from "./timeline.js";
 import { ProjectRepository, Autosaver } from "./repository.js";
 import { IndexedDbStorage, MemoryStorage } from "./storage.js";
 const $ = (id) => document.getElementById(id);
@@ -20,10 +26,14 @@ let store = new Store(),
   frame = 0,
   playing = false,
   raf,
-  scale = 3,
+  scaleIndex = tl.DEFAULT_SCALE,
   rows = [],
   stroke = null,
-  fileDirty = false;
+  fileDirty = false,
+  cameraKey = 0;
+const scale = () => tl.scaleAt(scaleIndex);
+const endFrame = () => tl.total(rows);
+const viewport = () => $("timeline").clientWidth || 900;
 // 画像素材の表示用ビットマップ。プロジェクトにはIDだけが入る。
 const images = new Map();
 const tool = { erase: false, size: 3 / 1280 };
@@ -162,10 +172,7 @@ function render() {
         images.has(asset.id) ? "" : "・読み込めません"
       }）`
     : "画像なし";
-  const cam = r.panel.camera.at(-1);
-  ["cx", "cy", "cz", "cr"].forEach(
-    (id, i) => ($(id).value = cam[["x", "y", "zoom", "rotation"][i]]),
-  );
+  cameraInspector(r);
   $("strip").replaceChildren(
     ...r.shot.panels.map((p, i) => {
       const b = button(
@@ -192,6 +199,32 @@ function render() {
   paint();
   reveal();
 }
+// Cameraキーの一覧と値。位置はフレームで見せ、保存は比率のまま。
+function cameraInspector(r) {
+  const keys = r.panel.camera;
+  cameraKey = Math.max(0, Math.min(cameraKey, keys.length - 1));
+  const list = $("keyList");
+  list.replaceChildren(
+    ...keys.map((k, i) => {
+      const option = document.createElement("option");
+      option.value = i;
+      option.selected = i === cameraKey;
+      option.textContent = `${Math.round(k.t * r.panel.frames)}f · X${k.x} Y${
+        k.y
+      } Z${k.zoom} R${k.rotation}°`;
+      return option;
+    }),
+  );
+  const motion = describeCamera(r.panel);
+  $("cameraSummary").textContent = motion.hold
+    ? "HOLD（動きなし）"
+    : `${motion.moves.join(" / ")} · キー${keys.length}本`;
+  const key = keys[cameraKey];
+  ["cx", "cy", "cz", "cr"].forEach(
+    (id, i) => ($(id).value = key[CAMERA_FIELDS[i]]),
+  );
+  $("keyDelete").disabled = keys.length < 2;
+}
 // 選択が変わったときだけ視界へ入れる。ユーザーのスクロールを毎回奪わない。
 let revealed = null;
 function reveal() {
@@ -202,10 +235,13 @@ function reveal() {
       block: "nearest",
       inline: "nearest",
     });
-  const view = $("timeline"),
-    x = current().start * scale;
-  if (x < view.scrollLeft || x > view.scrollLeft + view.clientWidth - 40)
-    view.scrollLeft = Math.max(0, x - view.clientWidth / 3);
+  const view = $("timeline");
+  view.scrollLeft = tl.follow(
+    current().start,
+    scale(),
+    view.scrollLeft,
+    viewport(),
+  );
 }
 // その場で名前を編集する。Escでキャンセル、Enterと離脱で確定。
 function rename(node, value, commit) {
@@ -276,55 +312,169 @@ function startReorder(e, id) {
   node.onpointerup = (v) => end(v, true);
   node.onpointercancel = (v) => end(v, false);
 }
+// TimelineのDOMはEngineが決めた範囲・目盛・座標をそのまま描く。
 function timeline() {
-  const track = $("track");
-  track.replaceChildren();
-  track.style.width = `${rows.at(-1).end * scale}px`;
-  const left = $("timeline").scrollLeft,
-    right = left + $("timeline").clientWidth;
-  for (const r of rows) {
-    if (r.end * scale < left - 100 || r.start * scale > right + 100) continue;
+  const px = scale(),
+    end = endFrame(),
+    left = $("timeline").scrollLeft,
+    width = viewport();
+  $("track").style.width = `${Math.max(end * px, width)}px`;
+  ruler(px, end, left, width);
+  clips(px, left, width);
+  cameraTrack(px, left, width);
+  const span = tl.selectionRange(rows, store.selection.ids);
+  const band = $("band");
+  band.style.left = `${span.start * px}px`;
+  band.style.width = `${Math.max(2, span.frames * px)}px`;
+  $("range").textContent = `選択 ${span.panels} Panel · ${span.frames}f / ${(
+    span.frames / store.p.fps
+  ).toFixed(2)}s`;
+  $("head").style.left = `${frame * px}px`;
+}
+function ruler(px, end, left, width) {
+  const node = $("ruler");
+  node.replaceChildren();
+  for (const t of tl.ticks(store.p.fps, px, left, width, end)) {
+    const mark = document.createElement("span");
+    mark.className = `tick${t.second ? " second" : ""}`;
+    mark.style.left = `${t.frame * px}px`;
+    mark.textContent = t.label;
+    node.append(mark);
+  }
+}
+function clips(px, left, width) {
+  const node = $("clips");
+  node.replaceChildren();
+  for (const r of tl.visible(rows, px, left, width)) {
+    const rect = tl.clipRect(r, px);
     const b = button(
       `P${r.pi + 1} · ${r.panel.frames}f`,
       () => {},
       `clip ${isSelected(r.panel.id) ? "selected" : ""}`,
     );
-    b.style.left = `${r.start * scale}px`;
-    b.style.width = `${r.panel.frames * scale}px`;
+    b.style.left = `${rect.left}px`;
+    b.style.width = `${rect.width}px`;
     b.onclick = (e) => {
       if (e.target.className !== "handle") select(r.panel.id, e);
     };
     const h = document.createElement("span");
     h.className = "handle";
-    h.onpointerdown = (e) => {
-      e.stopPropagation();
-      stop();
-      const x = e.clientX,
-        original = r.panel.frames;
-      h.setPointerCapture(e.pointerId);
-      h.onpointermove = (v) => {
-        b.style.width = `${Math.max(1, original + Math.round((v.clientX - x) / scale)) * scale}px`;
-      };
-      h.onpointerup = (v) => {
-        const n = Math.max(
-          1,
-          Math.min(864000, original + Math.round((v.clientX - x) / scale)),
-        );
-        edit(
-          (p) =>
-            (flatten(p).find((a) => a.panel.id === r.panel.id).panel.frames =
-              n),
-        );
-      };
-      h.onpointercancel = () => timeline();
-    };
+    h.onpointerdown = (e) => startResize(e, r, b, h);
     b.append(h);
-    track.append(b);
+    node.append(b);
   }
-  const head = document.createElement("div");
-  head.id = "head";
-  head.style.left = `${frame * scale}px`;
-  track.append(head);
+}
+// 端のドラッグはスナップ候補へ吸着し、離すまでプロジェクトを書き換えない。
+function startResize(e, r, clip, handle) {
+  e.stopPropagation();
+  stop();
+  const px = scale(),
+    origin = e.clientX,
+    start = r.panel.frames;
+  const targets = $("snap").checked
+    ? tl.snapTargets(rows, store.p.fps, endFrame(), frame)
+    : [];
+  const next = (v) => {
+    const raw = r.start + start + (v.clientX - origin) / px;
+    const snapped = targets.length
+      ? tl.snap(raw, targets, px)
+      : Math.round(raw);
+    return Math.max(1, Math.min(864000, snapped - r.start));
+  };
+  handle.setPointerCapture(e.pointerId);
+  handle.onpointermove = (v) => {
+    clip.style.width = `${next(v) * px}px`;
+  };
+  handle.onpointerup = (v) => {
+    const frames = next(v);
+    handle.onpointermove = handle.onpointerup = null;
+    edit(
+      (p) =>
+        (flatten(p).find((a) => a.panel.id === r.panel.id).panel.frames =
+          frames),
+    );
+  };
+  handle.onpointercancel = () => {
+    handle.onpointermove = handle.onpointerup = null;
+    timeline();
+  };
+}
+// Cameraトラック：Panelごとのレーンにキーを置く。ドラッグで移動、ダブルクリックで追加。
+function cameraTrack(px, left, width) {
+  const node = $("cameraTrack");
+  node.replaceChildren();
+  for (const r of tl.visible(rows, px, left, width)) {
+    const rect = tl.clipRect(r, px);
+    const lane = document.createElement("div");
+    lane.className = `lane${r.panel.id === activeId() ? " active" : ""}`;
+    lane.style.left = `${rect.left}px`;
+    lane.style.width = `${rect.width}px`;
+    lane.title = describeCamera(r.panel).moves.join(" / ") || "HOLD";
+    lane.ondblclick = (e) => {
+      const f = localFrame(e, r, px);
+      edit((p) => {
+        const b = flatten(p).find((v) => v.panel.id === r.panel.id).panel;
+        cameraKey = setCameraKey(b, f / r.panel.frames);
+        return { active: r.panel.id, ids: [r.panel.id] };
+      });
+    };
+    r.panel.camera.forEach((k, index) => {
+      const dot = document.createElement("span");
+      dot.className = `camkey${
+        r.panel.id === activeId() && index === cameraKey ? " selected" : ""
+      }`;
+      dot.style.left = `${k.t * r.panel.frames * px}px`;
+      dot.title = `${Math.round(k.t * r.panel.frames)}f`;
+      dot.onpointerdown = (e) => startKeyDrag(e, r, index, dot, px);
+      lane.append(dot);
+    });
+    node.append(lane);
+  }
+}
+const localFrame = (e, r, px) =>
+  Math.max(
+    0,
+    Math.min(
+      r.panel.frames,
+      Math.round(
+        (e.clientX - $("track").getBoundingClientRect().left) / px - r.start,
+      ),
+    ),
+  );
+function startKeyDrag(e, r, index, dot, px) {
+  e.stopPropagation();
+  stop();
+  let moved = false;
+  dot.setPointerCapture(e.pointerId);
+  const position = (v) => localFrame(v, r, px);
+  dot.onpointermove = (v) => {
+    moved = true;
+    dot.style.left = `${position(v) * px}px`;
+  };
+  const finish = (v, commit) => {
+    dot.onpointermove = dot.onpointerup = dot.onpointercancel = null;
+    if (!commit) return timeline();
+    const f = position(v);
+    edit((p) => {
+      const b = flatten(p).find((a) => a.panel.id === r.panel.id).panel;
+      if (moved) moveCameraKey(b, index, f / r.panel.frames);
+      cameraKey = Math.max(0, cameraKeyIndexAt(b, moved ? f : null, index));
+      return { active: r.panel.id, ids: [r.panel.id] };
+    });
+    if (!moved) render();
+  };
+  dot.onpointerup = (v) => finish(v, true);
+  dot.onpointercancel = (v) => finish(v, false);
+}
+// 移動後のキーは時刻順に並び替わるので、位置から選び直す。
+function cameraKeyIndexAt(b, f, fallback) {
+  if (f === null) return fallback;
+  const t = f / b.frames;
+  let best = 0;
+  b.camera.forEach((k, i) => {
+    if (Math.abs(k.t - t) < Math.abs(b.camera[best].t - t)) best = i;
+  });
+  return best;
 }
 function paint(preview = false) {
   const r = preview ? rowAtFrame(rows, frame) : current();
@@ -342,7 +492,7 @@ function paint(preview = false) {
   )
     .toString()
     .padStart(2, "0")}f`;
-  if ($("head")) $("head").style.left = `${frame * scale}px`;
+  $("head").style.left = `${frame * scale()}px`;
 }
 const acts = {
   add: () =>
@@ -413,18 +563,46 @@ for (const k of ["frames", "dialogue", "sound", "notes"])
           r.panel[k] = k === "frames" ? Number($(k).value) : $(k).value;
     });
 $("title").onchange = () => edit((p) => (p.title = $("title").value));
-$("key").onclick = () =>
+// キーは再生ヘッドがあるPanelへ置く。そのPanelを選択し直すので次の操作が続けやすい。
+$("key").onclick = () => {
+  const target = rowAtFrame(rows, Math.round(frame));
   edit((p) => {
-    const b = flatten(p).find((r) => r.panel.id === activeId()).panel;
-    const k = {
-      t: 1,
-      x: Number($("cx").value),
-      y: Number($("cy").value),
-      zoom: Number($("cz").value),
-      rotation: Number($("cr").value),
-    };
-    b.camera = [b.camera[0], k];
+    const r = flatten(p).find((v) => v.panel.id === target.panel.id);
+    const local = Math.max(
+      0,
+      Math.min(r.panel.frames, Math.round(frame) - r.start),
+    );
+    cameraKey = setCameraKey(
+      r.panel,
+      local / r.panel.frames,
+      target.panel.id === activeId() ? values() : {},
+    );
+    return { active: r.panel.id, ids: [r.panel.id] };
   });
+};
+$("keyDelete").onclick = () =>
+  edit((p) => {
+    const b = flatten(p).find((v) => v.panel.id === activeId()).panel;
+    if (removeCameraKey(b, cameraKey)) cameraKey = Math.max(0, cameraKey - 1);
+  });
+$("keyList").onchange = () => {
+  cameraKey = Number($("keyList").value);
+  render();
+};
+const values = () =>
+  Object.fromEntries(
+    ["cx", "cy", "cz", "cr"].map((id, i) => [
+      CAMERA_FIELDS[i],
+      Number($(id).value),
+    ]),
+  );
+for (const id of ["cx", "cy", "cz", "cr"])
+  $(id).onchange = () =>
+    edit((p) => {
+      const b = flatten(p).find((v) => v.panel.id === activeId()).panel;
+      const key = b.camera[cameraKey];
+      if (key) Object.assign(key, values());
+    });
 $("play").onclick = () => {
   if (playing) {
     stop();
@@ -432,44 +610,82 @@ $("play").onclick = () => {
   }
   playing = true;
   $("play").textContent = "■ 停止";
-  if (frame >= rows.at(-1).end) frame = 0;
+  if (frame >= endFrame()) frame = 0;
   const start = performance.now(),
     base = frame;
   const tick = (now) => {
-    frame = frameAtTime(base, start, now, store.p.fps, rows.at(-1).end);
-    if (frame >= rows.at(-1).end) {
-      frame = rows.at(-1).end;
+    frame = frameAtTime(base, start, now, store.p.fps, endFrame());
+    if (frame >= endFrame()) {
+      frame = endFrame();
       stop();
     }
     paint(true);
+    if ($("followHead").checked) {
+      const view = $("timeline");
+      view.scrollLeft = tl.follow(frame, scale(), view.scrollLeft, viewport());
+    }
     if (playing) raf = requestAnimationFrame(tick);
   };
   raf = requestAnimationFrame(tick);
 };
-$("zoom").oninput = () => {
-  const anchor = $("timeline").scrollLeft / scale;
-  scale = Number($("zoom").value);
-  $("timeline").scrollLeft = anchor * scale;
+function zoomTo(index, anchorFrame = frame) {
+  const previous = scale();
+  scaleIndex = Math.max(0, Math.min(tl.SCALES.length - 1, index));
+  $("zoom").value = scaleIndex;
+  $("timeline").scrollLeft = tl.anchorScroll(
+    $("timeline").scrollLeft,
+    previous,
+    scale(),
+    anchorFrame,
+    viewport(),
+  );
   timeline();
+}
+$("zoom").oninput = () => zoomTo(Number($("zoom").value));
+$("fitTime").onclick = () =>
+  zoomTo(tl.fitScaleIndex(endFrame(), viewport()), 0);
+// ホイールは指した時刻を基準に拡大縮小する。素の縦スクロールは横移動に使う。
+$("timeline").onwheel = (e) => {
+  const view = $("timeline");
+  if (e.ctrlKey || e.altKey || !e.deltaY) {
+    e.preventDefault();
+    const anchor = tl.frameAt(
+      e.clientX - $("track").getBoundingClientRect().left,
+      scale(),
+      endFrame(),
+    );
+    zoomTo(scaleIndex + (e.deltaY < 0 ? 1 : -1), anchor);
+    return;
+  }
+  if (!e.shiftKey) {
+    e.preventDefault();
+    view.scrollLeft += e.deltaY;
+  }
 };
 $("timeline").onscroll = () => timeline();
+// 目盛と空き領域はスクラブ。整数フレームでPanel境界をまたぐ。
 $("track").onpointerdown = (e) => {
-  if (e.target !== $("track")) return;
+  if (
+    ![$("track"), $("ruler"), $("clips"), $("cameraTrack")].includes(e.target)
+  )
+    return;
   stop();
+  const targets = $("snap").checked
+    ? tl.snapTargets(rows, store.p.fps, endFrame(), null)
+    : [];
   const seek = (v) => {
-    frame = Math.max(
-      0,
-      Math.min(
-        rows.at(-1).end,
-        (v.clientX - $("track").getBoundingClientRect().left) / scale,
-      ),
+    const raw = tl.frameAt(
+      v.clientX - $("track").getBoundingClientRect().left,
+      scale(),
+      endFrame(),
     );
+    frame = targets.length && !v.altKey ? tl.snap(raw, targets, scale()) : raw;
     paint(true);
   };
   $("track").setPointerCapture(e.pointerId);
   seek(e);
   $("track").onpointermove = seek;
-  $("track").onpointerup = () => {
+  $("track").onpointerup = $("track").onpointercancel = () => {
     $("track").onpointermove = null;
   };
 };
@@ -754,10 +970,12 @@ document.addEventListener("keydown", (e) => {
   else if (k === "e")
     fn = () => $(tool.erase ? "brushTool" : "eraserTool").click();
   else if (k === "0") fn = () => $("fit").click();
+  else if (k === "f") fn = () => $("fitTime").click();
+  else if (k === "delete" || k === "backspace")
+    fn = () => !$("keyDelete").disabled && $("keyDelete").click();
   else if (k === "+" || k === "=" || k === "-")
     fn = () => {
-      $("zoom").value = Math.max(1, Math.min(12, scale + (k === "-" ? -1 : 1)));
-      $("zoom").dispatchEvent(new Event("input"));
+      zoomTo(scaleIndex + (k === "-" ? -1 : 1));
     };
   else if (k === " ") fn = () => $("play").click();
   else if (k === "arrowright" || k === "arrowleft")

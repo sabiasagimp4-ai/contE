@@ -11,6 +11,10 @@ import {
   cameraAt,
   movePanels,
   BRUSH,
+  setCameraKey,
+  moveCameraKey,
+  removeCameraKey,
+  describeCamera,
 } from "../src/model.js";
 import { paginate, defaults } from "../src/paper.js";
 test("split and merge preserve frames, order and undo identity", () => {
@@ -208,4 +212,88 @@ test("deleting the selected panel moves selection to a surviving panel", () => {
   assert.deepEqual(s.selection.ids, [a]);
   s.undo();
   assert.equal(s.selection.active, b);
+});
+test("camera keys can be added, moved and removed at any time", () => {
+  const b = panel();
+  const at = setCameraKey(b, 0.5, { x: 1, zoom: 2 });
+  assert.equal(at, 1);
+  assert.equal(b.camera.length, 2);
+  // 追加しただけでは、その時点の映りは変わらない。
+  const mid = setCameraKey(b, 0.25);
+  assert.deepEqual(cameraAt(b, 0.25), { x: 0.5, y: 0, zoom: 1.5, rotation: 0 });
+  assert.equal(b.camera[mid].t, 0.25);
+  assert.ok(b.camera.every((k, i) => !i || k.t > b.camera[i - 1].t));
+  assert.equal(moveCameraKey(b, 1, 0.75), true);
+  assert.deepEqual(
+    b.camera.map((k) => k.t),
+    [0, 0.5, 0.75],
+  );
+  // 同じ時刻へ重ねたキーは1本にまとめる。
+  assert.equal(moveCameraKey(b, 2, 0.5), true);
+  assert.equal(b.camera.length, 2);
+  assert.equal(removeCameraKey(b, 1), true);
+  assert.equal(removeCameraKey(b, 0), false, "最後の1本は消せない");
+  assert.equal(b.camera.length, 1);
+});
+test("camera keys stay valid and stretch with the panel duration", () => {
+  const s = new Store();
+  const id = flatten(s.p)[0].panel.id;
+  s.edit((p) => {
+    setCameraKey(flatten(p)[0].panel, 1, { x: 1 });
+  });
+  assert.equal(flatten(s.p)[0].panel.camera.length, 2);
+  // 尺を倍にしても比率は変わらない。動きだけが伸びる。
+  s.edit((p) => (flatten(p)[0].panel.frames = 96));
+  const b = flatten(s.p)[0].panel;
+  assert.deepEqual(
+    b.camera.map((k) => k.t),
+    [0, 1],
+  );
+  assert.equal(cameraAt(b, 0.5).x, 0.5);
+  s.undo();
+  s.undo();
+  assert.equal(flatten(s.p)[0].panel.camera.length, 1);
+  assert.equal(flatten(s.p)[0].panel.id, id);
+});
+test("camera description names the move for paper and inspector", () => {
+  const b = panel();
+  assert.deepEqual(describeCamera(b), {
+    keys: b.camera,
+    moves: [],
+    hold: true,
+  });
+  setCameraKey(b, 1, { x: 0.4, y: -0.3, zoom: 0.5, rotation: 10 });
+  assert.deepEqual(describeCamera(b).moves, [
+    "PAN →",
+    "TILT ↑",
+    "ZOOM OUT",
+    "ROLL ↻",
+  ]);
+  assert.equal(describeCamera(b).hold, false);
+});
+test("splitting a shot keeps every camera key with its own panel", () => {
+  const s = new Store();
+  s.edit((p) => p.scenes[0].shots[0].panels.push(panel(), panel()));
+  s.edit((p) => {
+    const rows = flatten(p);
+    setCameraKey(rows[1].panel, 0.5, { x: 0.5 });
+    setCameraKey(rows[1].panel, 1, { zoom: 2 });
+    setCameraKey(rows[2].panel, 1, { y: 0.25 });
+  });
+  const before = flatten(s.p).map((r) => cameraAt(r.panel, 0.5));
+  s.edit((p) => split(p, flatten(p)[1].panel.id));
+  assert.equal(s.p.scenes[0].shots.length, 2);
+  assert.deepEqual(
+    flatten(s.p).map((r) => cameraAt(r.panel, 0.5)),
+    before,
+  );
+  s.undo();
+  assert.deepEqual(
+    flatten(s.p).map((r) => cameraAt(r.panel, 0.5)),
+    before,
+  );
+  assert.deepEqual(
+    flatten(s.p).map((r) => r.panel.camera.length),
+    [1, 3, 2],
+  );
 });

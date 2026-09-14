@@ -172,6 +172,52 @@ try {
       .trim(),
   );
   assert.notEqual(paneWidth, "220px");
+  // P2：fps目盛、選択範囲の表示、Cameraキーの追加/移動/削除とUndo。
+  const ticks = await page.locator("#ruler .tick").allInnerTexts();
+  assert.ok(ticks.length > 1, "ruler has no ticks");
+  assert.ok(
+    ticks.every((t) => /^\d+s(\d+f)?$/.test(t)),
+    `unexpected tick labels ${ticks.join(",")}`,
+  );
+  await page.locator("#strip button").first().click();
+  await page
+    .locator("#strip button")
+    .nth(2)
+    .click({ modifiers: ["Shift"] });
+  assert.match(await page.locator("#range").innerText(), /選択 3 Panel/);
+  await page.locator("#strip button").first().click();
+  await page.locator('[data-tab="camera"]').click();
+  assert.match(await page.locator("#cameraSummary").innerText(), /HOLD/);
+  const trackBox = await page.locator("#track").boundingBox();
+  const keysBefore = await page.locator(".camkey").count();
+  // 再生ヘッドのあるPanelへキーを置き、値を変えるとCameraの動きとして要約される。
+  await page.mouse.click(trackBox.x + 40, trackBox.y + 8);
+  await page.locator("#key").click();
+  assert.equal(await page.locator(".camkey").count(), keysBefore + 1);
+  await page.locator("#cz").fill("2");
+  await page.locator("#cz").press("Enter");
+  assert.match(await page.locator("#cameraSummary").innerText(), /ZOOM IN/);
+  const dot = page.locator(".lane.active .camkey").last();
+  const dotBox = await dot.boundingBox();
+  const keyBefore = await page.locator("#keyList option").nth(1).innerText();
+  await page.mouse.move(dotBox.x + 6, dotBox.y + 6);
+  await page.mouse.down();
+  await page.mouse.move(dotBox.x + 60, dotBox.y + 6, { steps: 8 });
+  await page.mouse.up();
+  // ドラッグしたキーは時刻が変わり、Inspectorの一覧もその位置を指す。
+  await page.waitForFunction(
+    (was) => document.querySelector("#keyList").options[1]?.textContent !== was,
+    keyBefore,
+  );
+  await page.locator("#keyDelete").click();
+  assert.equal(await page.locator(".camkey").count(), keysBefore);
+  await page.keyboard.press("Control+z");
+  assert.equal(await page.locator(".camkey").count(), keysBefore + 1);
+  await page.keyboard.press("Control+z");
+  await page.keyboard.press("Control+z");
+  await page.keyboard.press("Control+z");
+  assert.equal(await page.locator(".camkey").count(), keysBefore);
+  await page.locator('[data-tab="content"]').click();
   const { project, panel, uid, BRUSH } = await import("../src/model.js");
   const data = project();
   data.scenes = Array.from({ length: 5 }, (_, si) => ({
@@ -235,7 +281,55 @@ try {
       ),
     };
   });
+  // P2：500 Panelでも生成するクリップは画面分だけ。全体表示と境界スクラブも確認する。
+  const clipCount = await page.locator(".clip").count();
+  assert.ok(clipCount < 40, `laid out ${clipCount} clips for 500 panels`);
+  await page.locator("#fitTime").click();
+  assert.ok(
+    (await page.locator(".clip").count()) < 520,
+    "fit must not explode the DOM",
+  );
+  await page.locator("#zoom").fill("9");
+  const boundary = await page.evaluate(() => {
+    // 48フレーム目ちょうどは次のPanelの先頭。境界で絵が入れ替わる。
+    const track = document.querySelector("#track");
+    const box = track.getBoundingClientRect();
+    // Altを押した操作はスナップしない。押さなければ境界へ吸着する。
+    const at = (frame, altKey) => {
+      const event = (type) =>
+        new PointerEvent(type, {
+          clientX: box.left + frame * 3,
+          clientY: box.top + 8,
+          bubbles: true,
+          pointerId: 1,
+          altKey,
+        });
+      track.dispatchEvent(event("pointerdown"));
+      track.dispatchEvent(event("pointerup"));
+      return document.querySelector("#time").textContent;
+    };
+    return { snapped: at(47, false), before: at(47, true), on: at(48, true) };
+  });
+  assert.equal(boundary.snapped, "2s : 00f");
+  assert.equal(boundary.before, "1s : 23f");
+  assert.equal(boundary.on, "2s : 00f");
+  // 再生ヘッド追従：端に近い位置から再生するとTimelineが自分で送られる。
+  await page.locator("#zoom").fill("15");
+  const width = await page.evaluate(
+    () => document.querySelector("#timeline").clientWidth,
+  );
+  await page.mouse.click(trackBox.x + width - 60, trackBox.y + 8);
+  const scrolledBefore = await page.evaluate(
+    () => document.querySelector("#timeline").scrollLeft,
+  );
   await page.locator("#play").click();
+  await page.waitForFunction(
+    (was) => document.querySelector("#timeline").scrollLeft > was,
+    scrolledBefore,
+    { timeout: 5000 },
+  );
+  await page.locator("#play").click();
+  await page.locator("#zoom").fill("9");
   const save = page.waitForEvent("download");
   await page.locator("#save").click();
   assert.equal((await save).suggestedFilename(), "project.contp");

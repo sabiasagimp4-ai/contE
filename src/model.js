@@ -372,6 +372,58 @@ export function movePanels(p, ids, anchorId, place = "before") {
   p.scenes = p.scenes.filter((s) => s.shots.length);
   return true;
 }
+export const CAMERA_FIELDS = ["x", "y", "zoom", "rotation"];
+const round = (t) => Math.round(clampT(t) * 1e6) / 1e6;
+const clampT = (t) => Math.max(0, Math.min(1, Number.isFinite(t) ? t : 0));
+const sortKeys = (b) => b.camera.sort((x, y) => x.t - y.t);
+// Cameraキーは尺に対する比率tで持つ。尺を変えると動きも同じ比率で伸縮する。
+// UIはフレーム位置で見せるが、保存も再生も紙コンテもこの比率を共有する。
+export function cameraKeyIndex(b, t, epsilon = 1e-4) {
+  return b.camera.findIndex((k) => Math.abs(k.t - round(t)) <= epsilon);
+}
+export function setCameraKey(b, t, values = {}) {
+  const at = round(t);
+  const base = cameraAt(b, at);
+  const key = { t: at, ...base, ...values };
+  const existing = cameraKeyIndex(b, at);
+  if (existing >= 0) b.camera[existing] = key;
+  else b.camera.push(key);
+  sortKeys(b);
+  return cameraKeyIndex(b, at);
+}
+export function moveCameraKey(b, index, t) {
+  const key = b.camera[index];
+  if (!key) return false;
+  const at = round(t);
+  if (key.t === at) return false;
+  const collision = cameraKeyIndex(b, at);
+  if (collision >= 0 && collision !== index) b.camera.splice(collision, 1);
+  key.t = at;
+  sortKeys(b);
+  return true;
+}
+export function removeCameraKey(b, index) {
+  // キーが1つも無いPanelは作らない。最後の1本は消せない。
+  if (b.camera.length < 2 || !b.camera[index]) return false;
+  b.camera.splice(index, 1);
+  return true;
+}
+// 紙コンテ・Inspector・再生で同じ言葉を使うためのCamera動作の要約。
+export function describeCamera(b) {
+  const keys = [...b.camera].sort((x, y) => x.t - y.t);
+  const first = keys[0],
+    last = keys.at(-1);
+  const moves = [];
+  const dx = last.x - first.x,
+    dy = last.y - first.y,
+    dr = last.rotation - first.rotation;
+  if (Math.abs(dx) > 0.005) moves.push(dx > 0 ? "PAN →" : "PAN ←");
+  if (Math.abs(dy) > 0.005) moves.push(dy > 0 ? "TILT ↓" : "TILT ↑");
+  if (Math.abs(last.zoom - first.zoom) > 0.005)
+    moves.push(last.zoom > first.zoom ? "ZOOM IN" : "ZOOM OUT");
+  if (Math.abs(dr) > 0.5) moves.push(dr > 0 ? "ROLL ↻" : "ROLL ↺");
+  return { keys, moves, hold: !moves.length };
+}
 export function cameraAt(b, t) {
   const keys = [...b.camera].sort((a, b) => a.t - b.t);
   let a = keys[0],

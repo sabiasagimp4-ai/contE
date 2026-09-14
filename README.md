@@ -20,13 +20,14 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 - 画像の取り込み。Panelごとに1枚、縦横比を保って収め、濃さを調整できます。原本はブラウザ内のAssetストアへ保存し、表示用は長辺2048pxまで縮小します。プロジェクトJSONにはIDとメタデータだけが入ります（`.contp`に画像は同梱されません）。
 - Shiftクリックで範囲選択、Stripのドラッグで並べ替え（Shot/Sceneをまたいで移動可）、Scene/Shot名の編集（ツリーをダブルクリック、またはInspectorの「構成」タブ）、選択Panelへの自動スクロール。
 - 左ツリー・中央・右Inspector・下Timelineの境界をドラッグして幅/高さを変更でき、配置は次回の起動でも保たれます。Inspectorは内容 / Camera / 構成のタブに分かれています。
-- 整数フレームのTimeline。端をドラッグしてリップル尺変更、空白部分でスクラブ、Zoom、再生/停止。
-- Camera開始/終了の線形補間（X/Y/Zoom/Rotation）。今回は終了KeyframeのInspector設定のみ。
+- 整数フレームのTimeline。fps基準の目盛、選択範囲の表示、端をドラッグしてリップル尺変更、Panel境界と秒へのスナップ（Altで一時解除）、目盛/空白でのスクラブ、カーソル基準のZoom、全体表示、再生ヘッド追従。
+- Timeline下段のCameraトラック。Panelごとのレーンにキーを表示し、ドラッグで移動、ダブルクリックで追加、Deleteで削除できます。
+- CameraキーはPanel内の任意の時刻に何本でも置けます（X/Y/Zoom/Rotation、キー間は線形補間）。キーは尺に対する比率で保持するため、**尺を変えるとCameraの動きも同じ比率で伸縮します**。再生・紙コンテ・Inspectorは同じ補間関数と同じ要約（PAN / TILT / ZOOM / ROLL / HOLD）を共有します。
 - 80段階のUndo/Redo。無効な編集は原子的に拒否。描画データは不変共有して履歴コストを削減。変更のない操作は履歴段数を消費せず、Undo/Redoで選択Panelと再生位置も戻ります。
 - `.contp` JSON v3の保存/読み込み。v1/v2のファイルは読み込み時に順番へMigrationします。破損データ・重複ID・未知Versionを拒否します。保存はブラウザのダウンロードで、既存ファイルへの直接上書きではありません。
 - 変更の1.2秒後（最長8秒）にIndexedDBへ自動保存し、ヘッダーに保存状態を表示します。最大8世代を保持し、起動時に前回の作業を日時・タイトル・Panel数つきで提示して復旧/破棄を選べます。読めない保存データは削除せず読み飛ばし、直前の正常な世代を提示します。容量不足のときは古い世代を減らして一度だけ再試行し、それでも失敗した場合は失敗として表示します（成功表示にしません）。
 - 素材（画像/音声）はIDとメタデータのみをプロジェクトに持ち、バイナリは別ストアへ保存します。音声の取り込みはP3で実装します。
-- 紙コンテ：コマ数、画像列幅、表示項目、余白、文字サイズ、ヘッダーを調整。CUT・画像・尺・台詞・SE/BGM注記・演出・Camera・階層番号。矢印、開始/終了枠、HOLDを描画。
+- 紙コンテ：コマ数、画像列幅、表示項目、余白、文字サイズ、ヘッダーを調整。CUT・画像・尺・台詞・SE/BGM注記・演出・Camera・階層番号。Cameraは全キーを通る軌道、開始枠（実線）/終了枠（破線）、矢印、中間キー、HOLDとキー位置（フレーム）を描画。
 - 紙コンテのPNG連番とブラウザ印刷/PDF保存。A4縦の初期実装です。自由な用紙サイズ・各テキスト列の独立幅・任意軌道は後続です。文字あふれがある場合は出力を止めます。印刷時は用紙A4、余白なし、ヘッダー/フッターなしを選択してください。PDFは画像ベースで文字検索できません。
 
 ## 操作
@@ -40,8 +41,10 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 | ブラシ / 消しゴム切り替え | E |
 | 描画の表示リセット | 0 |
 | 再生 / 停止 | Space |
-| 終了Camera Keyframe設定 | K |
+| 再生ヘッド位置にCameraキー | K |
+| 選択Cameraキーを削除 | Delete / Backspace |
 | Timeline Zoom | + / - |
+| Timeline全体表示 | F |
 | Undo / Redo | Ctrl/Cmd Z / Shift Z |
 | Shot分割 / 前Shotへ統合 | Ctrl/Cmd K / Shift K |
 | 保存（ファイル書き出し） | Ctrl/Cmd S（テキスト編集中は保存ボタン） |
@@ -52,9 +55,9 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 
 ## 構成と次の段階
 
-`src/model.js`：階層・検証・Migration・履歴・Panel移動、`src/repository.js`：保存/復旧/素材と自動保存、`src/storage.js`：IndexedDB/メモリのStorage Adapter、`src/playback.js`：時刻計算・Panel検索、`src/drawing.js`：描画Adapter、`src/paper.js`：ページ生成・Camera表記、`src/app.js`：UI/Timeline操作。
+`src/model.js`：階層・検証・Migration・履歴・Panel移動・Cameraキー、`src/timeline.js`：Timeline Engine（範囲・目盛・スナップ・Zoom・追従）、`src/repository.js`：保存/復旧/素材と自動保存、`src/storage.js`：IndexedDB/メモリのStorage Adapter、`src/playback.js`：時刻計算・Panel検索、`src/drawing.js`：描画Adapter、`src/paper.js`：ページ生成・Camera表記、`src/app.js`：UI/Timeline操作。
 
-[次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md)。次はTimeline EngineとCamera Track（P2）、その後に音声、紙コンテの本番化、Animatic出力です。Timeline UIは今後独立モジュールへ分離します。
+[次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md)。次は音声の配置・波形・同期再生（P3）、その後に紙コンテの本番化、Animatic出力です。
 
 ```sh
 npm test

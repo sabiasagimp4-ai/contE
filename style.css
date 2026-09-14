@@ -241,23 +241,109 @@ footer label {
 }
 #timeline {
   overflow: auto;
-  height: 110px;
-  margin-top: 12px;
+  flex: 1;
+  min-height: 0;
+  margin-top: 10px;
 }
 #track {
-  height: 90px;
   position: relative;
-  background: repeating-linear-gradient(
-    90deg,
-    #202832 0,
-    #202832 71px,
-    #3b4653 72px
-  );
+  height: 100%;
+  min-height: 118px;
+  background: #202832;
+}
+#timebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+#timebar .inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+#timebar .inline input[type="range"] {
+  width: 130px;
+  margin: 0;
+}
+#timebar input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+#time,
+#range {
+  color: #aab6c6;
+  font-variant-numeric: tabular-nums;
+}
+#ruler {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 22px;
+  border-bottom: 1px solid #3b4653;
+}
+.tick {
+  position: absolute;
+  top: 0;
+  padding-left: 4px;
+  font-size: 10px;
+  color: #8c9aad;
+  border-left: 1px solid #3b4653;
+  height: 22px;
+  line-height: 22px;
+  white-space: nowrap;
+}
+.tick.second {
+  color: #b9c6d6;
+  border-left-color: #55637a;
+}
+#band {
+  position: absolute;
+  top: 22px;
+  bottom: 0;
+  background: #73baff18;
+  border-left: 1px solid #73baff66;
+  border-right: 1px solid #73baff66;
+  pointer-events: none;
+}
+#cameraTrack {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 4px;
+  height: 26px;
+}
+.lane {
+  position: absolute;
+  height: 26px;
+  border: 1px solid #4a5566;
+  border-radius: 3px;
+  background: #262f3a;
+}
+.lane.active {
+  border-color: #bb7f5f;
+  background: #33272a;
+}
+.camkey {
+  position: absolute;
+  top: 6px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background: #e0a06a;
+  border: 1px solid #2a2118;
+  transform: rotate(45deg);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.camkey.selected {
+  background: #ffd479;
+  box-shadow: 0 0 0 2px #ffd47955;
 }
 .clip {
   position: absolute;
-  top: 24px;
-  height: 50px;
+  top: 28px;
+  height: 54px;
   white-space: nowrap;
   overflow: hidden;
   text-align: left;
@@ -280,10 +366,15 @@ footer label {
 #head {
   position: absolute;
   top: 0;
-  height: 90px;
+  bottom: 0;
   width: 2px;
   background: #ffcc85;
   pointer-events: none;
+}
+footer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 kbd {
   font-size: 10px;

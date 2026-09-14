@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import { project, panel, Store, flatten, load, BRUSH } from "../src/model.js";
 import { ProjectRepository } from "../src/repository.js";
 import { MemoryStorage } from "../src/storage.js";
+import * as timeline from "../src/timeline.js";
 for (const count of [100, 500]) {
   const p = project();
   p.scenes[0].shots[0].panels = Array.from({ length: count }, () => ({
@@ -47,5 +48,14 @@ for (const count of [100, 500]) {
     id = (await repo.save(p)).id;
   });
   await bench("repository load", () => repo.load(id));
+  // Timeline Engine：スクロール/ズームのたびに走る計算だけを測る。
+  const rows = flatten(p);
+  const end = rows.at(-1).end;
+  await bench("timeline visible", () => timeline.visible(rows, 3, 12000, 900));
+  await bench("timeline ticks", () =>
+    timeline.ticks(p.fps, 3, 12000, 900, end),
+  );
+  const targets = timeline.snapTargets(rows, p.fps, end, 100);
+  await bench("timeline snap", () => timeline.snap(4321, targets, 3));
   console.log("bytes", Buffer.byteLength(text));
 }

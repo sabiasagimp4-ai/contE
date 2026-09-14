@@ -84,35 +84,31 @@
           <p class="hint" id="assetInfo"></p>
         </div>
         <div class="pane" data-pane="camera" hidden>
+          <p id="cameraSummary" class="hint"></p>
+          <label>キー<select id="keyList" size="4"></select></label>
           <label
-            >終了 X<input
-              id="cx"
-              type="number"
-              step=".05"
-              min="-2"
-              max="2" /></label
+            >X<input id="cx" type="number" step=".05" min="-2" max="2" /></label
           ><label
-            >終了 Y<input
-              id="cy"
-              type="number"
-              step=".05"
-              min="-2"
-              max="2" /></label
+            >Y<input id="cy" type="number" step=".05" min="-2" max="2" /></label
           ><label
-            >終了 Zoom<input
+            >Zoom<input
               id="cz"
               type="number"
               step=".1"
               min=".1"
               max="10" /></label
           ><label
-            >終了 Rotation<input
+            >Rotation<input
               id="cr"
               type="number"
               step="5"
               min="-360"
               max="360" /></label
-          ><button id="key">終了Keyframeを設定 <kbd>K</kbd></button>
+          ><button id="key">再生ヘッドにキー <kbd>K</kbd></button
+          ><button id="keyDelete">選択キーを削除</button>
+          <p class="hint">
+            キーは尺に対する比率で保持します。尺を変えるとCameraの動きも同じ比率で伸縮します。Timeline下段のキーはドラッグで移動、レーンのダブルクリックで追加できます。
+          </p>
         </div>
         <div class="pane" data-pane="structure" hidden>
           <label>Scene名<input id="sceneName" /></label
@@ -132,13 +128,31 @@
       title="高さを変更"
     ></div>
     <footer>
-      <div>
-        <b>Timeline</b> <output id="time"></output
-        ><label
-          >Zoom <input id="zoom" type="range" min="1" max="12" value="3"
+      <div id="timebar">
+        <b>Timeline</b> <output id="time"></output><output id="range"></output
+        ><label class="inline"
+          >Zoom <input id="zoom" type="range" min="0" max="15" value="9"
         /></label>
+        <button id="fitTime">全体 <kbd>F</kbd></button
+        ><label class="inline"
+          ><input id="snap" type="checkbox" checked />スナップ</label
+        ><label class="inline"
+          ><input
+            id="followHead"
+            type="checkbox"
+            checked
+          />再生ヘッド追従</label
+        >
       </div>
-      <div id="timeline"><div id="track"></div></div>
+      <div id="timeline">
+        <div id="track">
+          <div id="ruler"></div>
+          <div id="band"></div>
+          <div id="clips"></div>
+          <div id="cameraTrack"></div>
+          <div id="head"></div>
+        </div>
+      </div>
     </footer>
     <dialog id="paperDialog">
       <h2>紙コンテ</h2>

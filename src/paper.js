@@ -1,4 +1,4 @@
-import { flatten } from "./model.js";
+import { flatten, describeCamera } from "./model.js";
 import { draw } from "./drawing.js";
 export const defaults = {
   rows: 4,
@@ -38,44 +38,54 @@ function wrap(c, text, x, y, w, line, maxY) {
   if (row) c.fillText(row, x, y);
   return false;
 }
+// Camera表記は再生と同じキー列から作る。全キーを通る軌道と開始/終了枠を描く。
 export function cameraNotation(c, b, x, y, w, h) {
-  const a = b.camera[0],
-    z = b.camera.at(-1);
+  const { keys, moves, hold } = describeCamera(b);
+  const center = (k) => [x + w / 2 + k.x * w, y + h / 2 + k.y * h];
   c.save();
   c.strokeStyle = "#bb3f27";
   c.fillStyle = "#bb3f27";
   c.lineWidth = 2;
-  const frame = (k) => {
+  if (hold) {
+    c.fillText("HOLD", x + 8, y + 22);
+    c.restore();
+    return;
+  }
+  const frame = (k, dashed) => {
     c.save();
-    c.translate(x + w / 2 + k.x * w, y + h / 2 + k.y * h);
+    c.setLineDash(dashed ? [6, 4] : []);
+    c.translate(...center(k));
     c.rotate((k.rotation * Math.PI) / 180);
     c.strokeRect(-w / (2 * k.zoom), -h / (2 * k.zoom), w / k.zoom, h / k.zoom);
     c.restore();
   };
-  if (
-    b.camera.length === 1 ||
-    ["x", "y", "zoom", "rotation"].every((k) => a[k] === z[k])
-  ) {
-    c.fillText("HOLD", x + 8, y + 22);
-  } else {
-    frame(a);
-    c.setLineDash([6, 4]);
-    frame(z);
-    c.setLineDash([]);
-    const sx = x + w / 2 + a.x * w,
-      sy = y + h / 2 + a.y * h,
-      ex = x + w / 2 + z.x * w,
-      ey = y + h / 2 + z.y * h;
-    const angle = Math.atan2(ey - sy, ex - sx);
+  frame(keys[0], false);
+  frame(keys.at(-1), true);
+  // 中間キーも通る折れ線で軌道を示し、終端に矢印を付ける。
+  c.beginPath();
+  keys.forEach((k, i) => {
+    const [cx, cy] = center(k);
+    i ? c.lineTo(cx, cy) : c.moveTo(cx, cy);
+  });
+  c.stroke();
+  const [px, py] = center(keys.at(-2) ?? keys[0]),
+    [ex, ey] = center(keys.at(-1));
+  if (px !== ex || py !== ey) {
+    const angle = Math.atan2(ey - py, ex - px);
     c.beginPath();
-    c.moveTo(sx, sy);
-    c.lineTo(ex, ey);
+    c.moveTo(ex, ey);
     c.lineTo(ex - 12 * Math.cos(angle - 0.5), ey - 12 * Math.sin(angle - 0.5));
     c.moveTo(ex, ey);
     c.lineTo(ex - 12 * Math.cos(angle + 0.5), ey - 12 * Math.sin(angle + 0.5));
     c.stroke();
-    c.fillText("START → END", x + 8, y + 22);
   }
+  for (const k of keys.slice(1, -1)) {
+    const [cx, cy] = center(k);
+    c.beginPath();
+    c.arc(cx, cy, 4, 0, Math.PI * 2);
+    c.fill();
+  }
+  c.fillText(moves.join(" / "), x + 8, y + 22);
   c.restore();
 }
 export function renderPage(p, rows, o, page, total, images) {
@@ -139,11 +149,13 @@ export function renderPage(p, rows, o, page, total, images) {
     ])
       if (o[key]) blocks.push(`${title}: ${r.panel[key]}`);
     if (o.camera) {
-      const k = r.panel.camera.at(-1);
+      const { keys, moves, hold } = describeCamera(r.panel);
       blocks.push(
-        r.panel.camera.length === 1
+        hold
           ? "Camera: HOLD"
-          : `Camera: X ${k.x} / Y ${k.y} / Zoom ${k.zoom} / Rot ${k.rotation}°`,
+          : `Camera: ${moves.join(" / ")}（${keys
+              .map((k) => `${Math.round(k.t * r.panel.frames)}f`)
+              .join(" → ")}）`,
       );
     }
     if (

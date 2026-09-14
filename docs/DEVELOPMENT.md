@@ -43,6 +43,19 @@
 - Remaining: no layers, shapes, text or colour; no copy/paste of panels; the timeline still only reorders by duration handles; drawing still repaints the whole canvas per pointer move.
 - Next highest value: P2 — separate a Timeline Engine out of `src/app.js`, add fps rulers, playhead-following scroll and arbitrary camera keys.
 
+## Cycle 5: timeline engine and an editable camera track (P2)
+
+- Problem: the timeline was a slab of DOM code inside `src/app.js` with no ruler, no snapping, no playhead following and a fixed 1–12 px/frame slider that could neither show a 500-panel project whole nor work at frame precision. Camera motion was limited to a start key plus one end key set from the inspector, so a pan that should settle mid-panel could not be expressed at all.
+- Change: `src/timeline.js` is a DOM-free engine — scale ladder, viewport culling, fps-based tick spacing and labels, snap targets and snapping, zoom anchoring, playhead following, selection range and fit. `src/app.js` now only renders what the engine returns. The model gained `setCameraKey`, `moveCameraKey`, `removeCameraKey` and `describeCamera`, so camera keys can sit at any time inside a panel and every surface (playback, inspector, paper) reads the same interpolation and the same wording.
+- Duration rule, stated: camera keys keep a ratio `t` within the panel, so changing a panel's duration stretches its camera move by the same ratio. The inspector and the track show each key in frames, so the ratio never has to be reasoned about directly; the rule is written in the README and in the camera tab.
+- Timeline UI: fps ruler whose step is chosen so labels cannot collide, a band and a readout for the selected range, snapping to panel boundaries, seconds and the playhead (Alt suspends it), wheel zoom anchored at the cursor, slider zoom anchored at the playhead, fit (F), and playhead following that scrolls only when the head reaches the edge. The camera track shows one lane per panel: drag a key to move it, double-click a lane to add one, Delete removes the selected key.
+- Paper: notation now comes from the same key list — solid start frame, dashed end frame, a polyline through every key with an arrowhead, dots on intermediate keys, and a text line naming the move (PAN / TILT / ZOOM / ROLL) with each key's frame, or HOLD.
+- Validation: 42 unit tests (12 new) cover the engine (conversion, culling, tick steps, snapping, zoom anchoring, following, range, fit) and camera keys (add without changing the picture, move, merge on collision, refusing to delete the last key, stretching with duration, description wording, keys surviving a shot split and undo). The browser run adds ruler labels, the range readout, adding a key at the playhead, editing it, dragging it, deleting it, undoing back, clip culling with 500 panels (fewer than 40 clips), fit, exact boundary scrubbing (47f reads 1s23f, 48f reads 2s00f, and snapping pulls 47f to the boundary) and playhead-following scroll. No page errors.
+- Measurements (20 samples, 500 panels): engine calls are the cheap part — visible 0.01ms, ticks 0.01ms, snap 0.00ms median; the browser samples showed scroll 17.7 / 33.4ms and zoom 33.3 / 33.3ms end to end in two runs, including two animation frames of waiting. Save and load are unchanged from cycle 4 within noise.
+- Two behaviours corrected during the browser pass: K placed its key in the selected panel even when the playhead was elsewhere (it now targets the panel under the playhead and selects it), and the boundary test showed snapping was doing its job, so the test now checks both the snapped and the Alt-suspended result.
+- Remaining: clips cannot be dragged along the timeline, there is no easing, camera cannot be manipulated directly on the canvas, and there are still no audio or dialogue tracks.
+- Next highest value: P3 — an Audio Engine with cached waveforms, clips for dialogue/SE/BGM on the timeline, and playback synchronised to the audio clock.
+
 ## UX evaluation
 
 Counts describe editor commands (a shortcut chord counts as one); typing values and operating OS dialogs are separate.
@@ -59,7 +72,8 @@ Counts describe editor commands (a shortcut chord counts as one); typing values 
 | Exact duration | Focus, value, commit |
 | Shot split / merge | 1 shortcut (valid boundary) |
 | Scene navigation | Open Scene, select Shot: 2 clicks |
-| Camera end key | Inspector values, then 1 commit button |
+| Camera key at the playhead | 1 shortcut (K); 1 double click on the lane; drag to move |
+| Timeline fit / zoom | 1 shortcut (F) / 1 shortcut or wheel |
 | Paper output | 2 clicks to print dialog / PNG initiation; OS save extra |
 | Recovery | 1 undo chord restoring selection; last Panel deletion blocked; crash recovery offered on startup (1 click) |
 | 100–500 Panel model | benchmark in `scripts/bench.mjs`, synthetic strokes |
@@ -82,3 +96,5 @@ Final paper QA: Japanese font loaded in the test environment, visually inspected
 Cycle 3 note: the numbers above were re-measured on 2026-09-13 with Playwright 1.56 and the environment's Chromium 1194; earlier cycles reported a different sample. Playwright and Chromium are external QA tools and are not part of the application or its dependencies.
 
 Cycle 4 note: the save/load numbers in the UX table above predate schema v3; the current figures are in the cycle 4 entry. Browser samples continue to include two animation frames of waiting and remain single samples, not distributions.
+
+Cycle 5 note: timings above were taken on Node 22.22 with the environment's Chromium 1194 and remain single browser samples. Engine timings are pure function calls and exclude layout and paint.
