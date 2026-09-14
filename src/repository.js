@@ -48,6 +48,14 @@ export class ProjectRepository {
     return meta;
   }
   async #write(meta, data) {
+    if (typeof this.storage.batch === "function") {
+      await this.storage.batch([
+        { type: "put", store: "payloads", key: meta.id, value: data },
+        { type: "put", store: "snapshots", key: meta.id, value: meta },
+      ]);
+      return;
+    }
+    // 旧Storage Adapterとの互換経路。現行Storageは上のbatchを実装する。
     await this.storage.put("payloads", meta.id, data);
     try {
       await this.storage.put("snapshots", meta.id, meta);

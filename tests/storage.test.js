@@ -1,6 +1,47 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { IndexedDbStorage } from "../src/storage.js";
+import { IndexedDbStorage, MemoryStorage } from "../src/storage.js";
+
+test("MemoryStorage batches multiple stores atomically", async () => {
+  const storage = new MemoryStorage();
+  await storage.put("meta", "before", { ok: true });
+  const put = storage.put.bind(storage);
+  let calls = 0;
+  storage.put = async (...args) => {
+    calls++;
+    if (calls === 2) throw Error("書き込み拒否");
+    return put(...args);
+  };
+
+  await assert.rejects(
+    () =>
+      storage.batch([
+        { type: "put", store: "payloads", key: "save-1", value: "json" },
+        {
+          type: "put",
+          store: "snapshots",
+          key: "save-1",
+          value: { id: "save-1" },
+        },
+      ]),
+    /書き込み拒否/,
+  );
+  assert.deepEqual(await storage.keys("payloads"), []);
+  assert.deepEqual(await storage.keys("snapshots"), []);
+  assert.deepEqual(await storage.get("meta", "before"), { ok: true });
+});
+
+test("Storage batch rejects invalid operations before touching data", async () => {
+  const storage = new MemoryStorage();
+  await storage.put("meta", "before", { ok: true });
+  await assert.rejects(() =>
+    storage.batch([
+      { type: "put", store: "meta", key: "new", value: 1 },
+      { type: "put", store: "unknown", key: "bad", value: 2 },
+    ]),
+  );
+  assert.deepEqual(await storage.keys("meta"), ["before"]);
+});
 
 test("concurrent IndexedDB opens share one request", async () => {
   let opens = 0;

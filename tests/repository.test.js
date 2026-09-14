@@ -50,6 +50,37 @@ test("invalid project is refused before any storage write", async () => {
   assert.deepEqual(await storage.keys("snapshots"), []);
   assert.deepEqual(await storage.keys("payloads"), []);
 });
+test("repository writes payload and metadata through one batch", async () => {
+  const { repo, storage } = repository();
+  const batches = [];
+  const batch = storage.batch.bind(storage);
+  storage.batch = async (operations) => {
+    batches.push(operations);
+    return batch(operations);
+  };
+  const p = project();
+  const meta = await repo.save(p, { kind: "manual" });
+  assert.equal(batches.length, 1);
+  assert.deepEqual(
+    batches[0].map(({ type, store, key }) => ({ type, store, key })),
+    [
+      { type: "put", store: "payloads", key: meta.id },
+      { type: "put", store: "snapshots", key: meta.id },
+    ],
+  );
+  assert.deepEqual(await repo.load(meta.id), p);
+});
+test("repository keeps the previous save when a batch is aborted", async () => {
+  const { repo, storage } = repository();
+  const first = await repo.save(project(), { kind: "manual" });
+  storage.batch = async () => {
+    throw Error("transaction aborted");
+  };
+  await assert.rejects(() => repo.save(project()), /transaction aborted/);
+  assert.equal((await repo.latest()).meta.id, first.id);
+  assert.deepEqual((await storage.keys("payloads")), [first.id]);
+  assert.deepEqual((await storage.keys("snapshots")), [first.id]);
+});
 test("corrupt snapshot is skipped, kept, and the previous good save is offered", async () => {
   const { repo, storage } = repository();
   const good = await repo.save(project(), { kind: "manual" });

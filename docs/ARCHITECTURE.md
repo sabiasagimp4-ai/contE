@@ -49,7 +49,7 @@ IndexedDBが利用できない場合、UI編集は継続し、保存層だけが
 | `src/paper.js` | 紙面の幾何、列テキスト、折返し、続き行、Camera表記、Canvasページ描画 |
 | `src/exporter.js` | ページ/フレームの逐次処理、進捗、中止、ZIP、CRC32、Canvas→PNG変換 |
 | `src/animatic.js` | Animaticのfps・解像度計画、Playbackと共通のフレーム評価、MediaRecorder補助 |
-| `src/storage.js` | `MemoryStorage` と `IndexedDbStorage`。保存先のキー/値操作だけを担当 |
+| `src/storage.js` | `MemoryStorage` と `IndexedDbStorage`。保存先のキー/値操作と複数Storeのbatch確定だけを担当 |
 | `src/repository.js` | Snapshot、Project JSON、Asset、Quota再試行、復旧候補、Autosaverを統合 |
 | `scripts/serve.mjs` | ローカル静的サーバー。127.0.0.1へ配信 |
 | `scripts/build.mjs` | 実行に必要な静的ファイルを `dist/` へコピー |
@@ -424,7 +424,7 @@ PNG連番は4フレームごとにブラウザへ制御を返す。各フレー�
 
 ### 11.1 Storage層
 
-`storage.js`はProjectの意味を知らず、Store名とKey/Valueだけを扱う。
+`storage.js`はProjectの意味を知らず、Store名とKey/Valueだけを扱う。単一キーの`get`、`put`、`delete`に加えて、複数Storeの操作を一つの`batch(operations)`として確定する。
 
 ```text
 IndexedDB object stores
@@ -436,6 +436,8 @@ IndexedDB object stores
 
 `MemoryStorage`は同じAPIを持つテスト/フォールバック実装で、読み書き時に`structuredClone`を試みる。`IndexedDbStorage.open()`は複数の同時呼び出しを一つのopen requestへまとめ、別タブのVersion変更では接続を閉じる。
 
+`batch()`の操作は`{ type: "put" | "delete", store, key, value? }`で表す。`MemoryStorage`は失敗時に操作前の値へ戻し、`IndexedDbStorage`は対象Storeを一つのreadwrite transactionへまとめる。個別requestの成功ではなくtransaction完了を成功条件とする。未知Store、未知操作、Keyなしの操作は実行前に拒否する。
+
 ### 11.2 ProjectRepository
 
 `save()`の処理は次の順序。
@@ -443,8 +445,7 @@ IndexedDB object stores
 1. `validate(project)`。
 2. JSON文字列化。
 3. `snapshots`用メタデータを作る。Panel数、Version、サイズ、Asset ID一覧を含む。
-4. `payloads`へ書く。
-5. `snapshots`へ書く。メタデータ書き込みに失敗した場合、payloadをロールバックする。
+4. `payloads`と`snapshots`を同じStorageのbatchで書く。IndexedDBでは同じreadwrite transactionとして確定する。
 6. Quota不足なら古い保存を減らして一度だけ再試行する。
 7. Snapshot上限を整理する。
 
@@ -466,7 +467,7 @@ Asset GCは、現在Project、Undo/Redo履歴、保持中SnapshotのAsset IDを�
 
 ### 12.1 Nodeテスト
 
-`npm test` はNode標準Test Runnerで、現在78テストを実行する。
+`npm test` はNode標準Test Runnerで、現在82テストを実行する。
 
 | テスト | 対象 |
 |---|---|
@@ -479,7 +480,7 @@ Asset GCは、現在Project、Undo/Redo履歴、保持中SnapshotのAsset IDを�
 | `playback.test.js` | 時計計算、Panel境界 |
 | `repository.test.js` | 保存、Quota、Snapshot、Asset GC、Autosaver |
 | `stability.test.js` | 24 seed × 90操作の再現可能なランダム編集、JSON往復、音、紙面 |
-| `storage.test.js` | IndexedDB openの同時呼び出し共有 |
+| `storage.test.js` | 複数Store batchの原子性、入力検証、IndexedDB openの同時呼び出し共有 |
 | `timeline.test.js` | 変換、可視範囲、目盛、Snap、Zoom、追従、極端な長尺 |
 
 ### 12.2 Browser smoke

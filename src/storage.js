@@ -1,5 +1,6 @@
 // 永続化の下層。キー/値だけを扱い、プロジェクトの意味は知らない。
 export const STORES = ["snapshots", "payloads", "assets", "meta"];
+const STORE_SET = new Set(STORES);
 const copy = (value) => {
   try {
     return structuredClone(value);
@@ -21,6 +22,27 @@ export class MemoryStorage {
   }
   async put(store, key, value) {
     this.#bucket(store).set(key, copy(value));
+  }
+  async batch(operations) {
+    validateBatch(operations);
+    // MemoryStorageのテスト/フォールバックでも、複数Storeの確定を一単位にする。
+    // put/deleteを差し替えたテスト doubles も同じ失敗経路を通れるようにする。
+    const before = new Map(
+      [...this.#data].map(([store, values]) => [
+        store,
+        new Map([...values].map(([key, value]) => [key, copy(value)])),
+      ]),
+    );
+    try {
+      for (const operation of operations) {
+        if (operation.type === "put")
+          await this.put(operation.store, operation.key, operation.value);
+        else await this.delete(operation.store, operation.key);
+      }
+    } catch (e) {
+      this.#data = before;
+      throw e;
+    }
   }
   async delete(store, key) {
     this.#bucket(store).delete(key);
@@ -104,8 +126,53 @@ export class IndexedDbStorage {
   values(store) {
     return this.#run(store, "readonly", (s) => s.getAll());
   }
+  batch(operations) {
+    validateBatch(operations);
+    if (!operations.length) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      if (!this.db) return reject(Error("IndexedDBが開かれていません"));
+      const stores = [...new Set(operations.map((operation) => operation.store))];
+      let tx;
+      try {
+        tx = this.db.transaction(stores, "readwrite");
+        for (const operation of operations) {
+          const objectStore = tx.objectStore(operation.store);
+          if (operation.type === "put")
+            objectStore.put(operation.value, operation.key);
+          else objectStore.delete(operation.key);
+        }
+      } catch (e) {
+        try {
+          tx?.abort();
+        } catch {}
+        reject(e);
+        return;
+      }
+      // requestの成功ではなくtransactionの完了だけを保存成功とする。
+      tx.oncomplete = () => resolve();
+      tx.onerror = () =>
+        reject(tx.error ?? Error("保存失敗"));
+      tx.onabort = () =>
+        reject(tx.error ?? Error("保存中断"));
+    });
+  }
   close() {
     this.db?.close();
     this.db = null;
+  }
+}
+
+function validateBatch(operations) {
+  if (!Array.isArray(operations)) throw Error("保存操作が不正です");
+  for (const operation of operations) {
+    if (
+      !operation ||
+      !["put", "delete"].includes(operation.type) ||
+      !STORE_SET.has(operation.store) ||
+      operation.key === undefined
+    )
+      throw Error("保存操作が不正です");
+    if (operation.type === "put" && !Object.hasOwn(operation, "value"))
+      throw Error("保存値がありません");
   }
 }

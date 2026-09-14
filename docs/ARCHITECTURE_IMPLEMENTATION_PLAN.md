@@ -1,7 +1,7 @@
 # contE 構造改善の実装計画
 
 作成日: 2026-09-14  
-状態: 実装進行中。M0のコード照合と基準テストを行い、M1のSession境界の第一段階を実装済み。本文中で実装済みと明記していない新しいモジュール、API、試験、性能目標は提案である。
+状態: 実装進行中。M0のコード照合と基準テスト、M1のSession境界第一段階、M2のStorage batchとRepository移行を実装済み。本文中で実装済みと明記していない新しいモジュール、API、試験、性能目標は提案である。
 
 ## 1. 根拠と対象範囲
 
@@ -130,7 +130,7 @@ M6で旧データの意味を変える必要が判明した場合、その仕様
 ### 6.3 M0実施結果（2026-09-14）
 
 - `src/app.js`、`src/model.js`、`src/repository.js`、`src/storage.js`、既存テストの実装入口を照合した。
-- 既存のNodeテストは73件すべて成功し、Session追加後は78件すべて成功した。
+- 既存のNodeテストは73件すべて成功し、Session追加後は78件、Storage batch追加後は82件すべて成功した。
 - `npm run build` は成功し、新しいES Moduleも`dist/src/`へコピーされることを確認した。
 - `node --check src/app.js`、`node --check src/editor-session.js`、`git diff --check` は成功した。
 - `npm run test:browser` は、この実行環境に`playwright`パッケージがないため開始前に停止した。ブラウザsmokeを通過したとは扱わず、依存を用意した環境で再実行する。
@@ -205,7 +205,7 @@ Viewは`mount`、更新、`dispose`相当の寿命を持つ。イベント、Obs
 
 ### 8.1 Storageの一括確定API
 
-`storage.js`へ、同じデータベース内の複数操作を一括確定するAPIを追加する案とする。
+`storage.js`へ、同じデータベース内の複数操作を一括確定するAPIを追加した。`MemoryStorage`は検証後に失敗時ロールバックし、`IndexedDbStorage`は対象storeを1つのreadwrite transactionにまとめ、transaction完了を成功条件にする。
 
 ```js
 await storage.batch([
@@ -245,6 +245,12 @@ Repository内のキューだけでは複数タブを排他できない。初期�
 **検証:** payload書き込み後のtransaction abort、metadata失敗、Quota再試行失敗、保存中の編集・Undo・Project切り替え、手動保存との競合、GCとの競合を扱う。再読み込み後の復旧候補が旧保存か新保存の完全な組になることを、MemoryStorageの試験に加え実ブラウザのIndexedDBでも確認する。
 
 **完了条件:** 完了通知、payload / metadata、dirty表示の三者が同じ保存対象を指す。中断しても最後の正常保存を復旧できる。
+
+### 8.4 実装済み結果
+
+- `Repository.#write()`はpayloadとsnapshotを`Storage.batch()`へ渡し、現行Storageでは複数storeを同じ確定単位で保存する。`batch`を持たない旧アダプターには従来の逐次書き込みと失敗時削除を残した。
+- `MemoryStorage`の失敗時ロールバック、入力検証、Repositoryの保存・復旧経路をNodeテストで追加し、テストは82件すべて成功した。
+- 実ブラウザのIndexedDB transaction完了経路は、環境にPlaywrightがないため未実行である。ブラウザsmoke環境を用意した時点で追加検証する。
 
 ## 9. M3 — Storeの構造共有と変更情報
 
@@ -518,14 +524,14 @@ MemoryStorageの成功だけでIndexedDBのtransactionを検証したとは扱�
 
 ## 16. コミットの切り方と戻し方
 
-下表は将来の実装コミット案である。今回の計画書コミットを除き、まだ実行していない。
+下表は実装コミットの切り方と戻し方である。C02のSession境界第一段階とC04のStorage batch / Repository移行は実行済みで、その他は未実行である。
 
 | 順序 | コミット案 | 一つの変更として確認すること | 差し戻し方針 |
 |---|---|---|---|
 | C01 | `test: record editor contracts and performance baseline` | M0の現状照合と基準 | アプリの挙動を変えない |
 | C02 | `refactor: centralize editor commands and session lifecycle` | M1の確定後処理、非同期の所属。Session境界の第一段階を実施済み | 既存Storeとrenderを利用する接続へ戻せる |
 | C03 | `refactor: extract editor views and playback ownership` | UI購読・再生資源の所有者 | 計算と保存形式を変えずに戻せる |
-| C04 | `fix: commit project snapshots atomically` | M2のStorage batchとRepository | 既存store・既存metadataを読める状態を維持する |
+| C04 | `fix: commit project snapshots atomically` | M2のStorage batchとRepository（実施済み） | 既存store・既存metadataを読める状態を維持する |
 | C05 | `fix: isolate save revisions and protect active assets` | Autosaver、GC、Session境界 | GCを保留する保守的経路を残す |
 | C06 | `refactor: add copy-on-write edits to project store` | M3のDraftと高頻度Command | 旧callback経路を維持する |
 | C07 | `refactor: migrate structural edits to change-aware store` | 構造操作、Undo/Redo、変更情報 | 全無効化へ戻して表示の正しさを保つ |
@@ -559,4 +565,4 @@ C03の再生所有者の抽出では時間計算を移さず、C11で単位変�
 - [ ] 統合: 改善前後の測定と実機で未検証の範囲を記録した。
 - [ ] 文書: ARCHITECTURE.mdが実装済みの構造と一致している。
 
-この更新時点で実施済みなのは、M0のコード照合・Node/build検証と、M1のSession境界第一段階である。M0のブラウザsmoke、M1の画面責務分離、M2以降の実装、性能改善は未完了である。
+この更新時点で実施済みなのは、M0のコード照合・Node/build検証、M1のSession境界第一段階、M2のStorage batchとRepository移行である。M0のブラウザsmoke、M1の画面責務分離、M2の並行保存・GC・revision隔離、M3以降の実装、性能改善は未完了である。
