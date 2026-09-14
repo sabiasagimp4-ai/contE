@@ -39,8 +39,11 @@ IndexedDBが利用できない場合、UI編集は継続し、保存層だけが
 |---|---|
 | `index.html` | UIのDOM骨格。Toolbar、Canvas、Panel strip、Inspector、Timeline、紙コンテDialog、Animatic Dialog、復旧Dialogを定義 |
 | `style.css` | 4ペイン配置、Timelineレーン、Inspector、Dialog、印刷用スタイル、レスポンシブ境界 |
-| `src/app.js` | UIイベント、表示更新、編集コマンド、ファイル選択、再生、Dialog、保存の統合。現在のアプリケーション層 |
-| `src/editor-session.js` | 現在の`Store`の寿命、編集/選択/Undo/Redoの結果、実行時Session IDとrevision、Project差し替え後の古い非同期処理の識別 |
+| `src/app.js` | UIイベント、表示更新、ファイル選択、再生、Dialog、保存の接続。現在のアプリケーション統合層 |
+| `src/editor-session.js` | 現在の`Store`の寿命、編集/選択/Undo/Redoの結果、変更範囲、実行時Session IDとrevision、Project差し替え後の古い非同期処理の識別 |
+| `src/application/commands.js` | UI操作をStoreの一回の編集として表すコマンド集。DOM・Storage・awaitを持たない |
+| `src/application/editor-controller.js` | コマンド実行、選択、Undo/Redo、Project差し替えの入口と、確定編集ごとの通知 |
+| `src/application/import-controller.js` | 素材取り込みの非同期規約。開始時の対象固定、追い越し、作品切替時の破棄と解放 |
 | `src/model.js` | Projectの生成・検証・Migration・履歴・選択・Panel移動・Cameraキー・紙面設定検証 |
 | `src/playback.js` | 時刻からPanelを引く純粋関数。再生時計と二分探索 |
 | `src/timeline.js` | Timelineのフレーム/px変換、可視Panel、目盛、スナップ、Zoom、追従、選択範囲 |
@@ -58,9 +61,9 @@ IndexedDBが利用できない場合、UI編集は継続し、保存層だけが
 | `tests/*.test.js` | Node標準Test Runnerによる純粋関数・モデル・保存・出力のテスト |
 | `docs/` | ロードマップ、開発サイクル、デスクトップ調査、現行構造資料 |
 
-`app.js` は描画エンジンや保存エンジンそのものを実装するのではなく、DOMイベントと各モジュールを接続する統合層である。ただしUIの状態管理、表示再構築、出力Dialogも同じファイルにあるため、現時点で最も責務が集まっているファイルでもある。
+`app.js` は描画エンジンや保存エンジンそのものを実装するのではなく、DOMイベントと各モジュールを接続する統合層である。編集の計算は`src/application/commands.js`へ移したが、UIの状態管理、表示再構築、出力Dialogは同じファイルにあるため、現時点でも最も責務が集まっているファイルである。
 
-`editor-session.js` はDOM、IndexedDB、Web Audioを知らない。`EditorSession`は`Store`を保持し、編集結果に`kind`、変更有無、選択変更有無、Session ID、revisionを付けて返す。Projectの差し替えではSession IDを更新し、非同期素材読み込みは開始時に取得したTokenと現在Sessionを照合してから表示を更新する。編集内容のdirty化、自動保存、DOM再構築の順序は引き続き`app.js`が決める。
+`editor-session.js` と `src/application/` はDOM、IndexedDB、Web Audioを知らない。`EditorSession`は`Store`を保持し、編集結果に`kind`、変更有無、選択変更有無、確定した変更範囲、Session ID、revisionを付けて返す。`EditorController`がその結果を購読者へ一度だけ通知し、`app.js`がdirty化・自動保存予約・頭出し・DOM再構築を行う。Projectの差し替えではSession IDを更新し、素材取り込みは`ImportController`が開始時の対象とSessionを照合してから適用する。
 
 ## 3. Projectデータモデル
 
@@ -223,7 +226,7 @@ Store
 
 UI側の`edit()`は、変更があれば再生を停止し、dirtyを立て、自動保存を予約して`render()`する。変更のない操作は保存と履歴を発生させない。
 
-### 4.4 EditorSession
+### 4.4 EditorSessionとEditorController
 
 `EditorSession`は実行中のProjectを開いている単位を表す。JSONへ保存するProject Versionとは別の、実行時だけの識別情報を持つ。
 
@@ -237,6 +240,19 @@ EditorSession
 `edit()`、`undo()`、`redo()`はStoreの既存の検証・履歴処理を呼び、変更が確定した場合だけrevisionを1増やす。選択だけの変更は`selectionChanged`として返すが、Project revisionは増やさない。無変更操作は履歴とrevisionを消費しない。`replace()`は新しいStoreを作り、Session IDを更新してrevisionを0へ戻す。
 
 非同期処理は`capture()`でSession IDとrevisionを取得し、完了時に`isCurrent()`または`isCurrentRevision()`を確認できる。古いSessionの素材読み込み結果は、キャッシュへの取得処理が完了しても現在画面の`render()`を呼ばない。保存完了やAsset GCはrevisionが一致するときだけ最新状態へ反映する。Sessionはデータ保存形式やProjectの意味を変更しない。
+
+編集結果には確定した変更範囲`changes`が付く。`{ all, kinds, panelIds, assetIds }`の形で、コマンド経由の編集は宣言した種類（`structure` / `timing` / `text` / `visual` / `camera` / `audio` / `assets` / `paper` / `projectMeta`）と分かる範囲の対象IDを持つ。任意のcallbackを渡す互換経路とUndo/Redoは`all`になる。無変更操作と選択だけの変更は空の範囲を返す。現時点の`app.js`は`changes`の内容に関わらず全体`render()`を行う。部分更新の判断材料として先に契約だけを固定している。
+
+`EditorController`は編集の入口をひとつにまとめる。`execute(name, args)`がコマンドを実行し、`edit(fn)`が変更範囲を判定できない互換経路、`select()`、`undo()`、`redo()`、`replace()`が残りの操作を担当する。確定編集・選択・失敗のいずれでも購読者への通知は一回で、検証に失敗した編集は`failed`と`error`を持つ結果として返り、履歴もrevisionも保存予約も増やさない。購読は解除関数を返す。
+
+```text
+DOM / Pointer / Keyboard
+  → EditorController.execute(name, args)
+  → commands[name].run(args)        （同期・DOMなし・awaitなし）
+  → EditorSession.edit(fn, kind, changes)
+  → Store.edit(fn) → validate + history + selection normalize
+  → 購読者へ1回通知 → markDirty / Autosaver.schedule / render
+```
 
 ## 5. UI構造とイベントの流れ
 
@@ -294,16 +310,20 @@ PanelサムネイルはIntersectionObserverで表示範囲に入ったものだ�
 
 ```text
 DOM / Pointer / Keyboard
-  → app.jsの編集コマンド
-  → EditorSession.edit(fn)
+  → EditorController.execute(name, args)   （またはedit(fn)の互換経路）
+  → commands[name].run(args)
+  → EditorSession.edit(fn, kind, changes)
   → Store.edit(fn)
   → validate + history + selection normalize
-  → markDirty()
-  → Autosaver.schedule(() => store.p, editor.capture())
-  → render()
+  → 購読1回
+      → markDirty()
+      → Autosaver.schedule(() => store.p, editor.capture())
+      → render()
 ```
 
-描画だけはPointerMoveごとに一時StrokeをCanvasへプレビューし、PointerUp時に一度だけProjectへcommitする。これにより、描画中の全PointerMoveがUndo段数や保存を消費しない。
+画面側のUI状態（選択中のCameraキーなど）を確定後に更新する必要がある場合は、確定と描画の間に一度だけ走るフックで更新する。描画だけはPointerMoveごとに一時StrokeをCanvasへプレビューし、PointerUp時に一度だけProjectへcommitする。これにより、描画中の全PointerMoveがUndo段数や保存を消費しない。
+
+素材の取り込み（画像、音声の配置、音声の差し替え）は`ImportController`を通す。取り込み開始時に対象IDとSessionを固定し、デコードと原本保存が終わってから対象の存在とSessionを確認して一回の編集で適用する。作品を開き直した場合、対象が消えた場合、同じ対象へ次の取り込みが始まった場合は適用せず、デコード結果を解放する。無関係な編集や選択の変更では取り込みを捨てない。音声の新規配置は毎回別のクリップを作るため追い越し判定を行わない。
 
 ## 6. Timeline・時刻・再生
 
@@ -434,7 +454,7 @@ IndexedDB object stores
 └─ meta       layout、復旧dismiss状態
 ```
 
-`MemoryStorage`は同じAPIを持つテスト/フォールバック実装で、読み書き時に`structuredClone`を試みる。`IndexedDbStorage.open()`は複数の同時呼び出しを一つのopen requestへまとめ、別タブのVersion変更では接続を閉じる。
+`MemoryStorage`は同じAPIを持つテスト/フォールバック実装で、読み書き時に`structuredClone`を試みる。`IndexedDbStorage.open()`は複数の同時呼び出しを一つのopen requestへまとめ、決着した要求を片付けてから次の要求を受ける。open失敗の後も再試行でき、`close()`と別タブのVersion変更は接続を閉じたうえで世代を進める。失敗を返した後・close後・次の要求へ進んだ後に届いた接続は公開せずに閉じる。
 
 `batch()`の操作は`{ type: "put" | "delete", store, key, value? }`で表す。`MemoryStorage`は失敗時に操作前の値へ戻し、`IndexedDbStorage`は対象Storeを一つのreadwrite transactionへまとめる。個別requestの成功ではなくtransaction完了を成功条件とする。未知Store、未知操作、Keyなしの操作は実行前に拒否する。
 
@@ -468,12 +488,14 @@ Asset GCは、現在Project、Undo/Redo履歴、保持中SnapshotのAsset IDを�
 
 ### 12.1 Nodeテスト
 
-`npm test` はNode標準Test Runnerで、現在83テストを実行する。
+`npm test` はNode標準Test Runnerで、現在117テストを実行する。
 
 | テスト | 対象 |
 |---|---|
 | `animatic.test.js` | fps変換、Frame plan、Camera評価、録画進捗、Codec選択 |
-| `audio.test.js` | Clip解決、Anchor移動、予約、波形、AudioEngine二重再生防止 |
+| `application.test.js` | Command経路、副作用一回、無変更・失敗、変更範囲、購読解除、素材差し替え |
+| `audio.test.js` | Clip解決、Anchor移動、予約、波形の使用区間、AudioEngine二重再生防止 |
+| `import-controller.test.js` | 取り込み対象の固定、追い越し、作品切替、対象削除、失敗後の再試行 |
 | `editor-session.test.js` | 編集結果、Session revision、選択変更、Undo/Redo、Project差し替え、古いTokenの無効化 |
 | `migration.test.js` | v1/v2入力、Migrationの非破壊性、未知Version |
 | `model.test.js` | 構造、検証、履歴、選択、Panel移動、Camera、画像/音声分離 |
@@ -481,7 +503,7 @@ Asset GCは、現在Project、Undo/Redo履歴、保持中SnapshotのAsset IDを�
 | `playback.test.js` | 時計計算、Panel境界 |
 | `repository.test.js` | 保存、Quota、Snapshot、Asset GC、Autosaver |
 | `stability.test.js` | 24 seed × 90操作の再現可能なランダム編集、JSON往復、音、紙面 |
-| `storage.test.js` | 複数Store batchの原子性、入力検証、IndexedDB openの同時呼び出し共有 |
+| `storage.test.js` | 複数Store batchの原子性、入力検証、IndexedDB接続の共有・再試行・close・versionchange |
 | `timeline.test.js` | 変換、可視範囲、目盛、Snap、Zoom、追従、極端な長尺 |
 
 ### 12.2 Browser smoke
@@ -492,11 +514,14 @@ Asset GCは、現在Project、Undo/Redo履歴、保持中SnapshotのAsset IDを�
 - Shift範囲選択、Strip並べ替え、Scene名、ペイン幅
 - Timeline目盛、Zoom、スクラブ、Cameraキー、再生追従
 - WAV読込、波形、Clip移動/Trim、再生同期、Panel削除とUndo
+- Scene追加とUndo、素材のない音声クリップの差し替えとUndo
 - A4/A3、縦横、長文継続、紙出力、PNG ZIP、中止
 - PNG Animatic、WebM再生確認、音声存在、フレーム変化
 - 500 Panelの表示、保存、リロード、復旧
 
-直近の501 Panel測定値は、Panel尺変更11.3ms、Scene移動30.4ms、Timelineスクロール33.1ms、Zoom33.2ms、再生開始35.7ms、自動保存772.9ms。同期テストは4秒で94フレーム進み、ずれは-2フレーム。ページエラーは0件。
+直近の501 Panel測定値は、Panel尺変更20.4ms、Scene移動27.0ms、Timelineスクロール34.1ms、Zoom25.7ms、再生開始45.2ms、自動保存799.8ms（Linux + Chromium 1194、headless）。同期テストは4秒で94フレーム進み、ずれは-2フレーム。ページエラーは0件。実行環境が違えば数値も変わるため、環境をまたいだ比較には使わない。
+
+Playwrightは配布物の依存ではない。この環境では `npm install --no-save playwright` と、既存のChromiumを指す `CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium-1194/chrome-linux/chrome` で実行した。
 
 ### 12.3 ベンチマーク
 
@@ -515,12 +540,14 @@ Asset GCは、現在Project、Undo/Redo履歴、保持中SnapshotのAsset IDを�
 
 - WindowsデスクトップShellは存在しない。直接ファイル上書きではなく、Project JSONのダウンロードとIndexedDB自動保存を使う。
 - EditorSessionのSession IDとrevisionは実行時の値で、Project JSONや`.contp`へは保存されない。
+- 編集結果の`changes`は契約として存在するが、画面更新はまだ全体`render()`である。部分更新と派生値キャッシュは未実装。
+- 音声素材の差し替えは新しいAsset IDを作って参照を付け替える。原本は上書きしないので、Undoと過去のSnapshotは元の素材を指し続ける。旧原本の削除はAsset GCの到達可能性判定に従う。
 - `.contp` JSONに画像/音声バイナリは同梱されない。別環境ではAssetの差し替えが必要になる。
 - WebM AnimaticはMediaRecorderによる実時間録画。PNG連番はフレーム単位だが音声を持たない。
 - ZIPは無圧縮。大きなPNG連番では完成Blobを作るまでエンコード済みバイトを保持する。
 - 紙PDFはブラウザ印刷の画像ベースで、文字検索可能なPDFを直接生成する構造ではない。
 - Camera補間は線形で、イージングはない。
-- Waveform CacheはDecoded AudioBufferのChannel 0を列ごとのmin/maxへ変換する。UIの波形は素材単位のキャッシュである。
+- Waveform CacheはDecoded AudioBufferのChannel 0を列ごとのmin/maxへ変換する。クリップの波形は`offset`と尺から求めた素材内の区間だけを描き、素材の外は無音として描く。キャッシュは素材ID・列数・区間の組で持ち、表示列数には上限がある。推定バイト数による破棄は未実装。
 - 描画、紙面、PNGフレームのCanvas処理はWorkerへ分離されていない。
 - 実プリンター、Windows Ink、長時間の実機音声遅延、数千Panel＋実素材の常駐メモリはこの環境では測定していない。
 
