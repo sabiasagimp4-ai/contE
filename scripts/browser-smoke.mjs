@@ -162,6 +162,18 @@ try {
   assert.equal(erased.clear, 0, "eraser must not punch holes in the paper");
   await page.locator("#brushTool").click();
   await page.keyboard.press("Control+z");
+  // P1：Panelのコピーと貼り付け。貼った分だけ増え、Undoで1段戻る。
+  await page.evaluate(() => document.activeElement.blur());
+  const panelsBefore = await page.locator("#strip button").count();
+  await page.keyboard.press("Control+c");
+  await page.keyboard.press("Control+v");
+  await page.waitForFunction(
+    (was) => document.querySelectorAll("#strip button").length === was + 1,
+    panelsBefore,
+  );
+  assert.match(await page.locator("#status").innerText(), /貼り付け/);
+  await page.keyboard.press("Control+z");
+  assert.equal(await page.locator("#strip button").count(), panelsBefore);
   // P1：オニオンスキン。前のコマの線が薄く重なり、切ると消える。
   const inked = () =>
     page.evaluate(() => {

@@ -278,3 +278,85 @@ test("replacing a clip that no longer exists changes nothing", () => {
   assert.equal(controller.project.assets.length, 0);
   assert.equal(controller.store.past.length, 0);
 });
+
+test("pasting panels duplicates them with new ids after the target", () => {
+  const { controller } = controllerWith();
+  const first = controller.activeId;
+  controller.execute("setPanelField", {
+    ids: [first],
+    field: "dialogue",
+    value: "元のコマ",
+  });
+  const source = flatten(controller.project)[0].panel;
+
+  const pasted = controller.execute("pastePanels", {
+    afterId: first,
+    panels: [structuredClone(source), structuredClone(source)],
+  });
+
+  const rows = flatten(controller.project);
+  assert.equal(pasted.changed, true);
+  assert.equal(rows.length, 3);
+  assert.deepEqual(
+    rows.map((r) => r.panel.dialogue),
+    ["元のコマ", "元のコマ", "元のコマ"],
+  );
+  // 貼り付けたPanelは別のIDを持ち、選択もそちらへ移る。
+  const ids = rows.map((r) => r.panel.id);
+  assert.equal(new Set(ids).size, 3);
+  assert.equal(controller.activeId, ids[1]);
+  assert.deepEqual(controller.selectedIds, [ids[1], ids[2]]);
+
+  controller.undo();
+  assert.equal(flatten(controller.project).length, 1);
+});
+
+test("pasting carries the asset metadata its panels reference", () => {
+  const { controller } = controllerWith();
+  const first = controller.activeId;
+  const asset = {
+    id: "image-1",
+    kind: "image",
+    name: "bg.png",
+    mime: "image/png",
+    bytes: 32,
+  };
+  const source = structuredClone(flatten(controller.project)[0].panel);
+  source.image = { assetId: "image-1", opacity: 1 };
+
+  controller.execute("pastePanels", {
+    afterId: first,
+    panels: [source],
+    assets: [asset],
+  });
+
+  const pasted = flatten(controller.project)[1].panel;
+  assert.equal(pasted.image.assetId, "image-1");
+  assert.equal(controller.project.assets.length, 1);
+  assert.equal(controller.project.assets[0].name, "bg.png");
+});
+
+test("pasting drops image references it cannot carry", () => {
+  const { controller } = controllerWith();
+  const source = structuredClone(flatten(controller.project)[0].panel);
+  source.image = { assetId: "missing", opacity: 1 };
+
+  const result = controller.execute("pastePanels", {
+    afterId: controller.activeId,
+    panels: [source],
+  });
+
+  assert.equal(result.failed, undefined, "壊れた参照で編集ごと失敗している");
+  assert.equal(flatten(controller.project)[1].panel.image, null);
+  assert.equal(controller.project.assets.length, 0);
+});
+
+test("pasting nothing changes nothing", () => {
+  const { controller } = controllerWith();
+  const result = controller.execute("pastePanels", {
+    afterId: controller.activeId,
+    panels: [],
+  });
+  assert.equal(result.changed, false);
+  assert.equal(controller.store.past.length, 0);
+});

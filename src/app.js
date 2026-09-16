@@ -63,6 +63,9 @@ const tool = { erase: false, size: 3 / 1280 };
 // 前後のコマを薄く重ねる（オニオンスキン）。前は赤、後ろは青で区別する。
 // 画面の見せ方なのでProjectにもlayoutにも保存しない。
 const ONION = { on: false, alpha: 0.28, prev: "#d2544a", next: "#4a86d2" };
+// Panelのコピー。別の作品へ貼っても絵が出るよう、参照する素材の情報も一緒に持つ。
+// 音はPanelに属さないので複製と同じく持ち運ばない。
+let clipboard = null;
 const view = { zoom: 1, x: 0, y: 0 };
 const activeId = () => store.selection.active;
 const isSelected = (id) => store.selection.ids.includes(id);
@@ -733,7 +736,35 @@ const acts = {
   scene: () => act("addScene", {}),
   undo: () => history("undo"),
   redo: () => history("redo"),
+  copy: () => copyPanels(),
+  cut: () => {
+    if (copyPanels()) act("deletePanels", { ids: editor.selectedIds });
+  },
+  paste: () => {
+    if (!clipboard) return notice("コピーしたPanelがありません");
+    act("pastePanels", {
+      afterId: activeId(),
+      panels: clipboard.panels,
+      assets: clipboard.assets,
+    });
+    notice(`${clipboard.panels.length} Panelを貼り付けました`);
+  },
 };
+// 選択中のPanelを全体の順序で控える。Projectは変えないので履歴も保存も動かない。
+function copyPanels() {
+  const ids = new Set(editor.selectedIds);
+  const panels = rows.filter((r) => ids.has(r.panel.id)).map((r) => r.panel);
+  if (!panels.length) return false;
+  const used = new Set(panels.map((b) => b.image?.assetId).filter(Boolean));
+  clipboard = {
+    panels: panels.map((b) => structuredClone(b)),
+    assets: store.p.assets
+      .filter((asset) => used.has(asset.id))
+      .map((asset) => structuredClone(asset)),
+  };
+  notice(`${panels.length} Panelをコピーしました`);
+  return true;
+}
 for (const [name, delta] of [
   ["left", -1],
   ["right", 1],
@@ -1311,6 +1342,9 @@ document.addEventListener("keydown", (e) => {
   let fn;
   if (mod && k === "z") fn = e.shiftKey ? acts.redo : acts.undo;
   else if (mod && k === "d") fn = acts.duplicate;
+  else if (mod && k === "c") fn = acts.copy;
+  else if (mod && k === "x") fn = acts.cut;
+  else if (mod && k === "v") fn = acts.paste;
   else if (mod && k === "s") fn = () => $("save").click();
   else if (mod && e.shiftKey && k === "k") fn = acts.merge;
   else if (mod && k === "k") fn = acts.split;

@@ -70,6 +70,32 @@ export const commands = {
     p.scenes.push(added);
     return only(added.shots[0].panels[0].id);
   }),
+  // 貼り付けはIDを振り直して複製する。参照している素材メタデータが今のProject
+  // に無ければ一緒に持ち込む（原本はAsset IDで共有されるので中身は変わらない）。
+  pastePanels: define(
+    ["structure", "timing", "assets"],
+    ({ afterId, panels, assets = [] }) =>
+      (p) => {
+        const r = rowOf(p, afterId) ?? flatten(p).at(-1);
+        if (!r || !panels?.length) return;
+        const known = new Set(p.assets.map((a) => a.id));
+        const added = panels.map((b) => ({
+          ...structuredClone(b),
+          id: uid(),
+        }));
+        for (const asset of assets)
+          if (!known.has(asset.id)) {
+            p.assets.push(structuredClone(asset));
+            known.add(asset.id);
+          }
+        // 持ち込めなかった画像参照は外す。壊れた参照でProjectを止めない。
+        for (const b of added)
+          if (b.image && !known.has(b.image.assetId)) b.image = null;
+        r.shot.panels.splice(r.pi + 1, 0, ...added);
+        return { active: added[0].id, ids: added.map((b) => b.id) };
+      },
+    ({ afterId }) => ({ panelIds: [afterId] }),
+  ),
   nudgePanel: define(["structure", "timing"], ({ activeId, delta }) => (p) => {
     const r = rowOf(p, activeId);
     if (!r) return;
