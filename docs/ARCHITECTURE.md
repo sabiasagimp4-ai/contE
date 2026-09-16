@@ -44,6 +44,7 @@ IndexedDBが利用できない場合、UI編集は継続し、保存層だけが
 | `src/application/commands.js` | UI操作をStoreの一回の編集として表すコマンド集。DOM・Storage・awaitを持たない |
 | `src/application/editor-controller.js` | コマンド実行、選択、Undo/Redo、Project差し替えの入口と、確定編集ごとの通知 |
 | `src/application/import-controller.js` | 素材取り込みの非同期規約。開始時の対象固定、追い越し、作品切替時の破棄と解放 |
+| `src/ui/number-scrub.js` | 数値入力の横ドラッグ（AEのホットテキスト）。値の計算はDOMを持たない純粋関数 |
 | `src/model.js` | Projectの生成・検証・Migration・履歴・選択・Panel移動・Cameraキー・紙面設定検証 |
 | `src/playback.js` | 時刻からPanelを引く純粋関数。再生時計と二分探索 |
 | `src/timeline.js` | Timelineのフレーム/px変換、可視Panel、目盛、スナップ、Zoom、追従、選択範囲 |
@@ -308,16 +309,28 @@ body
 
 `render()`は現在のProjectから表示用の派生値を作り直す。
 
-1. IntersectionObserverをリセットする。
-2. `rows = flatten(store.p)` を作る。
-3. `resolved = audio.resolveClips(store.p, rows)` を作る。
-4. Tree、Breadcrumb、Inspectorを現在selectionに合わせて再生成する。
-5. Panel stripと遅延サムネイルを生成する。
+1. `rows = flatten(store.p)` を作る。
+2. `resolved = audio.resolveClips(store.p, rows)` を作る。
+3. 直前に描いたProjectのオブジェクトと今のものを比べる。`Store.edit`は変更が
+   あったときだけ新しいProjectを作るので、同一なら表示内容も同一とみなせる。
+   同じならTreeとStripは作り直さず、選択の印（`.selected`と`details.open`）
+   だけを付け替える。違えば作り直す。
+4. Breadcrumd、Inspectorは毎回現在selectionに合わせて更新する。
+5. Panel stripは、Projectが変わったときと所属Shotが変わったときに作り直す。
+   遅延サムネイルのObserverはStripを作り直すときだけ張り直す。
 6. `timeline()`でRuler、Panel Clip、Camera Track、Audio Track、Playheadを描く。
 7. `paint()`でCanvasを描く。
 8. active Panelが変わった場合だけStrip、Tree、Timelineを視界へ追従させる。
 
 PanelサムネイルはIntersectionObserverで表示範囲に入ったものだけ描く。Timelineは`timeline.visible()`で表示範囲と余白に交差するPanelだけDOM化する。
+
+Projectは変わらないのに絵が変わる経路（素材のデコード完了など）は
+`invalidateViews()`を呼び、次の`render()`でTreeとStripを作り直させる。これを
+省くと、復旧直後のサムネイルが素材なしのまま残る。
+
+この部分更新で、500 Panelでの選択1回は9.1ms→3.5ms、矢印キーでの移動は
+6.4ms→3.1msになった（同一環境の中央値）。Projectが変わる操作は従来どおり
+全再構築で、費用も変えていない。
 
 ### 5.3 編集イベント
 
@@ -337,6 +350,11 @@ DOM / Pointer / Keyboard
 ```
 
 画面側のUI状態（選択中のCameraキーなど）を確定後に更新する必要がある場合は、確定と描画の間に一度だけ走るフックで更新する。描画だけはPointerMoveごとに一時StrokeをCanvasへプレビューし、PointerUp時に一度だけProjectへcommitする。これにより、描画中の全PointerMoveがUndo段数や保存を消費しない。
+
+数値入力の横ドラッグ（`ui/number-scrub.js`）も同じ考え方で、ドラッグ中は表示だけ
+を動かし、離したときに一度だけ`change`を出す。1回のドラッグが1段のUndoになる。
+3px動かすまではスクラブを始めないので、クリックしてキーボードで入力する操作は
+そのまま使える。刻みは入力の`step`に従い、Shiftで10倍、Alt/Ctrlで1/10になる。
 
 素材の取り込み（画像、音声の配置、音声の差し替え）は`ImportController`を通す。取り込み開始時に対象IDとSessionを固定し、デコードと原本保存が終わってから対象の存在とSessionを確認して一回の編集で適用する。作品を開き直した場合、対象が消えた場合、同じ対象へ次の取り込みが始まった場合は適用せず、デコード結果を解放する。無関係な編集や選択の変更では取り込みを捨てない。音声の新規配置は毎回別のクリップを作るため追い越し判定を行わない。
 
@@ -503,12 +521,12 @@ Asset GCは、現在Project、Undo/Redo履歴、保持中SnapshotのAsset IDを�
 
 ### 12.1 Nodeテスト
 
-`npm test` はNode標準Test Runnerで、現在117テストを実行する。
+`npm test` はNode標準Test Runnerで、現在125テストを実行する。
 
 | テスト | 対象 |
 |---|---|
 | `animatic.test.js` | fps変換、Frame plan、Camera評価、録画進捗、Codec選択 |
-| `application.test.js` | Command経路、副作用一回、無変更・失敗、変更範囲、購読解除、素材差し替え |
+| `application.test.js` | Command経路、副作用一回、無変更・失敗、変更範囲、購読解除、素材差し替え、貼り付け |
 | `audio.test.js` | Clip解決、Anchor移動、予約、波形の使用区間、AudioEngine二重再生防止 |
 | `import-controller.test.js` | 取り込み対象の固定、追い越し、作品切替、対象削除、失敗後の再試行 |
 | `editor-session.test.js` | 編集結果、Session revision、選択変更、Undo/Redo、Project差し替え、古いTokenの無効化 |
@@ -520,6 +538,7 @@ Asset GCは、現在Project、Undo/Redo履歴、保持中SnapshotのAsset IDを�
 | `stability.test.js` | 24 seed × 90操作の再現可能なランダム編集、JSON往復、音、紙面 |
 | `storage.test.js` | 複数Store batchの原子性、入力検証、IndexedDB接続の共有・再試行・close・versionchange |
 | `timeline.test.js` | 変換、可視範囲、目盛、Snap、Zoom、追従、極端な長尺 |
+| `ui.test.js` | 数値ドラッグの刻み・修飾キー・範囲 |
 
 ### 12.2 Browser smoke
 
@@ -530,6 +549,8 @@ Asset GCは、現在Project、Undo/Redo履歴、保持中SnapshotのAsset IDを�
 - Timeline目盛、Zoom、スクラブ、Cameraキー、再生追従
 - WAV読込、波形、Clip移動/Trim、再生同期、Panel削除とUndo
 - Scene追加とUndo、素材のない音声クリップの差し替えとUndo
+- 数値のドラッグ、オニオンスキン、Panelのコピーと貼り付け
+- 選択ではTreeのDOMを作り直さず、尺の変更では作り直すこと
 - A4/A3、縦横、長文継続、紙出力、PNG ZIP、中止
 - PNG Animatic、WebM再生確認、音声存在、フレーム変化
 - 500 Panelの表示、保存、リロード、復旧
@@ -555,6 +576,12 @@ Playwrightは配布物の依存ではない。この環境では `npm install --
 
 - WindowsデスクトップShellは存在しない。直接ファイル上書きではなく、Project JSONのダウンロードとIndexedDB自動保存を使う。
 - EditorSessionのSession IDとrevisionは実行時の値で、Project JSONや`.contp`へは保存されない。
+- オニオンスキン（前後のコマを赤と青で薄く重ねる表示）とPanelのクリップボードは
+  実行時のUI状態で、Projectにもlayoutにも保存しない。紙面・Animatic・サムネイルの
+  描画には影響しない。
+- Panelの貼り付けは参照している画像の素材メタデータを一緒に持ち運ぶ。原本は
+  Asset IDで共有されるので中身は変わらない。持ち込めなかった画像参照は外す。
+  音はPanelに属さないため、複製と同じく持ち運ばない。
 - 編集結果の`changes`は契約として存在するが、画面更新はまだ全体`render()`である。部分更新と派生値キャッシュは未実装。
 - 音声素材の差し替えは新しいAsset IDを作って参照を付け替える。原本は上書きしないので、Undoと過去のSnapshotは元の素材を指し続ける。旧原本の削除はAsset GCの到達可能性判定に従う。
 - `.contp` JSONに画像/音声バイナリは同梱されない。別環境ではAssetの差し替えが必要になる。
