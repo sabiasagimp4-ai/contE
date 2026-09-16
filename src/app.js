@@ -597,14 +597,69 @@ function clips(px, left, width) {
     b.style.left = `${rect.left}px`;
     b.style.width = `${rect.width}px`;
     b.onclick = (e) => {
-      if (e.target.className !== "handle") select(r.panel.id, e);
+      // ドラッグで並べ替えた直後のクリックは選択に使わない。
+      if (dragged || e.target.className === "handle") return;
+      select(r.panel.id, e);
     };
+    b.onpointerdown = (e) => startClipReorder(e, r, b);
     const h = document.createElement("span");
     h.className = "handle";
     h.onpointerdown = (e) => startResize(e, r, b, h);
     b.append(h);
     node.append(b);
   }
+}
+// Timeline上でPanelを掴んで並べ替える。落とす先はコマの境界で示し、
+// 離すまでProjectを書き換えない。Stripのドラッグと同じCommandへ着地する。
+function startClipReorder(e, r) {
+  if (e.button !== 0 || e.target.className === "handle") return;
+  const id = r.panel.id;
+  const node = e.currentTarget;
+  const origin = e.clientX;
+  const px = scale();
+  node.setPointerCapture(e.pointerId);
+  const moving = () => (isSelected(id) ? store.selection.ids : [id]);
+  const marker = document.createElement("div");
+  marker.className = "drop";
+  const targetAt = (clientX) => {
+    const f = tl.frameAt(
+      clientX - $("track").getBoundingClientRect().left,
+      scale(),
+      endFrame(),
+    );
+    const row = rows.find((v) => f >= v.start && f < v.end) ?? rows.at(-1);
+    if (!row) return null;
+    const place = f - row.start < row.panel.frames / 2 ? "before" : "after";
+    // 掴んでいるPanel自身へは落とせない。落としても動かない位置は示さない。
+    return moving().includes(row.panel.id) ? null : { row, place };
+  };
+  const show = (target) => {
+    if (!target) return marker.remove();
+    marker.style.left = `${(target.place === "before" ? target.row.start : target.row.end) * px}px`;
+    $("track").append(marker);
+  };
+  node.onpointermove = (v) => {
+    if (!dragged && Math.abs(v.clientX - origin) < 6) return;
+    dragged = id;
+    node.classList.add("dragging");
+    show(targetAt(v.clientX));
+  };
+  const end = (v, commit) => {
+    node.onpointermove = node.onpointerup = node.onpointercancel = null;
+    node.classList.remove("dragging");
+    marker.remove();
+    const target = dragged && commit ? targetAt(v.clientX) : null;
+    if (target)
+      act("reorderPanels", {
+        ids: moving(),
+        anchorId: target.row.panel.id,
+        place: target.place,
+      });
+    else if (dragged) timeline();
+    setTimeout(() => (dragged = null));
+  };
+  node.onpointerup = (v) => end(v, true);
+  node.onpointercancel = (v) => end(v, false);
 }
 // 端のドラッグはスナップ候補へ吸着し、離すまでプロジェクトを書き換えない。
 function startResize(e, r, clip, handle) {

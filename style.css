@@ -751,6 +751,21 @@ footer label {
   outline: 1px solid var(--accent-hi);
   outline-offset: -1px;
 }
+/* 並べ替えの落とし先。コマの境界に立てる。 */
+.drop {
+  position: absolute;
+  top: 24px;
+  height: 60px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent-hi);
+  box-shadow: 0 0 0 1px #00000066;
+  pointer-events: none;
+  z-index: 2;
+}
+.clip.dragging {
+  opacity: 0.45;
+}
 .handle {
   position: absolute;
   right: 0;

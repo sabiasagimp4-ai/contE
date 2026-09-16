@@ -162,6 +162,35 @@ try {
   assert.equal(erased.clear, 0, "eraser must not punch holes in the paper");
   await page.locator("#brushTool").click();
   await page.keyboard.press("Control+z");
+  // P2：Timelineのコマを掴んで並べ替える。落とし先の印が出て、Undoで戻る。
+  const clipOrder = async () =>
+    (await page.locator(".clip").allInnerTexts()).map((t) =>
+      t.split("·").at(-1).trim(),
+    );
+  const clipsBefore = await clipOrder();
+  const firstClip = await page.locator(".clip").first().boundingBox();
+  const lastClip = await page.locator(".clip").last().boundingBox();
+  await page.mouse.move(firstClip.x + 20, firstClip.y + firstClip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(lastClip.x + lastClip.width - 6, lastClip.y + 10, {
+    steps: 10,
+  });
+  assert.equal(await page.locator(".drop").count(), 1, "落とし先の印が出ていない");
+  await page.mouse.up();
+  await page.waitForFunction(
+    (was) =>
+      document.querySelector(".clip")?.innerText.split("·").at(-1).trim() !==
+      was,
+    clipsBefore[0],
+  );
+  assert.deepEqual(await clipOrder(), [
+    ...clipsBefore.slice(1),
+    clipsBefore[0],
+  ]);
+  assert.equal(await page.locator(".drop").count(), 0, "印が残っている");
+  await page.evaluate(() => document.activeElement.blur());
+  await page.keyboard.press("Control+z");
+  assert.deepEqual(await clipOrder(), clipsBefore);
   // P1：選択だけの操作ではTreeのDOMを作り直さない（部分更新の契約）。
   // 尺のようにProjectが変わる操作では作り直す。
   const treeIdentity = async () =>
