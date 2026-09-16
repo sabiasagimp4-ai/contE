@@ -43,10 +43,13 @@ function drawStroke(ctx, s, w, h) {
     ctx.stroke();
   }
 }
-function paint(ctx, b, w, h, images) {
+// backgroundを落とすと紙を敷かずに描く。下の絵が透ける層として重ねられる。
+function paint(ctx, b, w, h, images, background = true) {
   ctx.save();
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, w, h);
+  if (background) {
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, w, h);
+  }
   const bitmap = b.image && images?.get(b.image.assetId);
   if (bitmap) drawImageInto(ctx, b.image, bitmap, w, h);
   ctx.strokeStyle = ink;
@@ -56,8 +59,16 @@ function paint(ctx, b, w, h, images) {
   ctx.globalCompositeOperation = "source-over";
   ctx.restore();
 }
-export function draw(ctx, b, w, h, camera, images, view) {
+/**
+ * @param {object} [options]
+ * @param {boolean} [options.background] 紙を敷くか。falseなら透ける層になる
+ * @param {number} [options.alpha] 重ねるときの濃さ
+ * @param {string} [options.tint] 単色へ置き換える色（オニオンスキンの前後の区別）
+ */
+export function draw(ctx, b, w, h, camera, images, view, options = {}) {
+  const { background = true, alpha = 1, tint = null } = options;
   ctx.save();
+  ctx.globalAlpha = alpha;
   if (view) {
     ctx.scale(view.zoom, view.zoom);
     ctx.translate(-view.x * w, -view.y * h);
@@ -68,7 +79,21 @@ export function draw(ctx, b, w, h, camera, images, view) {
     ctx.scale(camera.zoom, camera.zoom);
     ctx.translate(-w / 2 - camera.x * w, -h / 2 - camera.y * h);
   }
-  if (b.strokes.some((s) => s.erase)) {
+  if (!background) {
+    // 紙を敷かない層は透明な作業面へ描いてから重ねる。消しゴムもその中で閉じる。
+    const c = surface(Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
+    const g = c.getContext("2d");
+    g.clearRect(0, 0, c.width, c.height);
+    paint(g, b, c.width, c.height, images, false);
+    if (tint) {
+      // 形はそのままに色だけ置き換える。前後どちらのコマか一目で分かる。
+      g.globalCompositeOperation = "source-in";
+      g.fillStyle = tint;
+      g.fillRect(0, 0, c.width, c.height);
+      g.globalCompositeOperation = "source-over";
+    }
+    ctx.drawImage(c, 0, 0, w, h);
+  } else if (b.strokes.some((s) => s.erase)) {
     // 消しゴムは別面で合成する。出力先の白紙やページに穴を開けない。
     const z = Math.min(4, Math.max(1, view?.zoom ?? 1));
     const c = surface(

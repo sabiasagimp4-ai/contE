@@ -60,6 +60,9 @@ const viewport = () => $("timeline").clientWidth || 900;
 // 画像素材の表示用ビットマップ。プロジェクトにはIDだけが入る。
 const images = new Map();
 const tool = { erase: false, size: 3 / 1280 };
+// 前後のコマを薄く重ねる（オニオンスキン）。前は赤、後ろは青で区別する。
+// 画面の見せ方なのでProjectにもlayoutにも保存しない。
+const ONION = { on: false, alpha: 0.28, prev: "#d2544a", next: "#4a86d2" };
 const view = { zoom: 1, x: 0, y: 0 };
 const activeId = () => store.selection.active;
 const isSelected = (id) => store.selection.ids.includes(id);
@@ -689,8 +692,9 @@ function cameraKeyIndexAt(b, f, fallback) {
 }
 function paint(preview = false) {
   const r = preview ? rowAtFrame(rows, frame) : current();
+  const context = $("drawing").getContext("2d");
   draw(
-    $("drawing").getContext("2d"),
+    context,
     r.panel,
     1280,
     720,
@@ -698,6 +702,20 @@ function paint(preview = false) {
     images,
     preview ? null : view,
   );
+  // 再生中は今のコマだけを見せる。編集中だけ前後を重ねる。
+  if (!preview && ONION.on) {
+    const at = rows.indexOf(r);
+    for (const [row, tint] of [
+      [rows[at - 1], ONION.prev],
+      [rows[at + 1], ONION.next],
+    ])
+      if (row)
+        draw(context, row.panel, 1280, 720, null, images, view, {
+          background: false,
+          alpha: ONION.alpha,
+          tint,
+        });
+  }
   $("time").textContent = `${Math.floor(frame / store.p.fps)}s : ${Math.floor(
     frame % store.p.fps,
   )
@@ -983,6 +1001,11 @@ for (const [id, erase] of [
     $("brushTool").classList.toggle("on", !erase);
     $("eraserTool").classList.toggle("on", erase);
   };
+$("onion").onclick = () => {
+  ONION.on = !ONION.on;
+  $("onion").classList.toggle("on", ONION.on);
+  paint();
+};
 $("brush").oninput = () => {
   tool.size = Math.max(
     BRUSH.min,
@@ -1295,6 +1318,7 @@ document.addEventListener("keydown", (e) => {
   else if (k === "k") fn = () => $("key").click();
   else if (k === "e")
     fn = () => $(tool.erase ? "brushTool" : "eraserTool").click();
+  else if (k === "o") fn = () => $("onion").click();
   else if (k === "0") fn = () => $("fit").click();
   else if (k === "f") fn = () => $("fitTime").click();
   else if (k === "delete" || k === "backspace")

@@ -162,6 +162,27 @@ try {
   assert.equal(erased.clear, 0, "eraser must not punch holes in the paper");
   await page.locator("#brushTool").click();
   await page.keyboard.press("Control+z");
+  // P1：オニオンスキン。前のコマの線が薄く重なり、切ると消える。
+  const inked = () =>
+    page.evaluate(() => {
+      const c = document.querySelector("#drawing");
+      const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+      let marked = 0;
+      for (let i = 0; i < d.length; i += 4)
+        if (d[i] < 250 || d[i + 1] < 250 || d[i + 2] < 250) marked++;
+      return marked;
+    });
+  await page.locator("#strip button").nth(1).click();
+  const plain = await inked();
+  await page.keyboard.press("o");
+  const ghosted = await inked();
+  assert.ok(
+    ghosted > plain + 200,
+    `onion skin added only ${ghosted - plain} pixels`,
+  );
+  await page.keyboard.press("o");
+  assert.equal(await inked(), plain, "オニオンスキンを切っても残っている");
+  await page.locator("#strip button").nth(1).click();
   // P1：数値はドラッグでも変えられる（AEのホットテキスト）。1回のドラッグは
   // 1段のUndoで戻り、途中の値は履歴に積まれない。
   const framesBox = await page.locator("#frames").boundingBox();
