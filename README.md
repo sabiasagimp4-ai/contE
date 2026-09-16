@@ -64,7 +64,7 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 
 `src/model.js`：階層・検証・Migration・履歴・Panel移動・Cameraキー、`src/timeline.js`：Timeline Engine（範囲・目盛・スナップ・Zoom・追従）、`src/audio.js`：Audio Engine（クリップ解決・予約・波形・音注記）、`src/exporter.js`：Exporter（進捗・中止・ZIP）、`src/animatic.js`：Animatic（フレーム計画・評価・録画）、`src/repository.js`：保存/復旧/素材と自動保存、`src/storage.js`：IndexedDB/メモリのStorage Adapter、`src/playback.js`：時刻計算・Panel検索、`src/drawing.js`：描画Adapter、`src/paper.js`：ページ生成・Camera表記、`src/app.js`：UI/Timeline操作、`src/editor-session.js`：Storeの寿命とrevision、`src/application/`：編集コマンド・確定後処理・素材取り込みの規約。
 
-[現行アーキテクチャ](docs/ARCHITECTURE.md) / [次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md) / [デスクトップ化と動画書き出しの調査](docs/DESKTOP.md)。ロードマップのP0〜P5まで実装済みです。残るはデスクトップ化（[調査と判断基準](docs/DESKTOP.md)）とオフライン動画書き出しで、Windows実機での計測が必要です。
+[現行アーキテクチャ](docs/ARCHITECTURE.md) / [構造改善の計画](docs/ARCHITECTURE_IMPLEMENTATION_PLAN.md) / [機能追加と操作性の計画](docs/FEATURE_IMPLEMENTATION_PLAN.md) / [次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md) / [デスクトップ化と動画書き出しの調査](docs/DESKTOP.md)。ロードマップのP0〜P5まで実装済みです。残るはデスクトップ化（[調査と判断基準](docs/DESKTOP.md)）とオフライン動画書き出しで、Windows実機での計測が必要です。
 
 ```sh
 npm test
