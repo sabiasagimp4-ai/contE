@@ -35,7 +35,7 @@ const numberOr = (text, fallback) => {
  * 1つの数値入力をドラッグ可能にする。クリックやキーボード入力は今までどおり。
  * 3px動かすまではスクラブを始めないので、押して離すだけならフォーカスが入る。
  */
-export function scrubNumber(input) {
+export function scrubNumber(input, { onPreview, onCancel } = {}) {
   if (!input || input.dataset.scrub === "on") return input;
   input.dataset.scrub = "on";
   input.addEventListener("pointerdown", (event) => {
@@ -55,6 +55,9 @@ export function scrubNumber(input) {
         input.classList.add("scrubbing");
       }
       input.value = scrubValue(base, dx, { step, min, max, scale: scaleFor(v) });
+      // 確定前の値を見ながら調整できるよう、動かすたびに呼び出し元へ知らせる。
+      // Projectはまだ変えない。履歴も保存もここでは動かさない。
+      onPreview?.(Number(input.value));
     };
     const finish = (commit) => {
       input.removeEventListener("pointermove", move);
@@ -65,6 +68,7 @@ export function scrubNumber(input) {
       // 中止したときは掴んだ時点の値へ戻し、確定も通知もしない。
       if (!commit) {
         input.value = base;
+        onCancel?.();
         return;
       }
       input.dispatchEvent(new Event("change", { bubbles: true }));

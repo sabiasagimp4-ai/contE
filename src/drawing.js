@@ -108,3 +108,22 @@ export function draw(ctx, b, w, h, camera, images, view, options = {}) {
   } else paint(ctx, b, w, h, images);
   ctx.restore();
 }
+
+// Cameraの数値を編集している間、その値が実際にどこを写すかを枠で示す。
+// paper.jsのcameraNotation()と同じ考え方だが、単一のCamera値だけを描く軽量版。
+// 実際の画を変形させず、上から枠を重ねるだけなのでStrokeやImageを壊さない。
+export function cameraFrame(ctx, camera, w, h) {
+  ctx.save();
+  ctx.translate(w / 2 + camera.x * w, h / 2 + camera.y * h);
+  ctx.rotate((camera.rotation * Math.PI) / 180);
+  ctx.strokeStyle = "#e0a06a";
+  ctx.lineWidth = 3;
+  ctx.setLineDash([]);
+  ctx.strokeRect(
+    -w / (2 * camera.zoom),
+    -h / (2 * camera.zoom),
+    w / camera.zoom,
+    h / camera.zoom,
+  );
+  ctx.restore();
+}

@@ -11,7 +11,7 @@ import {
   CAMERA_FIELDS,
   PAPER_COLUMNS,
 } from "./model.js";
-import { draw } from "./drawing.js";
+import { draw, cameraFrame } from "./drawing.js";
 import { layoutPages, renderPage, download, COLUMN_LABEL } from "./paper.js";
 import {
   forEachPage,
@@ -30,7 +30,7 @@ import { IndexedDbStorage, MemoryStorage } from "./storage.js";
 import { EditorSession } from "./editor-session.js";
 import { EditorController } from "./application/editor-controller.js";
 import { ImportController } from "./application/import-controller.js";
-import { scrubAll } from "./ui/number-scrub.js";
+import { scrubAll, scrubNumber } from "./ui/number-scrub.js";
 const $ = (id) => document.getElementById(id);
 const session = new EditorSession(new Store());
 // 確定編集の入口はEditorControllerひとつ。副作用は下の購読で一度だけ行う。
@@ -63,6 +63,9 @@ const tool = { erase: false, size: 3 / 1280 };
 // 前後のコマを薄く重ねる（オニオンスキン）。前は赤、後ろは青で区別する。
 // 画面の見せ方なのでProjectにもlayoutにも保存しない。
 const ONION = { on: false, alpha: 0.28, prev: "#d2544a", next: "#4a86d2" };
+// Cameraの数値をドラッグしている間だけの一時的な値。確定前なので履歴も保存も
+// 動かさない。ドラッグを離す・中止すると null に戻る。
+let cameraPreview = null;
 // Panelのコピー。別の作品へ貼っても絵が出るよう、参照する素材の情報も一緒に持つ。
 // 音はPanelに属さないので複製と同じく持ち運ばない。
 let clipboard = null;
@@ -859,6 +862,10 @@ function paint(preview = false) {
           tint,
         });
   }
+  // Cameraの数値をドラッグしている間だけ、今どこを写すかを枠で示す。
+  // 対象のPanelを見ているときだけ描き、実際の絵は変形しない。
+  if (!preview && cameraPreview && cameraPreview.panelId === r.panel.id)
+    cameraFrame(context, cameraPreview.values, 1280, 720);
   $("time").textContent = `${Math.floor(frame / store.p.fps)}s : ${Math.floor(
     frame % store.p.fps,
   )
@@ -968,12 +975,28 @@ const values = () =>
     ]),
   );
 for (const id of ["cx", "cy", "cz", "cr"])
-  $(id).onchange = () =>
+  $(id).onchange = () => {
+    // 確定した瞬間に一時的な値は不要になる。paint()はrender()の中で呼ばれる。
+    cameraPreview = null;
     act("setCameraValues", {
       panelId: activeId(),
       index: cameraKey,
       values: values(),
     });
+  };
+// ドラッグ中はProjectを変えず、Stageだけ一時的な値で描く。離すと上のonchangeが
+// 一度だけ確定する。中止（PointerCancel）では掴む前の値へ戻り、履歴も動かさない。
+for (const id of ["cx", "cy", "cz", "cr"])
+  scrubNumber($(id), {
+    onPreview: () => {
+      cameraPreview = { panelId: activeId(), values: values() };
+      paint();
+    },
+    onCancel: () => {
+      cameraPreview = null;
+      paint();
+    },
+  });
 $("play").onclick = () => {
   if (playing) {
     stop();

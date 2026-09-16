@@ -394,6 +394,49 @@ try {
   await page.locator("#cz").fill("2");
   await page.locator("#cz").press("Enter");
   assert.match(await page.locator("#cameraSummary").innerText(), /ZOOM IN/);
+  // A2：Cameraの数値をドラッグしている間、Stageに枠のプレビューが出る。
+  // 離すと消え、1回のドラッグは1段のUndoで戻る。
+  const overlayColor = () =>
+    page.evaluate(() => {
+      const c = document.querySelector("#drawing");
+      const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+      for (let i = 0; i < d.length; i += 4)
+        if (d[i] === 224 && d[i + 1] === 160 && d[i + 2] === 106) return true;
+      return false;
+    });
+  assert.equal(await overlayColor(), false, "ドラッグ前から枠が出ている");
+  const zoomBefore = await page.locator("#cz").inputValue();
+  const czBox = await page.locator("#cz").boundingBox();
+  await page.mouse.move(czBox.x + czBox.width / 2, czBox.y + czBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    czBox.x + czBox.width / 2 + 60,
+    czBox.y + czBox.height / 2,
+    { steps: 8 },
+  );
+  await page.waitForFunction(() => {
+    const c = document.querySelector("#drawing");
+    const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+    for (let i = 0; i < d.length; i += 4)
+      if (d[i] === 224 && d[i + 1] === 160 && d[i + 2] === 106) return true;
+    return false;
+  });
+  await page.mouse.up();
+  assert.equal(await overlayColor(), false, "ドラッグを離しても枠が残っている");
+  assert.notEqual(
+    await page.locator("#cz").inputValue(),
+    zoomBefore,
+    "ドラッグでズームが変わっていない",
+  );
+  await page.evaluate(() => document.activeElement.blur());
+  await page.keyboard.press("Control+z");
+  assert.equal(
+    await page.locator("#cz").inputValue(),
+    zoomBefore,
+    "ドラッグ1回が1段のUndoで戻らない",
+  );
+  // ここでredoはしない。次のCameraキー移動が新しい編集としてfutureを
+  // 消すので、以降の履歴段数は元のテストのままになる。
   const dot = page.locator(".lane.active .camkey").last();
   const dotBox = await dot.boundingBox();
   const keyBefore = await page.locator("#keyList option").nth(1).innerText();
