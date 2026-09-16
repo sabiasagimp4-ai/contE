@@ -9,6 +9,7 @@ import {
   tickLabel,
   ticks,
   snap,
+  snapAt,
   snapTargets,
   anchorScroll,
   follow,
@@ -68,6 +69,31 @@ test("snapping prefers the nearest boundary within the pixel tolerance", () => {
   assert.equal(snap(60, targets, 3), 60);
   // 拡大するほど吸着範囲はフレーム単位では狭くなる。
   assert.equal(snap(50, targets, 24), 50);
+});
+test("snap targets include audio clip edges and camera key positions", () => {
+  const rows = rowsOf(3);
+  const clips = [{ start: 50, end: 90 }];
+  const keys = [70];
+  const targets = snapTargets(rows, 24, 144, null, { clips, keys });
+  assert.ok(targets.includes(50), "音クリップの開始が候補にない");
+  assert.ok(targets.includes(90), "音クリップの終了が候補にない");
+  assert.ok(targets.includes(70), "Cameraキー位置が候補にない");
+  // 既存のPanel境界も引き続き含む。
+  assert.ok(targets.includes(48));
+  assert.equal(snap(52, targets, 3), 50);
+  assert.equal(snap(88, targets, 3), 90);
+  assert.equal(snap(69, targets, 3), 70);
+});
+test("snapAt reports whether the value actually snapped", () => {
+  const rows = rowsOf(3);
+  const targets = snapTargets(rows, 24, 144, 100);
+  const hit = snapAt(50, targets, 3);
+  assert.equal(hit.value, 48);
+  assert.equal(hit.hit, true);
+  // 遠いときは吸着せず、hitはfalseのまま値も動かさない。
+  const miss = snapAt(60, targets, 3);
+  assert.equal(miss.value, 60);
+  assert.equal(miss.hit, false);
 });
 test("snap candidates stay bounded for an extremely long project", () => {
   const rows = [

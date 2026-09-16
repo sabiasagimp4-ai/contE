@@ -419,6 +419,32 @@ function soundClip(item, px) {
   el.onpointerdown = (e) => startClipDrag(e, item, el, px);
   return el;
 }
+// Cameraキーの絶対フレーム位置。全Panelのキーをスナップ候補にする。
+function allCameraKeyFrames() {
+  const out = [];
+  for (const r of rows)
+    for (const k of r.panel.camera)
+      out.push(r.start + Math.round(k.t * r.panel.frames));
+  return out;
+}
+// 音クリップの端・Cameraキーを含めたスナップ候補を作る。
+function snapCandidates() {
+  return $("snap").checked
+    ? tl.snapTargets(rows, store.p.fps, endFrame(), frame, {
+        clips: resolved,
+        keys: allCameraKeyFrames(),
+      })
+    : [];
+}
+// 吸着したときだけガイド線を出す。ドラッグ中の一時表示なのでDOMは使い回す。
+function showSnapline(value, px) {
+  const line = $("snapline");
+  line.style.left = `${value * px}px`;
+  line.hidden = false;
+}
+function hideSnapline() {
+  $("snapline").hidden = true;
+}
 function startClipDrag(e, item, el, px) {
   if (e.target.className === "trim") return;
   stop();
@@ -427,15 +453,14 @@ function startClipDrag(e, item, el, px) {
     start = item.start;
   let moved = false;
   el.setPointerCapture(e.pointerId);
-  const targets = $("snap").checked
-    ? tl.snapTargets(rows, store.p.fps, endFrame(), frame)
-    : [];
+  const targets = snapCandidates();
   const next = (v) => {
     const raw = start + (v.clientX - origin) / px;
-    return Math.max(
-      0,
-      targets.length ? tl.snap(raw, targets, px) : Math.round(raw),
-    );
+    if (!targets.length) return Math.max(0, Math.round(raw));
+    const { value, hit } = tl.snapAt(raw, targets, px);
+    if (hit) showSnapline(value, px);
+    else hideSnapline();
+    return Math.max(0, value);
   };
   el.onpointermove = (v) => {
     moved = true;
@@ -443,8 +468,10 @@ function startClipDrag(e, item, el, px) {
   };
   const finish = (v, commit) => {
     el.onpointermove = el.onpointerup = el.onpointercancel = null;
-    if (!commit || !moved) return render();
-    act("placeClip", { clipId: item.clip.id, startFrame: next(v) });
+    const startFrame = commit && moved ? next(v) : null;
+    hideSnapline();
+    if (startFrame === null) return render();
+    act("placeClip", { clipId: item.clip.id, startFrame });
   };
   el.onpointerup = (v) => finish(v, true);
   el.onpointercancel = (v) => finish(v, false);
@@ -680,14 +707,16 @@ function startResize(e, r, clip, handle) {
   const px = scale(),
     origin = e.clientX,
     start = r.panel.frames;
-  const targets = $("snap").checked
-    ? tl.snapTargets(rows, store.p.fps, endFrame(), frame)
-    : [];
+  const targets = snapCandidates();
   const next = (v) => {
     const raw = r.start + start + (v.clientX - origin) / px;
-    const snapped = targets.length
-      ? tl.snap(raw, targets, px)
-      : Math.round(raw);
+    let snapped = Math.round(raw);
+    if (targets.length) {
+      const hit = tl.snapAt(raw, targets, px);
+      snapped = hit.value;
+      if (hit.hit) showSnapline(hit.value, px);
+      else hideSnapline();
+    }
     return Math.max(1, Math.min(864000, snapped - r.start));
   };
   handle.setPointerCapture(e.pointerId);
@@ -697,10 +726,12 @@ function startResize(e, r, clip, handle) {
   handle.onpointerup = (v) => {
     const frames = next(v);
     handle.onpointermove = handle.onpointerup = null;
+    hideSnapline();
     act("setPanelFrames", { ids: [r.panel.id], frames });
   };
   handle.onpointercancel = () => {
     handle.onpointermove = handle.onpointerup = null;
+    hideSnapline();
     timeline();
   };
 }
@@ -712,15 +743,18 @@ function startBoundary(e, leftRow, rightRow, rightClip) {
   const px = scale(),
     origin = e.clientX,
     startBoundaryFrame = rightRow.start,
-    totalFrames = leftRow.panel.frames + rightRow.panel.frames,
     minFrame = leftRow.start + 1,
     maxFrame = rightRow.end - 1;
-  const targets = $("snap").checked
-    ? tl.snapTargets(rows, store.p.fps, endFrame(), frame)
-    : [];
+  const targets = snapCandidates();
   const next = (v) => {
     const raw = startBoundaryFrame + (v.clientX - origin) / px;
-    const snapped = targets.length ? tl.snap(raw, targets, px) : Math.round(raw);
+    let snapped = Math.round(raw);
+    if (targets.length) {
+      const hit = tl.snapAt(raw, targets, px);
+      snapped = hit.value;
+      if (hit.hit) showSnapline(hit.value, px);
+      else hideSnapline();
+    }
     return Math.max(minFrame, Math.min(maxFrame, snapped));
   };
   const leftClip = $("clips").querySelector(
@@ -736,6 +770,7 @@ function startBoundary(e, leftRow, rightRow, rightClip) {
   };
   const finish = () => {
     rightClip.onpointermove = rightClip.onpointerup = rightClip.onpointercancel = null;
+    hideSnapline();
   };
   rightClip.onpointerup = (v) => {
     const boundary = next(v);
@@ -1072,7 +1107,10 @@ $("track").onpointerdown = (e) => {
     return;
   stop();
   const targets = $("snap").checked
-    ? tl.snapTargets(rows, store.p.fps, endFrame(), null)
+    ? tl.snapTargets(rows, store.p.fps, endFrame(), null, {
+        clips: resolved,
+        keys: allCameraKeyFrames(),
+      })
     : [];
   const seek = (v) => {
     const raw = tl.frameAt(
@@ -1080,7 +1118,15 @@ $("track").onpointerdown = (e) => {
       scale(),
       endFrame(),
     );
-    frame = targets.length && !v.altKey ? tl.snap(raw, targets, scale()) : raw;
+    if (targets.length && !v.altKey) {
+      const hit = tl.snapAt(raw, targets, scale());
+      frame = hit.value;
+      if (hit.hit) showSnapline(hit.value, scale());
+      else hideSnapline();
+    } else {
+      frame = raw;
+      hideSnapline();
+    }
     paint(true);
   };
   $("track").setPointerCapture(e.pointerId);
@@ -1088,6 +1134,7 @@ $("track").onpointerdown = (e) => {
   $("track").onpointermove = seek;
   $("track").onpointerup = $("track").onpointercancel = () => {
     $("track").onpointermove = null;
+    hideSnapline();
   };
 };
 // 画面座標→表示変換を戻した正規化座標。ズーム/パン中でも描いた位置がずれない。

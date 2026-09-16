@@ -54,15 +54,18 @@ export function ticks(fps, scale, scrollLeft, width, end, minPx = 70) {
     out.push({ frame: f, label: tickLabel(f, fps), second: f % fps === 0 });
   return out;
 }
-// スナップ候補：Panelの境界、秒の目盛、再生ヘッド、プロジェクトの末尾。
+// スナップ候補：Panelの境界、秒の目盛、再生ヘッド、プロジェクトの末尾、
+// 音クリップの端、Cameraキーの絶対フレーム位置。
 // 長尺プロジェクトでも候補配列を膨らませない。秒の目盛は十分な密度を
 // 保ちつつ上限を設け、細かいPanel境界は常にすべて残す。
+// clipsはresolveClips()の結果（{start,end}を持つ）、keysはCameraキーの
+// 絶対フレーム位置（数値の配列）。省略時は既存の候補だけになる。
 export function snapTargets(
   rows,
   fps,
   end,
   playhead,
-  { maxSecondTicks = 4096 } = {},
+  { maxSecondTicks = 4096, clips = [], keys = [] } = {},
 ) {
   const targets = new Set([0, end]);
   for (const r of rows) targets.add(r.start).add(r.end);
@@ -70,19 +73,27 @@ export function snapTargets(
   const stride = Math.max(1, Math.ceil(seconds / maxSecondTicks));
   for (let f = 0; f <= end; f += fps * stride) targets.add(f);
   if (Number.isFinite(playhead)) targets.add(Math.round(playhead));
+  for (const c of clips) targets.add(Math.round(c.start)).add(Math.round(c.end));
+  for (const k of keys) targets.add(Math.round(k));
   return [...targets];
 }
-export function snap(frame, targets, scale, tolerancePx = 8) {
+// 吸着した値と、実際に候補へ吸着したか（ガイド線を出すかの判定）を返す。
+export function snapAt(frame, targets, scale, tolerancePx = 8) {
   let best = frame,
-    distance = tolerancePx / scale;
+    distance = tolerancePx / scale,
+    hit = false;
   for (const t of targets) {
     const d = Math.abs(t - frame);
     if (d < distance) {
       distance = d;
       best = t;
+      hit = true;
     }
   }
-  return Math.round(best);
+  return { value: Math.round(best), hit };
+}
+export function snap(frame, targets, scale, tolerancePx = 8) {
+  return snapAt(frame, targets, scale, tolerancePx).value;
 }
 // Zoomは指定したフレームが画面上の同じ位置に留まるようスクロールを合わせる。
 export function anchorScroll(

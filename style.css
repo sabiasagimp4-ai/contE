@@ -763,6 +763,16 @@ footer label {
   pointer-events: none;
   z-index: 2;
 }
+/* スナップ吸着時のガイド線。トラック全高を貫く縦線で、吸着先がひと目で分かる。 */
+.snapline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--key-on);
+  pointer-events: none;
+  z-index: 3;
+}
 .clip.dragging {
   opacity: 0.45;
 }

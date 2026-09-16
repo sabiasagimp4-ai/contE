@@ -469,6 +469,38 @@ try {
   );
   assert.equal(await page.locator(".sound canvas").count(), 1, "no waveform");
   assert.match(await page.locator("#clipInfo").innerText(), /3\.00秒/);
+  // A3：音クリップの端もスナップ候補になる。境界ドラッグが音クリップの終端へ
+  // 吸着すると案内線が出て、離すとその位置で確定する。
+  await page.locator('[data-tab="structure"]').click();
+  const soundEdge = (await page.locator(".sound").boundingBox()).x +
+    (await page.locator(".sound").boundingBox()).width;
+  const firstClipHandle = await page
+    .locator(".clip")
+    .first()
+    .locator(".handle.end")
+    .boundingBox();
+  await page.mouse.move(
+    firstClipHandle.x + firstClipHandle.width / 2,
+    firstClipHandle.y + firstClipHandle.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(soundEdge - 2, firstClipHandle.y + firstClipHandle.height / 2, {
+    steps: 8,
+  });
+  assert.equal(
+    await page.evaluate(() => !document.querySelector("#snapline").hidden),
+    true,
+    "音クリップの端で案内線が出ていない",
+  );
+  await page.mouse.up();
+  assert.equal(
+    await page.evaluate(() => document.querySelector("#snapline").hidden),
+    true,
+    "ドラッグを離しても案内線が残っている",
+  );
+  assert.match(await page.locator(".clip").first().innerText(), /72f/);
+  await page.keyboard.press("Control+z");
+  await page.locator('[data-tab="sound"]').click();
   const clipBefore = await page.locator("#clipList option").first().innerText();
   const clipBox = await page.locator(".sound").first().boundingBox();
   await page.mouse.move(clipBox.x + 20, clipBox.y + 10);
