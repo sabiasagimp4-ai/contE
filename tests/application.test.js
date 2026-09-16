@@ -360,3 +360,76 @@ test("pasting nothing changes nothing", () => {
   assert.equal(result.changed, false);
   assert.equal(controller.store.past.length, 0);
 });
+
+test("setBoundary moves frames between two panels without changing the total", () => {
+  const store = new Store();
+  store.edit((p) => p.scenes[0].shots[0].panels.push(panel(), panel()));
+  const { controller } = controllerWith(store);
+  const [first, second] = ids(controller);
+  const totalBefore = controller.project.scenes[0].shots[0].panels[0].frames +
+    controller.project.scenes[0].shots[0].panels[1].frames;
+
+  const result = controller.execute("setBoundary", {
+    leftId: first,
+    rightId: second,
+    leftFrames: 60,
+  });
+
+  assert.equal(result.changed, true);
+  assert.deepEqual([...result.changes.kinds], ["timing"]);
+  const [leftPanel, rightPanel] = controller.project.scenes[0].shots[0].panels;
+  assert.equal(leftPanel.frames, 60);
+  assert.equal(leftPanel.frames + rightPanel.frames, totalBefore);
+});
+
+test("setBoundary never lets either side drop below 1 frame", () => {
+  const store = new Store();
+  store.edit((p) => p.scenes[0].shots[0].panels.push(panel()));
+  const { controller } = controllerWith(store);
+  const [first, second] = ids(controller);
+  const total = controller.project.scenes[0].shots[0].panels[0].frames +
+    controller.project.scenes[0].shots[0].panels[1].frames;
+
+  controller.execute("setBoundary", { leftId: first, rightId: second, leftFrames: -50 });
+  let [leftPanel, rightPanel] = controller.project.scenes[0].shots[0].panels;
+  assert.equal(leftPanel.frames, 1);
+  assert.equal(rightPanel.frames, total - 1);
+
+  controller.execute("setBoundary", {
+    leftId: first,
+    rightId: second,
+    leftFrames: total + 999,
+  });
+  [leftPanel, rightPanel] = controller.project.scenes[0].shots[0].panels;
+  assert.equal(leftPanel.frames, total - 1);
+  assert.equal(rightPanel.frames, 1);
+});
+
+test("setBoundary undoes as a single step for both panels", () => {
+  const store = new Store();
+  store.edit((p) => p.scenes[0].shots[0].panels.push(panel()));
+  const { controller } = controllerWith(store);
+  const [first, second] = ids(controller);
+  const before = controller.project.scenes[0].shots[0].panels.map(
+    (b) => b.frames,
+  );
+
+  controller.execute("setBoundary", { leftId: first, rightId: second, leftFrames: 20 });
+  controller.undo();
+
+  const after = controller.project.scenes[0].shots[0].panels.map(
+    (b) => b.frames,
+  );
+  assert.deepEqual(after, before);
+});
+
+test("setBoundary changes nothing for an unknown panel id", () => {
+  const { controller } = controllerWith();
+  const result = controller.execute("setBoundary", {
+    leftId: "missing",
+    rightId: controller.activeId,
+    leftFrames: 10,
+  });
+  assert.equal(result.changed, false);
+  assert.equal(controller.store.past.length, 0);
+});

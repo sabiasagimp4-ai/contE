@@ -596,14 +596,23 @@ function clips(px, left, width) {
     );
     b.style.left = `${rect.left}px`;
     b.style.width = `${rect.width}px`;
+    b.dataset.panel = r.panel.id;
     b.onclick = (e) => {
       // ドラッグで並べ替えた直後のクリックは選択に使わない。
-      if (dragged || e.target.className === "handle") return;
+      if (dragged || e.target.className?.includes("handle")) return;
       select(r.panel.id, e);
     };
     b.onpointerdown = (e) => startClipReorder(e, r, b);
+    // 左端は「前のPanelとの境界」。先頭Panel（全体順序で最初）には出さない。
+    const at = rows.indexOf(r);
+    if (at > 0) {
+      const start = document.createElement("span");
+      start.className = "handle start";
+      start.onpointerdown = (e) => startBoundary(e, rows[at - 1], r, b);
+      b.append(start);
+    }
     const h = document.createElement("span");
-    h.className = "handle";
+    h.className = "handle end";
     h.onpointerdown = (e) => startResize(e, r, b, h);
     b.append(h);
     node.append(b);
@@ -612,7 +621,7 @@ function clips(px, left, width) {
 // Timeline上でPanelを掴んで並べ替える。落とす先はコマの境界で示し、
 // 離すまでProjectを書き換えない。Stripのドラッグと同じCommandへ着地する。
 function startClipReorder(e, r) {
-  if (e.button !== 0 || e.target.className === "handle") return;
+  if (e.button !== 0 || e.target.className?.includes("handle")) return;
   const id = r.panel.id;
   const node = e.currentTarget;
   const origin = e.clientX;
@@ -689,6 +698,53 @@ function startResize(e, r, clip, handle) {
   };
   handle.onpointercancel = () => {
     handle.onpointermove = handle.onpointerup = null;
+    timeline();
+  };
+}
+// 左端＝前のPanelとの境界。合計尺は変えず、双方1f未満にはしない。
+// leftRow/rightRowはflatten()の全体順序で決めた隣接関係（Shot/Sceneをまたいでもよい）。
+function startBoundary(e, leftRow, rightRow, rightClip) {
+  e.stopPropagation();
+  stop();
+  const px = scale(),
+    origin = e.clientX,
+    startBoundaryFrame = rightRow.start,
+    totalFrames = leftRow.panel.frames + rightRow.panel.frames,
+    minFrame = leftRow.start + 1,
+    maxFrame = rightRow.end - 1;
+  const targets = $("snap").checked
+    ? tl.snapTargets(rows, store.p.fps, endFrame(), frame)
+    : [];
+  const next = (v) => {
+    const raw = startBoundaryFrame + (v.clientX - origin) / px;
+    const snapped = targets.length ? tl.snap(raw, targets, px) : Math.round(raw);
+    return Math.max(minFrame, Math.min(maxFrame, snapped));
+  };
+  const leftClip = $("clips").querySelector(
+    `[data-panel="${leftRow.panel.id}"]`,
+  );
+  rightClip.setPointerCapture(e.pointerId);
+  rightClip.onpointermove = (v) => {
+    const boundary = next(v);
+    const leftFrames = boundary - leftRow.start;
+    rightClip.style.left = `${boundary * px}px`;
+    rightClip.style.width = `${(rightRow.end - boundary) * px}px`;
+    if (leftClip) leftClip.style.width = `${leftFrames * px}px`;
+  };
+  const finish = () => {
+    rightClip.onpointermove = rightClip.onpointerup = rightClip.onpointercancel = null;
+  };
+  rightClip.onpointerup = (v) => {
+    const boundary = next(v);
+    finish();
+    act("setBoundary", {
+      leftId: leftRow.panel.id,
+      rightId: rightRow.panel.id,
+      leftFrames: boundary - leftRow.start,
+    });
+  };
+  rightClip.onpointercancel = () => {
+    finish();
     timeline();
   };
 }

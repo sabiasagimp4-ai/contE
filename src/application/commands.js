@@ -148,6 +148,22 @@ export const commands = {
       },
     ({ ids }) => ({ panelIds: ids }),
   ),
+  // Timelineの左端ドラッグ：leftIdとrightIdの境界を動かす。2つのPanelの尺の
+  // 合計は変えない。どちらも1f未満にはしない（それぞれ最低1fを残す）。
+  setBoundary: define(
+    ["timing"],
+    ({ leftId, rightId, leftFrames }) =>
+      (p) => {
+        const left = panelOf(p, leftId);
+        const right = panelOf(p, rightId);
+        if (!left || !right) return;
+        const total = left.frames + right.frames;
+        const next = Math.max(1, Math.min(total - 1, Math.round(leftFrames)));
+        left.frames = next;
+        right.frames = total - next;
+      },
+    ({ leftId, rightId }) => ({ panelIds: [leftId, rightId] }),
+  ),
   setTitle: define(["projectMeta"], ({ title }) => (p) => (p.title = title)),
   renameScene: define(["projectMeta"], ({ sceneId, name }) => (p) => {
     const target = p.scenes.find((s) => s.id === sceneId);

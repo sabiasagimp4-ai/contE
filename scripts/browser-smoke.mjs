@@ -191,6 +191,42 @@ try {
   await page.evaluate(() => document.activeElement.blur());
   await page.keyboard.press("Control+z");
   assert.deepEqual(await clipOrder(), clipsBefore);
+  // A1：左端（境界）ドラッグ。合計尺は変えず、前後のPanelだけ尺が動く。
+  const clipFrames = async () =>
+    (await page.locator(".clip").allInnerTexts()).map((t) =>
+      Number(t.split("·").at(-1).trim().replace("f", "")),
+    );
+  const boundaryFramesBefore = await clipFrames();
+  const boundaryTotalBefore = boundaryFramesBefore[0] + boundaryFramesBefore[1];
+  const secondClip = await page.locator(".clip").nth(1).boundingBox();
+  // 左端の.handle.startは境界(border-left 3px)の内側にある。+2だと境界自体（親の
+  // button）に当たってしまうので、確実にhandle上に乗る位置を使う。
+  await page.mouse.move(secondClip.x + 6, secondClip.y + secondClip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(secondClip.x + 40, secondClip.y + secondClip.height / 2, {
+    steps: 8,
+  });
+  await page.mouse.up();
+  await page.waitForFunction(
+    (was) => {
+      const clips = [...document.querySelectorAll(".clip")];
+      return Number(clips[0]?.innerText.split("·").at(-1).replace("f", "")) !== was;
+    },
+    boundaryFramesBefore[0],
+  );
+  const boundaryFramesAfter = await clipFrames();
+  assert.equal(
+    boundaryFramesAfter[0] + boundaryFramesAfter[1],
+    boundaryTotalBefore,
+    "境界ドラッグで合計尺が変わった",
+  );
+  assert.notEqual(
+    boundaryFramesAfter[0],
+    boundaryFramesBefore[0],
+    "境界ドラッグが尺を動かしていない",
+  );
+  await page.keyboard.press("Control+z");
+  assert.deepEqual(await clipFrames(), boundaryFramesBefore);
   // P1：選択だけの操作ではTreeのDOMを作り直さない（部分更新の契約）。
   // 尺のようにProjectが変わる操作では作り直す。
   const treeIdentity = async () =>
