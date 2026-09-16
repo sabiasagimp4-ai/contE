@@ -162,6 +162,24 @@ try {
   assert.equal(erased.clear, 0, "eraser must not punch holes in the paper");
   await page.locator("#brushTool").click();
   await page.keyboard.press("Control+z");
+  // P1：選択だけの操作ではTreeのDOMを作り直さない（部分更新の契約）。
+  // 尺のようにProjectが変わる操作では作り直す。
+  const treeIdentity = async () =>
+    page.evaluate(() => {
+      const node = document.querySelector("#tree .panel");
+      const same = window.__treeNode === node;
+      window.__treeNode = node;
+      return same;
+    });
+  await treeIdentity();
+  await page.locator("#strip button").first().click();
+  assert.equal(await treeIdentity(), true, "選択でTreeを作り直している");
+  await page.evaluate(() => document.activeElement.blur());
+  await page.keyboard.press("ArrowRight");
+  assert.equal(await treeIdentity(), true, "矢印キーでTreeを作り直している");
+  await page.keyboard.press("]");
+  assert.equal(await treeIdentity(), false, "尺の変更でTreeが更新されていない");
+  await page.keyboard.press("Control+z");
   // P1：Panelのコピーと貼り付け。貼った分だけ増え、Undoで1段戻る。
   await page.evaluate(() => document.activeElement.blur());
   const panelsBefore = await page.locator("#strip button").count();
@@ -703,6 +721,14 @@ try {
     await page.locator("#assetInfo").innerText(),
     /読み込めません/,
   );
+  // 復旧で読み直した素材はサムネイルにも出る（部分更新で取りこぼさない）。
+  // 対角線の線と重ならない位置を見る。画像は横26..94・縦0..68に収まる。
+  await page.waitForFunction(() => {
+    const c = document.querySelector("#strip canvas");
+    if (!c) return false;
+    const [r, g, b] = c.getContext("2d").getImageData(80, 18, 1, 1).data;
+    return r > 150 && g < 150 && b < 120;
+  });
   assert.equal(
     await page.evaluate(() =>
       getComputedStyle(document.documentElement)

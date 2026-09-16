@@ -170,18 +170,15 @@ const thumbnailObserver = new IntersectionObserver(
   },
   { root: $("strip") },
 );
-function render() {
-  thumbnailObserver.disconnect();
-  rows = flatten(store.p);
-  // 描画の直前に選択を現在のProjectへ正規化する。ここは通知を伴わない整合処理。
-  session.store.select(store.selection);
-  store = editor.store;
-  resolved = audio.resolveClips(store.p, rows);
-  const r = current();
-  $("title").value = store.p.title;
+// 直前に描いたときの目印。Projectのオブジェクトが同じなら表示内容も同じなので、
+// TreeとStripは作り直さず、選択の印だけ付け替える。選択や矢印キーでの移動で
+// 500 Panel分のDOMを毎回作り直さないための最小限の部分更新。
+let painted = { project: null, shotId: null };
+function renderTree(r) {
   $("tree").replaceChildren();
   store.p.scenes.forEach((s) => {
     const d = document.createElement("details");
+    d.dataset.scene = s.id;
     d.open = s.id === r.scene.id;
     const summary = document.createElement("summary");
     summary.textContent = `${s.name} (${s.shots.length} Shots)`;
@@ -206,35 +203,27 @@ function render() {
         );
       };
       d.append(shot);
-      h.panels.forEach((p, pi) =>
-        d.append(
-          button(
-            `Panel ${pi + 1} · ${p.frames}f`,
-            (e) => select(p.id, e),
-            `panel ${isSelected(p.id) ? "selected" : ""}`,
-          ),
-        ),
-      );
+      h.panels.forEach((p, pi) => {
+        const b = button(
+          `Panel ${pi + 1} · ${p.frames}f`,
+          (e) => select(p.id, e),
+          `panel ${isSelected(p.id) ? "selected" : ""}`,
+        );
+        b.dataset.panel = p.id;
+        d.append(b);
+      });
     });
     $("tree").append(d);
   });
-  $("breadcrumb").textContent =
-    `${r.scene.name}  /  ${r.shot.name || `Shot ${r.hi + 1}`}  /  Panel ${r.pi + 1}`;
-  for (const k of ["frames", "dialogue", "sound", "notes"])
-    $(k).value = r.panel[k];
-  $("sceneName").value = r.scene.name;
-  $("shotName").value = r.shot.name;
-  const asset =
-    r.panel.image && store.p.assets.find((a) => a.id === r.panel.image.assetId);
-  $("imageOpacity").value = Math.round((r.panel.image?.opacity ?? 1) * 100);
-  $("imageOpacity").disabled = $("imageClear").disabled = !r.panel.image;
-  $("assetInfo").textContent = asset
-    ? `画像：${asset.name}（${asset.width}×${asset.height}${
-        images.has(asset.id) ? "" : "・読み込めません"
-      }）`
-    : "画像なし";
-  cameraInspector(r);
-  soundInspector(r);
+}
+function markTree(r) {
+  for (const d of $("tree").children) d.open = d.dataset.scene === r.scene.id;
+  for (const b of $("tree").querySelectorAll("button.panel"))
+    b.classList.toggle("selected", isSelected(b.dataset.panel));
+}
+function renderStrip(r) {
+  // サムネイルの遅延描画はStripを作り直すときだけ張り直す。
+  thumbnailObserver.disconnect();
   $("strip").replaceChildren(
     ...r.shot.panels.map((p, i) => {
       const b = button(
@@ -257,11 +246,51 @@ function render() {
       return b;
     }),
   );
+}
+function markStrip() {
+  for (const b of $("strip").children)
+    b.classList.toggle("selected", isSelected(b.dataset.panel));
+}
+// 素材のデコードのように、Projectは変わらないのに絵が変わる場合に使う。
+// 次のrenderでTreeとStripを作り直させ、サムネイルを描き直す。
+function invalidateViews() {
+  painted = { project: null, shotId: null };
+}
+function render() {
+  rows = flatten(store.p);
+  // 描画の直前に選択を現在のProjectへ正規化する。ここは通知を伴わない整合処理。
+  session.store.select(store.selection);
+  store = editor.store;
+  resolved = audio.resolveClips(store.p, rows);
+  const r = current();
+  const rebuilt = painted.project !== store.p;
+  $("title").value = store.p.title;
+  if (rebuilt) renderTree(r);
+  else markTree(r);
+  $("breadcrumb").textContent =
+    `${r.scene.name}  /  ${r.shot.name || `Shot ${r.hi + 1}`}  /  Panel ${r.pi + 1}`;
+  for (const k of ["frames", "dialogue", "sound", "notes"])
+    $(k).value = r.panel[k];
+  $("sceneName").value = r.scene.name;
+  $("shotName").value = r.shot.name;
+  const asset =
+    r.panel.image && store.p.assets.find((a) => a.id === r.panel.image.assetId);
+  $("imageOpacity").value = Math.round((r.panel.image?.opacity ?? 1) * 100);
+  $("imageOpacity").disabled = $("imageClear").disabled = !r.panel.image;
+  $("assetInfo").textContent = asset
+    ? `画像：${asset.name}（${asset.width}×${asset.height}${
+        images.has(asset.id) ? "" : "・読み込めません"
+      }）`
+    : "画像なし";
+  cameraInspector(r);
+  soundInspector(r);
+  if (rebuilt || painted.shotId !== r.shot.id) renderStrip(r);
+  else markStrip();
+  painted = { project: store.p, shotId: r.shot.id };
   timeline();
   paint();
   reveal();
 }
-// Cameraキーの一覧と値。位置はフレームで見せ、保存は比率のまま。
 function cameraInspector(r) {
   const keys = r.panel.camera;
   cameraKey = Math.max(0, Math.min(cameraKey, keys.length - 1));
@@ -1995,6 +2024,8 @@ async function loadImages() {
   ];
   // Projectを開き直していたら、古い読み込み結果で新しい画面を再描画しない。
   if (!editor.isCurrent(token)) return [];
+  // 素材が入ったので、サムネイルを含めて描き直す。
+  invalidateViews();
   render();
   if (missing.length)
     notice(
