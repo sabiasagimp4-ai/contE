@@ -31,6 +31,7 @@ import { EditorSession } from "./editor-session.js";
 import { EditorController } from "./application/editor-controller.js";
 import { ImportController } from "./application/import-controller.js";
 import { scrubAll, scrubNumber } from "./ui/number-scrub.js";
+import { autoScroll } from "./ui/auto-scroll.js";
 const $ = (id) => document.getElementById(id);
 const session = new EditorSession(new Store());
 // 確定編集の入口はEditorControllerひとつ。副作用は下の購読で一度だけ行う。
@@ -453,6 +454,7 @@ function startClipDrag(e, item, el, px) {
     start = item.start;
   let moved = false;
   el.setPointerCapture(e.pointerId);
+  const scroller = autoScroll($("timeline"));
   const targets = snapCandidates();
   const next = (v) => {
     const raw = start + (v.clientX - origin) / px;
@@ -464,10 +466,12 @@ function startClipDrag(e, item, el, px) {
   };
   el.onpointermove = (v) => {
     moved = true;
+    scroller.track(v.clientX);
     el.style.left = `${next(v) * px}px`;
   };
   const finish = (v, commit) => {
     el.onpointermove = el.onpointerup = el.onpointercancel = null;
+    scroller();
     const startFrame = commit && moved ? next(v) : null;
     hideSnapline();
     if (startFrame === null) return render();
@@ -543,6 +547,8 @@ function startReorder(e, id) {
   const origin = e.clientX,
     node = e.currentTarget;
   node.setPointerCapture(e.pointerId);
+  // 見えている範囲の外まで運べるよう、端に寄せている間は#stripを自動で送る。
+  const scroller = autoScroll($("strip"));
   const clear = () => {
     for (const el of $("strip").children)
       el.classList.remove("before", "after");
@@ -562,6 +568,7 @@ function startReorder(e, id) {
     if (!dragged && Math.abs(v.clientX - origin) < 6) return;
     dragged = id;
     node.classList.add("dragging");
+    scroller.track(v.clientX);
     clear();
     const target = targetAt(v.clientX);
     if (target)
@@ -572,6 +579,7 @@ function startReorder(e, id) {
   const end = (v, commit) => {
     node.onpointermove = node.onpointerup = node.onpointercancel = null;
     node.classList.remove("dragging");
+    scroller();
     clear();
     const target = dragged && commit ? targetAt(v.clientX) : null;
     if (target) {
@@ -657,6 +665,8 @@ function startClipReorder(e, r) {
   const origin = e.clientX;
   const px = scale();
   node.setPointerCapture(e.pointerId);
+  // 見えている範囲の外まで運べるよう、端に寄せている間は#timelineを自動で送る。
+  const scroller = autoScroll($("timeline"));
   const moving = () => (isSelected(id) ? store.selection.ids : [id]);
   const marker = document.createElement("div");
   marker.className = "drop";
@@ -681,11 +691,13 @@ function startClipReorder(e, r) {
     if (!dragged && Math.abs(v.clientX - origin) < 6) return;
     dragged = id;
     node.classList.add("dragging");
+    scroller.track(v.clientX);
     show(targetAt(v.clientX));
   };
   const end = (v, commit) => {
     node.onpointermove = node.onpointerup = node.onpointercancel = null;
     node.classList.remove("dragging");
+    scroller();
     marker.remove();
     const target = dragged && commit ? targetAt(v.clientX) : null;
     if (target)

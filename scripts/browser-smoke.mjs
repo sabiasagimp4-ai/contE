@@ -802,6 +802,38 @@ try {
     { timeout: 5000 },
   );
   await page.locator("#play").click();
+  // A4：ドラッグ中に端へ寄せると、見えている範囲の外までStripが自動で送られる。
+  await page.evaluate(() => (document.querySelector("#strip").scrollLeft = 0));
+  const stripBoxAuto = await page.locator("#strip").boundingBox();
+  const firstStripBtn = await page.locator("#strip button").first().boundingBox();
+  await page.mouse.move(
+    firstStripBtn.x + firstStripBtn.width / 2,
+    firstStripBtn.y + firstStripBtn.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    firstStripBtn.x + firstStripBtn.width / 2 + 20,
+    firstStripBtn.y + firstStripBtn.height / 2,
+    { steps: 3 },
+  );
+  await page.mouse.move(
+    stripBoxAuto.x + stripBoxAuto.width - 10,
+    firstStripBtn.y + firstStripBtn.height / 2,
+    { steps: 2 },
+  );
+  await page.waitForFunction(
+    () => document.querySelector("#strip").scrollLeft > 0,
+  );
+  await page.mouse.up();
+  const scrollAtRelease = await page.evaluate(
+    () => document.querySelector("#strip").scrollLeft,
+  );
+  await page.waitForTimeout(200);
+  assert.equal(
+    await page.evaluate(() => document.querySelector("#strip").scrollLeft),
+    scrollAtRelease,
+    "ドラッグを離した後も自動スクロールが止まっていない",
+  );
   await page.locator("#zoom").fill("9");
   const save = page.waitForEvent("download");
   await page.locator("#save").click();
