@@ -162,6 +162,37 @@ try {
   assert.equal(erased.clear, 0, "eraser must not punch holes in the paper");
   await page.locator("#brushTool").click();
   await page.keyboard.press("Control+z");
+  // P1：数値はドラッグでも変えられる（AEのホットテキスト）。1回のドラッグは
+  // 1段のUndoで戻り、途中の値は履歴に積まれない。
+  const framesBox = await page.locator("#frames").boundingBox();
+  const framesBefore = Number(await page.locator("#frames").inputValue());
+  await page.mouse.move(
+    framesBox.x + framesBox.width / 2,
+    framesBox.y + framesBox.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(framesBox.x + framesBox.width / 2 + 30, framesBox.y + 8, {
+    steps: 6,
+  });
+  await page.mouse.up();
+  await page.waitForFunction(
+    (was) => Number(document.querySelector("#frames").value) > was,
+    framesBefore,
+  );
+  const framesScrubbed = Number(await page.locator("#frames").inputValue());
+  assert.equal(framesScrubbed, framesBefore + 10, "3pxで1フレーム進んでいない");
+  // 反映先は選択中のPanelのクリップ。先頭のクリップとは限らない。
+  assert.match(
+    await page.locator(".clip.selected").first().innerText(),
+    new RegExp(`${framesScrubbed}f`),
+  );
+  await page.evaluate(() => document.activeElement.blur());
+  await page.keyboard.press("Control+z");
+  assert.equal(
+    Number(await page.locator("#frames").inputValue()),
+    framesBefore,
+    "ドラッグ1回が1段のUndoで戻らない",
+  );
   // P1：Shift範囲選択とドラッグ順序変更、Undoで元の並びへ戻る。
   await page.keyboard.press("n");
   const strip = page.locator("#strip button");

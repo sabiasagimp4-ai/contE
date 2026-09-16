@@ -30,6 +30,7 @@ import { IndexedDbStorage, MemoryStorage } from "./storage.js";
 import { EditorSession } from "./editor-session.js";
 import { EditorController } from "./application/editor-controller.js";
 import { ImportController } from "./application/import-controller.js";
+import { scrubAll } from "./ui/number-scrub.js";
 const $ = (id) => document.getElementById(id);
 const session = new EditorSession(new Store());
 // 確定編集の入口はEditorControllerひとつ。副作用は下の購読で一度だけ行う。
@@ -1413,6 +1414,7 @@ function paperSettings() {
     box.append(label);
   }
   columnSettings();
+  scrubAll($("paperSettings"));
 }
 // 列は順番・幅・表示/非表示をそのまま編集する。並びがそのまま紙面の並びになる。
 function columnSettings() {
@@ -1464,6 +1466,7 @@ function columnSettings() {
     row.append(show, name, width, up, down);
     list.append(row);
   }
+  scrubAll(list);
 }
 let pageIndex = 0,
   pages = [],
@@ -1851,6 +1854,8 @@ for (const [id, key, axis, sign] of [
     };
   };
 applyLayout();
+// 数値入力はどれもドラッグで変えられるようにする（紙面設定は作り直すたびに付ける）。
+scrubAll();
 render();
 // 永続化はProjectRepositoryへ集約する。UIは保存の成否をそのまま表示する。
 const repo = new ProjectRepository(

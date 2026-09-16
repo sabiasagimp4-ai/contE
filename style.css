@@ -88,9 +88,19 @@ input[type="number"] {
   color: var(--hot);
   padding: 2px 4px;
 }
+/* 横ドラッグで値を変えられることをカーソルで示す。AEのホットテキストと同じ。 */
+input[type="number"] {
+  cursor: ew-resize;
+}
 input[type="number"]:hover {
   background: var(--sunken);
   border-color: #3a3a3a;
+}
+input[type="number"].scrubbing {
+  background: var(--sunken);
+  border: 1px solid var(--accent-hi);
+  color: #fff;
+  user-select: none;
 }
 input[type="number"]:focus {
   background: var(--sunken);
