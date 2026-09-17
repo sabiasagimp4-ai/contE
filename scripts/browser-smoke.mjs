@@ -1310,6 +1310,33 @@ try {
     [200, 90, 60, 255],
     "Undoで元の画像へ戻っていない",
   );
+  // C2：ラベル色。Tree・Strip・Timelineの3か所へ同じ色が反映され、
+  // 「なし」で外せることを確認する。
+  await page.locator("#labelSwatches .swatch").nth(1).click();
+  await page.waitForFunction(() =>
+    document.querySelector("#tree .panel.selected")?.classList.contains("labeled"),
+  );
+  assert.ok(
+    await page.evaluate(() =>
+      document.querySelector("#strip button.selected")?.classList.contains("labeled"),
+    ),
+    "Stripにラベル色が反映されていない",
+  );
+  assert.ok(
+    await page.evaluate(() =>
+      document.querySelector(".clip.selected")?.classList.contains("labeled"),
+    ),
+    "Timelineにラベル色が反映されていない",
+  );
+  await page.locator("#labelSwatches .swatch.none").click();
+  await page.waitForFunction(
+    () => !document.querySelector("#tree .panel.selected")?.classList.contains("labeled"),
+  );
+  // 復旧後もラベルが残ることを後段で確認するため、緑を付けたままにしておく。
+  await page.locator("#labelSwatches .swatch").nth(4).click();
+  await page.waitForFunction(() =>
+    document.querySelector("#tree .panel.selected")?.classList.contains("labeled"),
+  );
   // A9：行の高さはlayoutと同じ仕組み（IndexedDbのmeta）で持つので、
   // 再起動をまたいで保たれる。
   await page.locator("#rowSize").selectOption("lg");
@@ -1347,6 +1374,13 @@ try {
   assert.doesNotMatch(
     await page.locator("#assetInfo").innerText(),
     /読み込めません/,
+  );
+  // C2：付けたラベル色が保存・復旧をまたいで残っていること。
+  assert.ok(
+    await page.evaluate(
+      () => document.querySelectorAll("#tree .panel.labeled").length > 0,
+    ),
+    "復旧後にラベル色が残っていない",
   );
   // 復旧で読み直した素材はサムネイルにも出る（部分更新で取りこぼさない）。
   // 対角線の線と重ならない位置を見る。画像は横26..94・縦0..68に収まる。

@@ -5,6 +5,23 @@ export const BRUSH = { min: 0.0005, max: 0.05, default: 3 / 1280 };
 // Panelのラベル色（C2）。固定の色表から選ぶ。増減はいつでもできるが、
 // 保存済みのキー文字列は変えない（既存ファイルのラベルが変わってしまう）。
 export const LABEL_COLORS = ["red", "orange", "yellow", "green", "blue", "purple"];
+// 表示用の名前と実際の色。Tree・Strip・Timeline・Inspectorのどこでも同じ色を使う。
+export const LABEL_NAMES = {
+  red: "赤",
+  orange: "橙",
+  yellow: "黄",
+  green: "緑",
+  blue: "青",
+  purple: "紫",
+};
+export const LABEL_HEX = {
+  red: "#e5484d",
+  orange: "#f5a524",
+  yellow: "#f5d90a",
+  green: "#46a758",
+  blue: "#3b9eff",
+  purple: "#a56eff",
+};
 // 画像の収め方（C4）。containは全体を収め、coverは枠を埋めて超過分を切る。
 export const IMAGE_FITS = ["contain", "cover"];
 // Cameraキーの緩急（C3）。"linear"は現行の一次補間と同じ式になる。

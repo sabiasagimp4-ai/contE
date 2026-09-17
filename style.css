@@ -147,7 +147,8 @@ input[type="checkbox"] {
   width: auto;
   padding: 0;
 }
-label {
+label,
+.field {
   display: block;
   margin: 8px 0;
   color: var(--dim);
@@ -384,6 +385,9 @@ main {
   background: var(--accent);
   color: #eaf2fb;
 }
+#tree .panel.labeled {
+  border-left: 4px solid var(--label-color);
+}
 input.rename {
   width: 100%;
   margin: 2px 0;
@@ -493,6 +497,9 @@ input.rename {
   background: #2f3d4c;
   color: #e6eef7;
 }
+#strip button.labeled {
+  box-shadow: inset 0 -4px 0 0 var(--label-color);
+}
 #strip canvas {
   display: block;
   width: 120px;
@@ -554,6 +561,33 @@ input.rename {
 }
 #inspector .pane button {
   margin: 4px 4px 4px 0;
+}
+#labelSwatches {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+#labelSwatches .swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  border: 1px solid #0d0d0d;
+  background: #3a3a3a;
+}
+#labelSwatches .swatch.none {
+  width: auto;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  color: var(--dim);
+  background: #2a2a2a;
+}
+#labelSwatches .swatch.on {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
 }
 #inspector select[size] {
   height: auto;
@@ -789,6 +823,9 @@ footer label {
   background: #4a6c90 !important;
   outline: 1px solid var(--accent-hi);
   outline-offset: -1px;
+}
+.clip.labeled {
+  border-top: 3px solid var(--label-color);
 }
 /* 並べ替えの落とし先。コマの境界に立てる。 */
 .drop {

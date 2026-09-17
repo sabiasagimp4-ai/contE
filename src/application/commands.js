@@ -155,6 +155,17 @@ export const commands = {
       },
     ({ ids }) => ({ panelIds: ids }),
   ),
+  // Tree・Strip・Timelineの色分け（C2）。labelはnullか固定の色表のキー。
+  setPanelLabel: define(
+    ["text"],
+    ({ ids, label }) =>
+      (p) => {
+        const targets = new Set(ids);
+        for (const r of flatten(p))
+          if (targets.has(r.panel.id)) r.panel.label = label;
+      },
+    ({ ids }) => ({ panelIds: ids }),
+  ),
   nudgePanelFrames: define(
     ["timing"],
     ({ ids, delta }) =>
@@ -452,6 +463,7 @@ export const commandLabels = {
   nudgePanel: "Panelの並べ替え",
   reorderPanels: "Panelの並べ替え",
   setPanelField: "内容の変更",
+  setPanelLabel: "ラベル色の変更",
   setPanelFrames: "尺の変更",
   nudgePanelFrames: "尺の変更",
   distributeFrames: "尺の等分",

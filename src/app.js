@@ -10,6 +10,9 @@ import {
   describeCamera,
   CAMERA_FIELDS,
   PAPER_COLUMNS,
+  LABEL_COLORS,
+  LABEL_NAMES,
+  LABEL_HEX,
 } from "./model.js";
 import { draw, cameraFrame } from "./drawing.js";
 import {
@@ -228,6 +231,14 @@ function button(text, fn, cls = "") {
   b.onclick = fn;
   return b;
 }
+// Panelのラベル色をTree・Strip・Timelineの見た目へ反映する（C2）。
+// 色そのものはCSSではなく--label-colorへ直接入れるので、色数が増えても
+// ビュー側のCSSを増やさずに済む。
+function tagLabel(el, label) {
+  if (!label) return;
+  el.classList.add("labeled");
+  el.style.setProperty("--label-color", LABEL_HEX[label]);
+}
 const thumbnailObserver = new IntersectionObserver(
   (entries) => {
     for (const e of entries)
@@ -289,6 +300,7 @@ function renderTree(r) {
           `panel ${isSelected(p.id) ? "selected" : ""}`,
         );
         b.dataset.panel = p.id;
+        tagLabel(b, p.label);
         d.append(b);
       });
     });
@@ -313,6 +325,7 @@ function renderStrip(r) {
         isSelected(p.id) ? "selected" : "",
       );
       b.dataset.panel = p.id;
+      tagLabel(b, p.label);
       b.onclick = (e) => {
         if (dragged) return;
         select(p.id, e);
@@ -363,6 +376,7 @@ function render() {
         images.has(asset.id) ? "" : "・読み込めません"
       }）`
     : "画像なし";
+  labelInspector(r);
   cameraInspector(r);
   soundInspector(r);
   if (rebuilt || painted.shotId !== r.shot.id) renderStrip(r);
@@ -392,6 +406,27 @@ function durationInfo() {
       const line = document.createElement("div");
       line.textContent = `${names.get(entry.shotId)} : ${entry.frames}f / ${entry.seconds.toFixed(2)}s · ${entry.panels} Panel`;
       return line;
+    }),
+  );
+}
+// ラベル色の選択（C2）。表示はアクティブなPanelの色を映すが、適用は選択全体へ効く
+// （imageOpacityなどInspectorの他の項目と同じ規則）。
+function labelInspector(r) {
+  $("labelSwatches").replaceChildren(
+    button(
+      "なし",
+      () => act("setPanelLabel", { ids: editor.selectedIds, label: null }),
+      `swatch none ${r.panel.label === null ? "on" : ""}`,
+    ),
+    ...LABEL_COLORS.map((color) => {
+      const b = button(
+        "",
+        () => act("setPanelLabel", { ids: editor.selectedIds, label: color }),
+        `swatch ${r.panel.label === color ? "on" : ""}`,
+      );
+      b.style.background = LABEL_HEX[color];
+      b.title = LABEL_NAMES[color];
+      return b;
     }),
   );
 }
@@ -744,6 +779,7 @@ function clips(px, left, width) {
     b.style.left = `${rect.left}px`;
     b.style.width = `${rect.width}px`;
     b.dataset.panel = r.panel.id;
+    tagLabel(b, r.panel.label);
     b.onclick = (e) => {
       // ドラッグで並べ替えた直後のクリックは選択に使わない。
       if (dragged || e.target.className?.includes("handle")) return;

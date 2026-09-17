@@ -78,6 +78,40 @@ test("text edits do not report timing or structure as changed", () => {
   assert.equal(flatten(controller.project)[0].end, 72);
 });
 
+// C2：Tree・Strip・Timelineの色分けに使うラベル色。固定の色表のキーかnull。
+test("setPanelLabel sets and clears a panel's label", () => {
+  const { controller } = controllerWith();
+  const target = controller.activeId;
+  const set = controller.execute("setPanelLabel", { ids: [target], label: "red" });
+  assert.equal(set.changed, true);
+  assert.equal(flatten(controller.project)[0].panel.label, "red");
+
+  const same = controller.execute("setPanelLabel", { ids: [target], label: "red" });
+  assert.equal(same.changed, false, "同じ色を選び直しても変化なし");
+
+  const cleared = controller.execute("setPanelLabel", { ids: [target], label: null });
+  assert.equal(cleared.changed, true);
+  assert.equal(flatten(controller.project)[0].panel.label, null);
+});
+
+test("setPanelLabel applies to every id in the selection", () => {
+  const { controller } = controllerWith();
+  controller.execute("addPanel", { activeId: controller.activeId });
+  const [a, b] = ids(controller);
+  controller.execute("setPanelLabel", { ids: [a, b], label: "blue" });
+  const panels = flatten(controller.project).map((r) => r.panel.label);
+  assert.deepEqual(panels, ["blue", "blue"]);
+});
+
+test("setPanelLabel rejects a color outside the fixed table", () => {
+  const { controller } = controllerWith();
+  const target = controller.activeId;
+  const result = controller.execute("setPanelLabel", { ids: [target], label: "magenta" });
+  assert.equal(result.failed, true);
+  assert.match(result.error.message, /ラベル色/);
+  assert.equal(flatten(controller.project)[0].panel.label, null);
+});
+
 test("the UI and tests share the scene command", () => {
   const { controller } = controllerWith();
   const added = controller.execute("addScene", {});
