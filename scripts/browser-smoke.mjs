@@ -531,6 +531,76 @@ try {
   await page.keyboard.press("Control+z");
   await page.keyboard.press("Control+z");
   assert.equal(await page.locator(".camkey").count(), keysBefore);
+  // A10：Cameraキーの複数選択。Shiftクリックで追加、矩形ドラッグでもまとめて
+  // 選べる。選択している1本をドラッグすると選択全部が同じ量だけ動く。
+  // レーンのダブルクリックはそのPanel自身へキーを置くので、再生ヘッドの
+  // 位置に関係なく確実にアクティブなPanelへ2本追加できる。
+  const seedLane = await page.locator(".lane.active").boundingBox();
+  await page.mouse.click(
+    seedLane.x + seedLane.width * 0.3,
+    seedLane.y + seedLane.height / 2,
+    { clickCount: 2 },
+  );
+  await page.mouse.click(
+    seedLane.x + seedLane.width * 0.7,
+    seedLane.y + seedLane.height / 2,
+    { clickCount: 2 },
+  );
+  assert.equal(await page.locator(".camkey").count(), keysBefore + 2);
+  const camDots = page.locator(".lane.active .camkey");
+  const titleOf = (i) => camDots.nth(i).getAttribute("title");
+  const [f0, f1, f2] = await Promise.all([titleOf(0), titleOf(1), titleOf(2)]);
+  // .camkeyは45度回転した菱形。当たり判定はbounding boxの中心を使う
+  // （角は菱形の外に出るので、隅をクリックするとレーンの背景に抜ける）。
+  const centerOf = async (locator) => {
+    const box = await locator.boundingBox();
+    return [box.x + box.width / 2, box.y + box.height / 2];
+  };
+  const c0 = await centerOf(camDots.nth(0));
+  const c1 = await centerOf(camDots.nth(1));
+  await page.mouse.click(...c0);
+  await page.keyboard.down("Shift");
+  await page.mouse.click(...c1);
+  await page.keyboard.up("Shift");
+  assert.deepEqual(
+    await camDots.evaluateAll((els) =>
+      els.map((el) => el.classList.contains("selected")),
+    ),
+    [true, true, false],
+    "Shiftクリックで2本目まで選ばれていない",
+  );
+  await page.mouse.move(...c1);
+  await page.mouse.down();
+  await page.mouse.move(c1[0] + 30, c1[1]);
+  await page.mouse.up();
+  await page.waitForTimeout(100);
+  const [g0, g1, g2] = await Promise.all([titleOf(0), titleOf(1), titleOf(2)]);
+  assert.notEqual(g0, f0, "選択している1本目も一緒に動くべき");
+  assert.notEqual(g1, f1, "掴んだ2本目が動くべき");
+  assert.equal(g2, f2, "選んでいない3本目は動かないべき");
+  await page.keyboard.press("Control+z");
+  // 矩形ドラッグ：レーンの何もない場所からドラッグすると範囲内のキーを選べる。
+  // .camkeyは行の中央に置かれるので、上端に寄せてダイヤの当たり判定を避ける。
+  // 1本目（t=0）はレーンの起点そのものにあるので、その手前からではなく
+  // 1本目と2本目の間から始めて2・3本目だけを範囲に入れる。
+  const activeLaneBox = await page.locator(".lane.active").boundingBox();
+  await page.mouse.move(
+    activeLaneBox.x + activeLaneBox.width * 0.15,
+    activeLaneBox.y + 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(activeLaneBox.x + activeLaneBox.width - 2, activeLaneBox.y + 2);
+  await page.mouse.up();
+  assert.deepEqual(
+    await camDots.evaluateAll((els) =>
+      els.map((el) => el.classList.contains("selected")),
+    ),
+    [false, true, true],
+    "矩形ドラッグで範囲内の2・3本目が選ばれていない",
+  );
+  // 後始末：矩形選択した2・3本目をそのまま消してkeysBeforeへ戻す。
+  await page.locator("#keyDelete").click();
+  assert.equal(await page.locator(".camkey").count(), keysBefore);
   // P3：音声を置き、波形・移動・再生・二重再生防止・同期のずれを確認する。
   await page.locator('[data-tab="sound"]').click();
   await page.locator("#audioFile").setInputFiles({

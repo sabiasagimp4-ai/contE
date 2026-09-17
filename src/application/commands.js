@@ -186,6 +186,7 @@ export const commands = {
       },
     ({ panelId }) => ({ panelIds: [panelId] }),
   ),
+  // 単体ドラッグ：絶対t位置へ動かす（他のキーと重なれば重なった側を消す）。
   moveCameraKey: define(
     ["camera"],
     ({ panelId, index, t }) =>
@@ -196,21 +197,57 @@ export const commands = {
       },
     ({ panelId }) => ({ panelIds: [panelId] }),
   ),
-  deleteCameraKey: define(
+  // 複数選択ドラッグ：indexは並べ替えで変わるので、動かす前にキーの参照そのものを
+  // 控えてtで追跡する（A10）。範囲の端で潰れて重ならないよう、選択全体が0〜1に
+  // 収まる分だけdeltaTを詰めてから動かす。
+  moveCameraKeys: define(
     ["camera"],
-    ({ panelId, index }) =>
+    ({ panelId, indexes, deltaT }) =>
       (p) => {
         const b = panelOf(p, panelId);
-        if (b) removeCameraKey(b, index);
+        if (!b) return;
+        const targets = [...new Set(indexes)]
+          .map((i) => b.camera[i])
+          .filter(Boolean);
+        if (!targets.length) return;
+        const minT = Math.min(...targets.map((k) => k.t));
+        const maxT = Math.max(...targets.map((k) => k.t));
+        const clamped = Math.max(-minT, Math.min(1 - maxT, deltaT));
+        if (!clamped) return;
+        // 進む向きの先頭から動かす。逆順だと、まだ動いていない仲間の位置へ
+        // 一時的に重なってしまい、moveCameraKeyの衝突処理に消される。
+        const ordered = [...targets].sort((a, c) =>
+          clamped > 0 ? c.t - a.t : a.t - c.t,
+        );
+        for (const key of ordered)
+          moveCameraKey(b, b.camera.indexOf(key), key.t + clamped);
+        return only(panelId);
+      },
+    ({ panelId }) => ({ panelIds: [panelId] }),
+  ),
+  deleteCameraKey: define(
+    ["camera"],
+    ({ panelId, indexes }) =>
+      (p) => {
+        const b = panelOf(p, panelId);
+        if (!b) return;
+        // 最低1本は残す。消える本数がキー総数以上なら何もしない。
+        const targets = [...new Set(indexes)].sort((a, c) => c - a);
+        if (b.camera.length - targets.length < 1) return;
+        for (const i of targets) removeCameraKey(b, i);
       },
     ({ panelId }) => ({ panelIds: [panelId] }),
   ),
   setCameraValues: define(
     ["camera"],
-    ({ panelId, index, values }) =>
+    ({ panelId, indexes, values }) =>
       (p) => {
-        const key = panelOf(p, panelId)?.camera[index];
-        if (key) Object.assign(key, values);
+        const b = panelOf(p, panelId);
+        if (!b) return;
+        for (const i of indexes) {
+          const key = b.camera[i];
+          if (key) Object.assign(key, values);
+        }
       },
     ({ panelId }) => ({ panelIds: [panelId] }),
   ),
@@ -332,6 +369,7 @@ export const commandLabels = {
   renameShot: "Shot名の変更",
   putCameraKey: "Cameraキーの追加",
   moveCameraKey: "Cameraキーの移動",
+  moveCameraKeys: "Cameraキーの移動",
   deleteCameraKey: "Cameraキーの削除",
   setCameraValues: "Cameraの値の変更",
   addStroke: "描画",

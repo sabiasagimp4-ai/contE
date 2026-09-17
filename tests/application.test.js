@@ -451,3 +451,82 @@ test("setBoundary changes nothing for an unknown panel id", () => {
   assert.equal(result.changed, false);
   assert.equal(controller.store.past.length, 0);
 });
+
+const cameraKeysOf = (controller, panelId) =>
+  flatten(controller.project).find((r) => r.panel.id === panelId).panel.camera;
+
+test("setCameraValues applies the same values to every selected key (A10)", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  controller.execute("putCameraKey", { panelId, t: 0.5, values: {} });
+  controller.execute("putCameraKey", { panelId, t: 1, values: {} });
+  controller.execute("setCameraValues", {
+    panelId,
+    indexes: [0, 1, 2],
+    values: { zoom: 2 },
+  });
+  assert.deepEqual(
+    cameraKeysOf(controller, panelId).map((k) => k.zoom),
+    [2, 2, 2],
+  );
+});
+
+test("deleteCameraKey removes several keys at once but never the last one (A10)", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  controller.execute("putCameraKey", { panelId, t: 0.5, values: {} });
+  controller.execute("putCameraKey", { panelId, t: 1, values: {} });
+  const result = controller.execute("deleteCameraKey", {
+    panelId,
+    indexes: [0, 1],
+  });
+  assert.equal(result.changed, true);
+  assert.equal(cameraKeysOf(controller, panelId).length, 1);
+  const refused = controller.execute("deleteCameraKey", {
+    panelId,
+    indexes: [0],
+  });
+  assert.equal(refused.changed, false, "最後の1本は消せない");
+  assert.equal(cameraKeysOf(controller, panelId).length, 1);
+});
+
+test("moveCameraKeys moves a group together and keeps it inside 0..1 (A10)", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  controller.execute("putCameraKey", { panelId, t: 0.3, values: {} });
+  controller.execute("putCameraKey", { panelId, t: 0.6, values: {} });
+  const ts = () => cameraKeysOf(controller, panelId).map((k) => k.t);
+
+  controller.execute("moveCameraKeys", { panelId, indexes: [1, 2], deltaT: 0.1 });
+  assert.deepEqual(ts(), [0, 0.4, 0.7]);
+
+  // 端まで動かしても間隔を保ったまま、範囲の外へは出ない（潰れて重ならない）。
+  controller.execute("moveCameraKeys", { panelId, indexes: [1, 2], deltaT: 10 });
+  assert.deepEqual(ts(), [0, 0.7, 1]);
+});
+
+test("moveCameraKeys evicts an unselected key it lands on exactly (A10)", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  controller.execute("putCameraKey", { panelId, t: 0.5, values: { zoom: 9 } });
+  controller.execute("moveCameraKeys", { panelId, indexes: [0], deltaT: 0.5 });
+  const keys = cameraKeysOf(controller, panelId);
+  assert.equal(keys.length, 1);
+  assert.equal(keys[0].t, 0.5);
+  assert.equal(keys[0].zoom, 1, "動かした側のキーが優先で残るべき");
+});
+
+test("moveCameraKeys undoes as a single step for the whole group (A10)", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  controller.execute("putCameraKey", { panelId, t: 0.3, values: {} });
+  controller.execute("putCameraKey", { panelId, t: 0.6, values: {} });
+  const before = cameraKeysOf(controller, panelId).map((k) => k.t);
+  controller.execute("moveCameraKeys", {
+    panelId,
+    indexes: [0, 1, 2],
+    deltaT: 0.05,
+  });
+  controller.undo();
+  assert.deepEqual(cameraKeysOf(controller, panelId).map((k) => k.t), before);
+});

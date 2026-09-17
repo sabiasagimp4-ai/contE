@@ -51,8 +51,11 @@ let store = editor.store,
   scaleIndex = tl.DEFAULT_SCALE,
   rows = [],
   stroke = null,
-  fileDirty = false,
-  cameraKey = 0;
+  fileDirty = false;
+// 選択中のCameraキー（アクティブなPanel内のindexの集合）。表示状態なので
+// Projectにもlayoutにも保存しない。常に1つ以上を持つ。
+let cameraKeys = new Set([0]);
+const primaryCameraKey = () => Math.min(...cameraKeys);
 const sound = new AudioEngine();
 let clipId = null,
   resolved = [];
@@ -353,13 +356,14 @@ function render() {
 }
 function cameraInspector(r) {
   const keys = r.panel.camera;
-  cameraKey = Math.max(0, Math.min(cameraKey, keys.length - 1));
+  cameraKeys = new Set([...cameraKeys].filter((i) => i >= 0 && i < keys.length));
+  if (!cameraKeys.size) cameraKeys.add(0);
   const list = $("keyList");
   list.replaceChildren(
     ...keys.map((k, i) => {
       const option = document.createElement("option");
       option.value = i;
-      option.selected = i === cameraKey;
+      option.selected = cameraKeys.has(i);
       option.textContent = `${Math.round(k.t * r.panel.frames)}f · X${k.x} Y${
         k.y
       } Z${k.zoom} R${k.rotation}°`;
@@ -369,12 +373,15 @@ function cameraInspector(r) {
   const motion = describeCamera(r.panel);
   $("cameraSummary").textContent = motion.hold
     ? "HOLD（動きなし）"
-    : `${motion.moves.join(" / ")} · キー${keys.length}本`;
-  const key = keys[cameraKey];
+    : `${motion.moves.join(" / ")} · キー${keys.length}本${
+        cameraKeys.size > 1 ? `（${cameraKeys.size}本選択中）` : ""
+      }`;
+  const key = keys[primaryCameraKey()];
   ["cx", "cy", "cz", "cr"].forEach(
     (id, i) => ($(id).value = key[CAMERA_FIELDS[i]]),
   );
-  $("keyDelete").disabled = keys.length < 2;
+  // 選んだキーが全部消えると0本になってしまう組み合わせは押せなくする。
+  $("keyDelete").disabled = keys.length <= cameraKeys.size;
 }
 // このPanelにかかる音のみを出す。重なりで判断し、推測で結びつけない。
 function soundInspector(r) {
@@ -857,7 +864,8 @@ function startBoundary(e, leftRow, rightRow, rightClip) {
     timeline();
   };
 }
-// Cameraトラック：Panelごとのレーンにキーを置く。ドラッグで移動、ダブルクリックで追加。
+// Cameraトラック：Panelごとのレーンにキーを置く。ドラッグで移動、ダブルクリックで追加、
+// 何もないところをドラッグすると矩形選択になる（A10）。
 function cameraTrack(px, left, width) {
   const node = $("cameraTrack");
   node.replaceChildren();
@@ -872,14 +880,16 @@ function cameraTrack(px, left, width) {
       const f = localFrame(e, r, px);
       const t = f / r.panel.frames;
       act("putCameraKey", { panelId: r.panel.id, t, values: {} }, () => {
-        cameraKey = Math.max(0, cameraKeyIndex(panelById(r.panel.id), t));
+        cameraKeys = new Set([Math.max(0, cameraKeyIndex(panelById(r.panel.id), t))]);
       });
     };
+    lane.onpointerdown = (e) => startKeyMarquee(e, r, lane, px);
     r.panel.camera.forEach((k, index) => {
       const dot = document.createElement("span");
       dot.className = `camkey${
-        r.panel.id === activeId() && index === cameraKey ? " selected" : ""
+        r.panel.id === activeId() && cameraKeys.has(index) ? " selected" : ""
       }`;
+      dot.dataset.index = index;
       dot.style.left = `${k.t * r.panel.frames * px}px`;
       dot.title = `${Math.round(k.t * r.panel.frames)}f`;
       dot.onpointerdown = (e) => startKeyDrag(e, r, index, dot, px);
@@ -898,39 +908,121 @@ const localFrame = (e, r, px) =>
       ),
     ),
   );
+// 選んだキーの見た目だけを付け替える。フル再描画（cameraTrackの作り直し）はしない。
+function markCameraKeys() {
+  for (const el of $("cameraTrack").querySelectorAll(".camkey"))
+    el.classList.toggle(
+      "selected",
+      el.closest(".lane").classList.contains("active") &&
+        cameraKeys.has(Number(el.dataset.index)),
+    );
+  cameraInspector(current());
+}
+// クリックで1つだけ選ぶ／Shiftクリックで追加・除外／既に選択中のキーを掴んで
+// ドラッグすると選択している全部を同じ量だけ一緒に動かす（A10）。
 function startKeyDrag(e, r, index, dot, px) {
   e.stopPropagation();
   stop();
+  const samePanel = r.panel.id === activeId();
+  if (e.shiftKey && samePanel) {
+    const next = new Set(cameraKeys);
+    if (next.has(index) && next.size > 1) next.delete(index);
+    else next.add(index);
+    cameraKeys = next;
+    markCameraKeys();
+    return;
+  }
+  const selected = samePanel && cameraKeys.has(index) ? [...cameraKeys] : [index];
   let moved = false;
   dot.setPointerCapture(e.pointerId);
+  const lane = dot.parentElement;
+  const originals = new Map(selected.map((i) => [i, r.panel.camera[i].t]));
+  const dots = new Map(
+    selected.map((i) => [i, lane.querySelector(`.camkey[data-index="${i}"]`)]),
+  );
   const position = (v) => localFrame(v, r, px);
+  const anchorFrame = originals.get(index) * r.panel.frames;
   dot.onpointermove = (v) => {
     moved = true;
-    dot.style.left = `${position(v) * px}px`;
+    const deltaFrames = position(v) - anchorFrame;
+    for (const [i, t] of originals) {
+      const el = dots.get(i);
+      if (el) el.style.left = `${(t * r.panel.frames + deltaFrames) * px}px`;
+    }
   };
   const finish = (v, commit) => {
     dot.onpointermove = dot.onpointerup = dot.onpointercancel = null;
     if (!commit) return timeline();
-    const f = position(v);
-    // 動かさなかったときは位置を書き戻さない。選択と対象キーだけを合わせる。
+    // 動かさなかったときは位置を書き戻さない。選択をこの1つへ絞るだけ。
     if (!moved)
       return commitWith(
-        () => (cameraKey = index),
+        () => (cameraKeys = new Set([index])),
         () => editor.select({ active: r.panel.id, ids: [r.panel.id] }),
       );
+    const deltaT = (position(v) - anchorFrame) / r.panel.frames;
     act(
-      "moveCameraKey",
-      { panelId: r.panel.id, index, t: f / r.panel.frames },
+      "moveCameraKeys",
+      { panelId: r.panel.id, indexes: selected, deltaT },
       () => {
-        cameraKey = Math.max(
-          0,
-          cameraKeyIndexAt(panelById(r.panel.id) ?? r.panel, f, index),
+        const b = panelById(r.panel.id) ?? r.panel;
+        // 並べ替えでindexが変わるので、動かした先のフレーム位置から選び直す。
+        cameraKeys = new Set(
+          [...originals.values()].map((t) =>
+            cameraKeyIndexAt(b, Math.round((t + deltaT) * r.panel.frames), 0),
+          ),
         );
       },
     );
   };
   dot.onpointerup = (v) => finish(v, true);
   dot.onpointercancel = (v) => finish(v, false);
+}
+// Cameraレーンの何もない場所をドラッグすると矩形で複数のキーを選べる。
+function startKeyMarquee(e, r, lane, px) {
+  if (e.button !== 0) return;
+  e.stopPropagation();
+  stop();
+  const startX = e.clientX;
+  const laneLeft = lane.getBoundingClientRect().left;
+  const overlay = document.createElement("div");
+  overlay.className = "camkeyMarquee";
+  overlay.hidden = true;
+  lane.append(overlay);
+  let box = null;
+  lane.setPointerCapture(e.pointerId);
+  lane.onpointermove = (v) => {
+    const x0 = Math.min(startX, v.clientX) - laneLeft,
+      x1 = Math.max(startX, v.clientX) - laneLeft;
+    if (x1 - x0 < 3) {
+      overlay.hidden = true;
+      box = null;
+      return;
+    }
+    overlay.hidden = false;
+    overlay.style.left = `${x0}px`;
+    overlay.style.width = `${x1 - x0}px`;
+    box = [x0, x1];
+  };
+  const finish = (commit) => {
+    lane.onpointermove = lane.onpointerup = lane.onpointercancel = null;
+    overlay.remove();
+    if (!commit || !box) return;
+    const [x0, x1] = box;
+    const hits = r.panel.camera
+      .map((k, i) => [i, k.t * r.panel.frames * px])
+      .filter(([, x]) => x >= x0 && x <= x1)
+      .map(([i]) => i);
+    if (!hits.length) return;
+    if (r.panel.id !== activeId())
+      return commitWith(
+        () => (cameraKeys = new Set(hits)),
+        () => editor.select({ active: r.panel.id, ids: [r.panel.id] }),
+      );
+    cameraKeys = e.shiftKey ? new Set([...cameraKeys, ...hits]) : new Set(hits);
+    markCameraKeys();
+  };
+  lane.onpointerup = () => finish(true);
+  lane.onpointercancel = () => finish(false);
 }
 // 移動後のキーは時刻順に並び替わるので、位置から選び直す。
 function cameraKeyIndexAt(b, f, fallback) {
@@ -1055,22 +1147,23 @@ $("key").onclick = () => {
       values: target.panel.id === activeId() ? values() : {},
     },
     () => {
-      cameraKey = Math.max(0, cameraKeyIndex(panelById(target.panel.id), t));
+      cameraKeys = new Set([Math.max(0, cameraKeyIndex(panelById(target.panel.id), t))]);
     },
   );
 };
 $("keyDelete").onclick = () => {
-  const index = cameraKey;
+  const indexes = [...cameraKeys];
   act(
     "deleteCameraKey",
-    { panelId: activeId(), index },
+    { panelId: activeId(), indexes },
     (result) => {
-      if (result.changed) cameraKey = Math.max(0, index - 1);
+      if (result.changed)
+        cameraKeys = new Set([Math.max(0, Math.min(...indexes) - 1)]);
     },
   );
 };
 $("keyList").onchange = () => {
-  cameraKey = Number($("keyList").value);
+  cameraKeys = new Set([Number($("keyList").value)]);
   render();
 };
 const values = () =>
@@ -1086,7 +1179,7 @@ for (const id of ["cx", "cy", "cz", "cr"])
     cameraPreview = null;
     act("setCameraValues", {
       panelId: activeId(),
-      index: cameraKey,
+      indexes: [...cameraKeys],
       values: values(),
     });
   };

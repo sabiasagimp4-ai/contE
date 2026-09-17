@@ -806,10 +806,20 @@ footer label {
   border: 1px solid #383838;
   border-radius: 2px;
   background: #272727;
+  touch-action: none;
 }
 .lane.active {
   border-color: #4d4030;
   background: #2d2820;
+}
+/* Cameraキーの矩形選択のプレビュー枠（A10）。 */
+.camkeyMarquee {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: #ffffff1a;
+  border: 1px solid var(--accent-hi);
+  pointer-events: none;
 }
 /* キーフレームはAEと同じひし形。選択したものだけ明るくする。行の高さに合わせて中央に置く。 */
 .camkey {
