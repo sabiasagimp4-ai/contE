@@ -149,6 +149,24 @@ export const commands = {
       },
     ({ ids }) => ({ panelIds: ids }),
   ),
+  // 合計を指定して等分する（B6）。1f未満は作らないので、対象の本数に満たない
+  // 合計は本数まで切り上げる。端数は全体の並び順で先頭から1fずつ配る。
+  distributeFrames: define(
+    ["timing"],
+    ({ ids, total }) =>
+      (p) => {
+        const chosen = new Set(ids);
+        const targets = flatten(p).filter((r) => chosen.has(r.panel.id));
+        if (!targets.length) return;
+        const sum = Math.max(targets.length, Math.round(total));
+        const base = Math.floor(sum / targets.length);
+        const extra = sum - base * targets.length;
+        targets.forEach((r, i) => {
+          r.panel.frames = base + (i < extra ? 1 : 0);
+        });
+      },
+    ({ ids }) => ({ panelIds: ids }),
+  ),
   // Timelineの左端ドラッグ：leftIdとrightIdの境界を動かす。2つのPanelの尺の
   // 合計は変えない。どちらも1f未満にはしない（それぞれ最低1fを残す）。
   setBoundary: define(
@@ -394,6 +412,7 @@ export const commandLabels = {
   setPanelField: "内容の変更",
   setPanelFrames: "尺の変更",
   nudgePanelFrames: "尺の変更",
+  distributeFrames: "尺の等分",
   setBoundary: "境界の移動",
   setTitle: "タイトルの変更",
   renameScene: "Scene名の変更",

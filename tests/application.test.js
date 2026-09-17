@@ -362,6 +362,54 @@ test("replacePanelImage can set several panels at once", () => {
   assert.equal(images[0].opacity, 0.5);
 });
 
+test("distributeFrames splits the total evenly, front panels get the remainder (B6)", () => {
+  const { controller } = controllerWith();
+  controller.execute("addPanel", { activeId: controller.activeId });
+  controller.execute("addPanel", { activeId: controller.activeId });
+  const ids = flatten(controller.project).map((r) => r.panel.id);
+  assert.equal(ids.length, 3);
+
+  controller.execute("distributeFrames", { ids, total: 10 });
+  const frames = flatten(controller.project).map((r) => r.panel.frames);
+  assert.deepEqual(frames, [4, 3, 3], "端数は先頭から1fずつ配る");
+  assert.equal(frames.reduce((a, b) => a + b), 10);
+});
+
+test("distributeFrames never creates a panel under 1 frame (B6)", () => {
+  const { controller } = controllerWith();
+  controller.execute("addPanel", { activeId: controller.activeId });
+  controller.execute("addPanel", { activeId: controller.activeId });
+  const ids = flatten(controller.project).map((r) => r.panel.id);
+
+  controller.execute("distributeFrames", { ids, total: 1 });
+  const frames = flatten(controller.project).map((r) => r.panel.frames);
+  assert.deepEqual(frames, [1, 1, 1], "1本あたりの本数まで切り上げるべき");
+});
+
+test("distributeFrames only touches the chosen panels and undoes as one step (B6)", () => {
+  const { controller } = controllerWith();
+  controller.execute("addPanel", { activeId: controller.activeId });
+  controller.execute("addPanel", { activeId: controller.activeId });
+  const [first, second, third] = flatten(controller.project).map((r) => r.panel.id);
+  const thirdBefore = flatten(controller.project).find((r) => r.panel.id === third)
+    .panel.frames;
+
+  controller.execute("distributeFrames", { ids: [first, second], total: 20 });
+  const after = flatten(controller.project);
+  assert.equal(after.find((r) => r.panel.id === first).panel.frames, 10);
+  assert.equal(after.find((r) => r.panel.id === second).panel.frames, 10);
+  assert.equal(
+    after.find((r) => r.panel.id === third).panel.frames,
+    thirdBefore,
+    "選んでいないPanelは変わらないべき",
+  );
+
+  controller.undo();
+  const before = flatten(controller.project);
+  assert.equal(before.find((r) => r.panel.id === first).panel.frames, 48);
+  assert.equal(before.find((r) => r.panel.id === second).panel.frames, 48);
+});
+
 test("pasting panels duplicates them with new ids after the target", () => {
   const { controller } = controllerWith();
   const first = controller.activeId;

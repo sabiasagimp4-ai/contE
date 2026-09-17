@@ -1165,6 +1165,14 @@ for (const k of ["frames", "dialogue", "sound", "notes"])
           value: $(k).value,
         });
 $("title").onchange = () => act("setTitle", { title: $("title").value });
+// 選択Panelの尺を合計フレーム数で等分する（B6）。「全部同じ尺」は既存の
+// #frames欄（setPanelFrames）が複数対応なのでそのまま使える。
+$("distribute").onclick = () => {
+  const total = Number($("distributeTotal").value);
+  if (!Number.isFinite(total) || total < 1)
+    return notice("等分する合計フレーム数を入力してください");
+  act("distributeFrames", { ids: editor.selectedIds, total });
+};
 // キーは再生ヘッドがあるPanelへ置く。そのPanelを選択し直すので次の操作が続けやすい。
 $("key").onclick = () => {
   const target = rowAtFrame(rows, Math.round(frame));
