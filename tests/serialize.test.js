@@ -23,7 +23,7 @@ function bigProject(panelCount, scenesCount = Math.max(1, panelCount / 100)) {
     mime: "image/png",
     bytes: 1234,
   });
-  rows[0].panel.image = { assetId: "image-1", opacity: 0.8 };
+  rows[0].panel.image = { assetId: "image-1", opacity: 0.8, fit: "contain", offset: { x: 0, y: 0 }, scale: 1 };
   p.assets.push({
     id: "sound-1",
     kind: "audio",

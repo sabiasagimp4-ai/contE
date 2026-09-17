@@ -36,6 +36,7 @@ test("saved project reopens with identical drawing, timing and text", async () =
     y: 0,
     zoom: 2,
     rotation: 15,
+    ease: "linear",
   });
   const meta = await repo.save(p, { kind: "manual" });
   assert.equal(meta.panels, 1);
@@ -202,7 +203,7 @@ test("asset binaries live outside the project and orphans are pruned", async () 
     mime: "image/png",
     bytes: 4,
   });
-  p.scenes[0].shots[0].panels[0].image = { assetId: "asset-1", opacity: 1 };
+  p.scenes[0].shots[0].panels[0].image = { assetId: "asset-1", opacity: 1, fit: "contain", offset: { x: 0, y: 0 }, scale: 1 };
   await repo.putAsset("asset-1", new Uint8Array([1, 2, 3, 4]));
   await repo.putAsset("asset-2", new Uint8Array([9]));
   const meta = await repo.save(p);
@@ -226,6 +227,9 @@ test("asset pruning preserves references from snapshots and undo history", async
   withImage.scenes[0].shots[0].panels[0].image = {
     assetId: "old-image",
     opacity: 1,
+    fit: "contain",
+    offset: { x: 0, y: 0 },
+    scale: 1,
   };
   await repo.putAsset("old-image", new Uint8Array([7]));
   const old = await repo.save(withImage, { kind: "manual" });

@@ -131,8 +131,8 @@ test("audio and image asset kinds remain independent under repeated cleanup", ()
     { id: "image-b", kind: "image", name: "b", mime: "image/png", bytes: 1 },
     { id: "audio-a", kind: "audio", name: "a", mime: "audio/wav", bytes: 1 },
   );
-  first.image = { assetId: "image-a", opacity: 1 };
-  second.image = { assetId: "image-b", opacity: 1 };
+  first.image = { assetId: "image-a", opacity: 1, fit: "contain", offset: { x: 0, y: 0 }, scale: 1 };
+  second.image = { assetId: "image-b", opacity: 1, fit: "contain", offset: { x: 0, y: 0 }, scale: 1 };
   audio.addClip(p, {
     assetId: "audio-a",
     track: "se",

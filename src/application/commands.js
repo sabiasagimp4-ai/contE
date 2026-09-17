@@ -296,7 +296,8 @@ export const commands = {
       (p) => {
         const b = panelOf(p, panelId);
         if (!b || !keys?.length) return;
-        if (mode === "replace") b.camera = keys.map((k) => ({ ...k }));
+        if (mode === "replace")
+          b.camera = keys.map((k) => ({ ease: "linear", ...k }));
         else for (const k of keys) setCameraKey(b, k.t, k);
       },
     ({ panelId }) => ({ panelIds: [panelId] }),
@@ -333,7 +334,13 @@ export const commands = {
         const b = panelOf(p, panelId);
         if (!b) return;
         if (!p.assets.some((a) => a.id === asset.id)) p.assets.push(asset);
-        b.image = { assetId: asset.id, opacity };
+        b.image = {
+          assetId: asset.id,
+          opacity,
+          fit: "contain",
+          offset: { x: 0, y: 0 },
+          scale: 1,
+        };
       },
     ({ panelId, asset }) => ({ panelIds: [panelId], assetIds: [asset.id] }),
   ),
@@ -354,8 +361,15 @@ export const commands = {
         const targets = panelIds.map((id) => panelOf(p, id)).filter(Boolean);
         if (!targets.length) return;
         if (!p.assets.some((a) => a.id === asset.id)) p.assets.push(asset);
+        // 差し替えは絵だけを入れ替える。位置・拡大・収め方は前の画像から引き継ぐ。
         for (const b of targets)
-          b.image = { assetId: asset.id, opacity: opacity ?? b.image?.opacity ?? 1 };
+          b.image = {
+            assetId: asset.id,
+            opacity: opacity ?? b.image?.opacity ?? 1,
+            fit: b.image?.fit ?? "contain",
+            offset: b.image?.offset ?? { x: 0, y: 0 },
+            scale: b.image?.scale ?? 1,
+          };
         pruneImageAssets(p);
       },
     ({ panelIds, asset }) => ({ panelIds, assetIds: [asset.id] }),

@@ -36,12 +36,88 @@ test("v2 project keeps its asset reference and gains stroke attributes", () => {
   assert.equal(p.version, VERSION);
   assert.deepEqual(p.assets[0].id, "asset-v2");
   const b = p.scenes[0].shots[0].panels[0];
-  assert.deepEqual(b.image, { assetId: "asset-v2", opacity: 0.5 });
+  assert.deepEqual(b.image, {
+    assetId: "asset-v2",
+    opacity: 0.5,
+    fit: "contain",
+    offset: { x: 0, y: 0 },
+    scale: 1,
+  });
   assert.equal(b.strokes[0].erase, false);
   assert.deepEqual(b.strokes[0].points, [
     [0.2, 0.3, 1],
     [0.6, 0.7, 1],
   ]);
+});
+// v6移行：markers/label/ease/画像fit・offset・scale/workArea/paper.verticalを
+// 足す。既定値のままのv6は、新規作成したprojectと同じ形になる（計画§6.2）。
+test("v5 project migrates to v6 with the documented defaults (v6)", () => {
+  const raw = {
+    version: 5,
+    title: "旧v5",
+    fps: 24,
+    assets: [
+      { id: "a1", kind: "image", name: "x.png", mime: "image/png", bytes: 1 },
+    ],
+    audio: [],
+    paper: {
+      size: "A4",
+      orientation: "portrait",
+      rows: 4,
+      margin: 45,
+      font: 18,
+      header: "",
+      footer: "",
+      columns: [{ key: "cut", width: 10 }],
+      duration: true,
+      numbers: true,
+      cameraMarks: true,
+    },
+    scenes: [
+      {
+        id: "s1",
+        name: "シーン01",
+        shots: [
+          {
+            id: "h1",
+            name: "",
+            panels: [
+              {
+                id: "b1",
+                frames: 24,
+                dialogue: "",
+                sound: "",
+                notes: "",
+                strokes: [],
+                image: { assetId: "a1", opacity: 1 },
+                camera: [{ t: 0, x: 0, y: 0, zoom: 1, rotation: 0 }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const p = migrate(raw);
+  assert.equal(p.version, VERSION);
+  assert.deepEqual(p.markers, []);
+  assert.equal(p.workArea, null);
+  assert.equal(p.paper.vertical, false);
+  const b = p.scenes[0].shots[0].panels[0];
+  assert.equal(b.label, null);
+  assert.deepEqual(b.image, {
+    assetId: "a1",
+    opacity: 1,
+    fit: "contain",
+    offset: { x: 0, y: 0 },
+    scale: 1,
+  });
+  assert.equal(b.camera[0].ease, "linear");
+  assert.equal(validate(p), p);
+  const fresh = project();
+  assert.deepEqual(p.markers, fresh.markers);
+  assert.equal(p.workArea, fresh.workArea);
+  assert.equal(p.paper.vertical, fresh.paper.vertical);
 });
 test("migration does not touch the source object", () => {
   for (const text of [fixture, fixtureV2]) {
@@ -60,7 +136,7 @@ test("unknown versions and non-objects are refused with a readable message", () 
 test("v2 asset references must resolve inside the project", () => {
   const p = project();
   const b = p.scenes[0].shots[0].panels[0];
-  b.image = { assetId: "missing", opacity: 1 };
+  b.image = { assetId: "missing", opacity: 1, fit: "contain", offset: { x: 0, y: 0 }, scale: 1 };
   assert.throws(() => validate(p), /画像参照/);
   p.assets.push({
     id: "missing",

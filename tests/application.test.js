@@ -480,7 +480,7 @@ test("pasting carries the asset metadata its panels reference", () => {
     bytes: 32,
   };
   const source = structuredClone(flatten(controller.project)[0].panel);
-  source.image = { assetId: "image-1", opacity: 1 };
+  source.image = { assetId: "image-1", opacity: 1, fit: "contain", offset: { x: 0, y: 0 }, scale: 1 };
 
   controller.execute("pastePanels", {
     afterId: first,
@@ -820,8 +820,8 @@ test("pasteCameraKeys replace swaps the whole set but never leaves 0 keys (B4)",
   const { controller } = controllerWith();
   const panelId = controller.activeId;
   const keys = [
-    { t: 0, x: 0.2, y: 0, zoom: 1, rotation: 0 },
-    { t: 0.5, x: 0.4, y: 0, zoom: 2, rotation: 0 },
+    { t: 0, x: 0.2, y: 0, zoom: 1, rotation: 0, ease: "linear" },
+    { t: 0.5, x: 0.4, y: 0, zoom: 2, rotation: 0, ease: "linear" },
   ];
   controller.execute("pasteCameraKeys", { panelId, keys, mode: "replace" });
   assert.deepEqual(cameraKeysOf(controller, panelId), keys);

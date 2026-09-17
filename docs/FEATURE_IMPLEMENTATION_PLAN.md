@@ -498,8 +498,10 @@ C1〜C6はすべてProjectの構造を増やす。**1回の移行にまとめる
 
 ### 6.3 コミットの切り方
 
-1. **移行だけ**（migration + validate + sameProject + 既定値 + 互換試験）。
-   UIは何も変わらない。ここで`tests/migration.test.js`へv5→v6を足す。
+1. **実装済み**：移行だけ（migration + validate + sameProject + 既定値 + 互換試験）。
+   UIは何も変わらない。`tests/migration.test.js`へv5→v6を足した。
+   `cameraAt()`のease適用も土台としてここで入れた（`"linear"`は既存の
+   一次補間と同じ式のまま。UIで選べるようにするのはC3で行う）。
 2. C2 ラベル色（小）— Tree・Strip・Timelineの色分け。
 3. C1 マーカー（中）— Timelineの新しい行、Inspector、紙面への注記。
 4. C5 ワークエリア（中）— B3の範囲再生をここへ接続し、出力の既定範囲にする。

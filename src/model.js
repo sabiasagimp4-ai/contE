@@ -1,7 +1,20 @@
 export const uid = () => crypto.randomUUID();
-export const VERSION = 5;
+export const VERSION = 6;
 // ブラシ幅は画面幅に対する割合で持つ。出力サイズが変わっても線の太さが崩れない。
 export const BRUSH = { min: 0.0005, max: 0.05, default: 3 / 1280 };
+// Panelのラベル色（C2）。固定の色表から選ぶ。増減はいつでもできるが、
+// 保存済みのキー文字列は変えない（既存ファイルのラベルが変わってしまう）。
+export const LABEL_COLORS = ["red", "orange", "yellow", "green", "blue", "purple"];
+// 画像の収め方（C4）。containは全体を収め、coverは枠を埋めて超過分を切る。
+export const IMAGE_FITS = ["contain", "cover"];
+// Cameraキーの緩急（C3）。"linear"は現行の一次補間と同じ式になる。
+export const CAMERA_EASES = ["linear", "easeIn", "easeOut", "easeInOut"];
+const EASE_FNS = {
+  linear: (f) => f,
+  easeIn: (f) => f * f,
+  easeOut: (f) => 1 - (1 - f) * (1 - f),
+  easeInOut: (f) => (f < 0.5 ? 2 * f * f : 1 - ((-2 * f + 2) ** 2) / 2),
+};
 export const panel = () => ({
   id: uid(),
   frames: 48,
@@ -10,7 +23,8 @@ export const panel = () => ({
   notes: "",
   strokes: [],
   image: null,
-  camera: [{ t: 0, x: 0, y: 0, zoom: 1, rotation: 0 }],
+  label: null,
+  camera: [{ t: 0, x: 0, y: 0, zoom: 1, rotation: 0, ease: "linear" }],
 });
 export const AUDIO_TRACKS = ["dialogue", "se", "bgm"];
 // 紙コンテの用紙。mmと150dpiのピクセル数を持ち、向きで縦横を入れ替える。
@@ -46,6 +60,7 @@ export const paperDefaults = () => ({
   duration: true,
   numbers: true,
   cameraMarks: true,
+  vertical: false,
 });
 // Scene / Shotの生成はここへ集約する。呼び出し側で必須項目を書き忘れると
 // validateが後から弾くだけになるので、UIもテストも同じ生成関数を使う。
@@ -68,6 +83,8 @@ export const project = () => ({
   audio: [],
   paper: paperDefaults(),
   scenes: [scene()],
+  markers: [],
+  workArea: null,
 });
 export function flatten(p) {
   let start = 0;
@@ -129,6 +146,7 @@ export function validate(p) {
   if (!Array.isArray(p.scenes) || !p.scenes.length)
     throw Error("Sceneが必要です");
   const panels = new Set();
+  let totalFrames = 0;
   for (const s of p.scenes) {
     id(s);
     if (typeof s.name !== "string" || !s.shots?.length)
@@ -141,8 +159,11 @@ export function validate(p) {
         id(b);
         if (!Number.isInteger(b.frames) || b.frames < 1 || b.frames > 864000)
           throw Error("不正な尺");
+        totalFrames += b.frames;
         for (const k of ["dialogue", "sound", "notes"])
           if (typeof b[k] !== "string") throw Error("不正なテキスト");
+        if (b.label !== null && !LABEL_COLORS.includes(b.label))
+          throw Error("不正なラベル色");
         if (
           !Array.isArray(b.strokes) ||
           !Array.isArray(b.camera) ||
@@ -154,7 +175,13 @@ export function validate(p) {
             !assets.has(b.image?.assetId) ||
             !Number.isFinite(b.image.opacity) ||
             b.image.opacity < 0 ||
-            b.image.opacity > 1
+            b.image.opacity > 1 ||
+            !IMAGE_FITS.includes(b.image.fit) ||
+            !Number.isFinite(b.image.offset?.x) ||
+            !Number.isFinite(b.image.offset?.y) ||
+            !Number.isFinite(b.image.scale) ||
+            b.image.scale < 0.1 ||
+            b.image.scale > 10
           )
             throw Error("不正な画像参照");
         }
@@ -199,7 +226,8 @@ export function validate(p) {
             k.t < 0 ||
             k.t > 1 ||
             k.zoom < 0.1 ||
-            k.zoom > 10
+            k.zoom > 10 ||
+            !CAMERA_EASES.includes(k.ease)
           )
             throw Error("不正なCamera");
         panels.add(b.id);
@@ -227,6 +255,30 @@ export function validate(p) {
     )
       throw Error("不正な音声クリップ");
   }
+  // マーカーは音声Clipと同じくPanelへのAnchor＋相対位置で持つ（C1）。
+  if (!Array.isArray(p.markers)) throw Error("不正なマーカー一覧");
+  for (const m of p.markers) {
+    id(m);
+    if (
+      !panels.has(m.anchor) ||
+      !Number.isInteger(m.at) ||
+      typeof m.text !== "string" ||
+      typeof m.color !== "string" ||
+      !m.color
+    )
+      throw Error("不正なマーカー");
+  }
+  // 再生・出力の既定範囲（C5）。総尺を超える範囲は指定できない。
+  if (p.workArea !== null) {
+    if (
+      !Number.isInteger(p.workArea.from) ||
+      !Number.isInteger(p.workArea.to) ||
+      p.workArea.from < 0 ||
+      p.workArea.to <= p.workArea.from ||
+      p.workArea.to > totalFrames
+    )
+      throw Error("不正な作業範囲");
+  }
   return p;
 }
 // 紙面設定はプロジェクトと一緒に保存する。壊れた設定で出力を始めない。
@@ -249,7 +301,7 @@ export function validatePaper(o) {
     o.font > 48 ||
     typeof o.header !== "string" ||
     typeof o.footer !== "string" ||
-    ["duration", "numbers", "cameraMarks"].some(
+    ["duration", "numbers", "cameraMarks", "vertical"].some(
       (k) => typeof o[k] !== "boolean",
     )
   )
@@ -307,6 +359,27 @@ const migrations = {
   }),
   3: (p) => ({ ...p, version: 4, audio: [] }),
   4: (p) => ({ ...p, version: 5, paper: paperDefaults() }),
+  5: (p) => ({
+    ...p,
+    version: 6,
+    markers: [],
+    workArea: null,
+    paper: { ...p.paper, vertical: false },
+    scenes: p.scenes.map((s) => ({
+      ...s,
+      shots: s.shots.map((h) => ({
+        ...h,
+        panels: h.panels.map((b) => ({
+          ...b,
+          label: null,
+          image: b.image
+            ? { ...b.image, fit: "contain", offset: { x: 0, y: 0 }, scale: 1 }
+            : null,
+          camera: b.camera.map((k) => ({ ...k, ease: "linear" })),
+        })),
+      })),
+    })),
+  }),
 };
 export function migrate(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw))
@@ -329,22 +402,33 @@ const sameList = (a, b, eq) =>
   a === b || (a.length === b.length && a.every((v, i) => eq(v, b[i])));
 const sameKeys = (a, b, keys) => keys.every((k) => a[k] === b[k]);
 const sameImage = (a, b) =>
-  a === b || (!!a && !!b && a.assetId === b.assetId && a.opacity === b.opacity);
+  a === b ||
+  (!!a &&
+    !!b &&
+    a.assetId === b.assetId &&
+    a.opacity === b.opacity &&
+    a.fit === b.fit &&
+    a.offset.x === b.offset.x &&
+    a.offset.y === b.offset.y &&
+    a.scale === b.scale);
 const samePanel = (a, b) =>
   a === b ||
-  (sameKeys(a, b, ["id", "frames", "dialogue", "sound", "notes"]) &&
+  (sameKeys(a, b, ["id", "frames", "dialogue", "sound", "notes", "label"]) &&
     sameImage(a.image, b.image) &&
     // ストロークは履歴間で共有された不変配列なので参照比較で足りる。
     sameList(a.strokes, b.strokes, (x, y) => x === y) &&
     sameList(a.camera, b.camera, (x, y) =>
-      sameKeys(x, y, ["t", "x", "y", "zoom", "rotation"]),
+      sameKeys(x, y, ["t", "x", "y", "zoom", "rotation", "ease"]),
     ));
+const sameWorkArea = (a, b) =>
+  a === b || (!!a && !!b && a.from === b.from && a.to === b.to);
 export function sameProject(a, b) {
   if (a === b) return true;
   return (
     sameKeys(a, b, ["version", "title", "fps"]) &&
     // 紙面設定は項目数が少ないのでJSONで比較して十分。
     JSON.stringify(a.paper) === JSON.stringify(b.paper) &&
+    sameWorkArea(a.workArea, b.workArea) &&
     sameList(a.assets, b.assets, (x, y) =>
       sameKeys(x, y, [
         "id",
@@ -367,6 +451,9 @@ export function sameProject(a, b) {
         "offset",
         "gain",
       ]),
+    ) &&
+    sameList(a.markers, b.markers, (x, y) =>
+      sameKeys(x, y, ["id", "anchor", "at", "text", "color"]),
     ) &&
     sameList(
       a.scenes,
@@ -450,13 +537,15 @@ export class Store {
         columns: this.p.paper.columns.map((c) => ({ ...c })),
       },
       audio: this.p.audio.map((c) => ({ ...c })),
+      markers: this.p.markers.map((m) => ({ ...m })),
+      workArea: this.p.workArea ? { ...this.p.workArea } : null,
       scenes: this.p.scenes.map((s) => ({
         ...s,
         shots: s.shots.map((h) => ({
           ...h,
           panels: h.panels.map((b) => ({
             ...b,
-            image: b.image ? { ...b.image } : null,
+            image: b.image ? { ...b.image, offset: { ...b.image.offset } } : null,
             camera: b.camera.map((k) => ({ ...k })),
           })),
         })),
@@ -546,7 +635,7 @@ export function cameraKeyIndex(b, t, epsilon = 1e-4) {
 export function setCameraKey(b, t, values = {}) {
   const at = round(t);
   const base = cameraAt(b, at);
-  const key = { t: at, ...base, ...values };
+  const key = { t: at, ease: "linear", ...base, ...values };
   const existing = cameraKeyIndex(b, at);
   if (existing >= 0) b.camera[existing] = key;
   else b.camera.push(key);
@@ -618,6 +707,8 @@ export function describeCamera(b) {
   }
   return { keys, moves, hold: !moves.length };
 }
+// 区間の緩急は開始側キーのeaseで決める（C3）。"linear"は補間比そのままで、
+// 既存ファイル・出力のフレームを1つも変えない。
 export function cameraAt(b, t) {
   const keys = [...b.camera].sort((a, b) => a.t - b.t);
   let a = keys[0],
@@ -629,7 +720,8 @@ export function cameraAt(b, t) {
       break;
     }
   }
-  const f = a.t === z.t ? 0 : Math.max(0, Math.min(1, (t - a.t) / (z.t - a.t)));
+  const raw = a.t === z.t ? 0 : Math.max(0, Math.min(1, (t - a.t) / (z.t - a.t)));
+  const f = (EASE_FNS[a.ease] ?? EASE_FNS.linear)(raw);
   return Object.fromEntries(
     ["x", "y", "zoom", "rotation"].map((k) => [k, a[k] + (z[k] - a[k]) * f]),
   );

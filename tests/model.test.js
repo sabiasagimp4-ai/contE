@@ -81,6 +81,28 @@ test("camera interpolates and clamps endpoint", () => {
   });
   assert.equal(cameraAt(b, 2).zoom, 2);
 });
+// v6の緩急（C3の土台）。区間は開始側キーのeaseで決まる。"linear"は既存の
+// 一次補間と同じ式のまま（既存ファイル・出力を1つも変えない）。
+test("camera ease bends the interpolation without moving the endpoints (v6)", () => {
+  const b = panel();
+  b.camera[0].ease = "easeIn";
+  b.camera.push({ t: 1, x: 1, y: 0, zoom: 1, rotation: 0, ease: "linear" });
+  assert.equal(cameraAt(b, 0).x, 0);
+  assert.equal(cameraAt(b, 1).x, 1);
+  // easeInは前半が遅く進むので、線形より小さい値になる。
+  assert.ok(cameraAt(b, 0.5).x < 0.5);
+
+  b.camera[0].ease = "easeOut";
+  assert.ok(cameraAt(b, 0.5).x > 0.5);
+
+  b.camera[0].ease = "easeInOut";
+  assert.equal(cameraAt(b, 0.5).x, 0.5);
+  assert.ok(cameraAt(b, 0.25).x < 0.25);
+  assert.ok(cameraAt(b, 0.75).x > 0.75);
+
+  b.camera[0].ease = "linear";
+  assert.equal(cameraAt(b, 0.5).x, 0.5);
+});
 test("500 panels paginate exactly once with continuous frame boundaries", () => {
   const p = project();
   p.scenes[0].shots[0].panels = Array.from({ length: 500 }, panel);
@@ -282,7 +304,7 @@ test("clearing an image preserves audio asset metadata and clips", () => {
       bytes: 8,
     },
   );
-  target.image = { assetId: "image-1", opacity: 1 };
+  target.image = { assetId: "image-1", opacity: 1, fit: "contain", offset: { x: 0, y: 0 }, scale: 1 };
   p.audio.push({
     id: "clip-1",
     assetId: "audio-1",
