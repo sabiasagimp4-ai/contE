@@ -354,6 +354,17 @@ try {
     `Scene追加が失敗した：${await page.locator("#status").innerText()}`,
   );
   assert.match(await page.locator("#breadcrumb").innerText(), /シーン02/);
+  // A6：新しいSceneを開いたまま、1つ目のPanelを選んでも閉じないこと。
+  assert.equal(await page.locator("#tree details").nth(0).evaluate((d) => d.open), true);
+  assert.equal(await page.locator("#tree details").nth(1).evaluate((d) => d.open), true);
+  await page.locator("#tree details").nth(0).locator("button.panel").first().click();
+  assert.match(await page.locator("#breadcrumb").innerText(), /オープニング/);
+  assert.equal(await page.locator("#tree details").nth(0).evaluate((d) => d.open), true);
+  assert.equal(
+    await page.locator("#tree details").nth(1).evaluate((d) => d.open),
+    true,
+    "選択で戻っても2つ目のSceneが閉じてしまった",
+  );
   await page.keyboard.press("Control+z");
   assert.equal(await page.locator("#tree details").count(), scenesBefore);
   assert.match(await page.locator("#breadcrumb").innerText(), /オープニング/);
@@ -684,6 +695,11 @@ try {
   await page.waitForFunction(
     () => document.querySelectorAll("#tree .panel").length === 500,
   );
+  // A6：Project差し替えでは開いていたSceneの記憶が消え、アクティブなSceneだけ開く。
+  assert.deepEqual(
+    await page.locator("#tree details").evaluateAll((els) => els.map((d) => d.open)),
+    [true, false, false, false, false],
+  );
   const metrics = await page.evaluate(async () => {
     const twoFrames = () =>
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -839,7 +855,9 @@ try {
   await page.locator("#save").click();
   assert.equal((await save).suggestedFilename(), "project.contp");
   // P1：画像取り込み。原本はAssetストアへ入り、プロジェクトはIDだけを持つ。
-  await page.locator("#tree details").first().locator("summary").click();
+  // A6でSceneの開閉を記憶するようになったので、summaryのクリック（トグル）では
+  // なく直接openを立てて開く。既に開いていてもここでは閉じてはいけない。
+  await page.locator("#tree details").first().evaluate((d) => (d.open = true));
   await page.locator("#tree .panel").first().click();
   await page.locator("#imageFile").setInputFiles({
     name: "bg.png",

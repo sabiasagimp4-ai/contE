@@ -78,6 +78,7 @@ const notice = (t) => ($("status").textContent = t);
 function replaceStore(project, selection) {
   editor.replace(project, selection);
   store = editor.store;
+  openScenes.clear();
 }
 const panelById = (id) =>
   flatten(store.p).find((r) => r.panel.id === id)?.panel ?? null;
@@ -218,12 +219,20 @@ const thumbnailObserver = new IntersectionObserver(
 // TreeとStripは作り直さず、選択の印だけ付け替える。選択や矢印キーでの移動で
 // 500 Panel分のDOMを毎回作り直さないための最小限の部分更新。
 let painted = { project: null, shotId: null };
+// 開いているSceneのidの集合。表示状態でありProjectにもlayoutにも保存しない。
+// アクティブなSceneは常に開くが、他に開いたSceneがあれば閉じない。
+const openScenes = new Set();
 function renderTree(r) {
+  openScenes.add(r.scene.id);
   $("tree").replaceChildren();
   store.p.scenes.forEach((s) => {
     const d = document.createElement("details");
     d.dataset.scene = s.id;
-    d.open = s.id === r.scene.id;
+    d.open = openScenes.has(s.id);
+    d.ontoggle = () => {
+      if (d.open) openScenes.add(s.id);
+      else openScenes.delete(s.id);
+    };
     const summary = document.createElement("summary");
     summary.textContent = `${s.name} (${s.shots.length} Shots)`;
     summary.title = "ダブルクリックで名前を変更";
@@ -261,7 +270,9 @@ function renderTree(r) {
   });
 }
 function markTree(r) {
-  for (const d of $("tree").children) d.open = d.dataset.scene === r.scene.id;
+  openScenes.add(r.scene.id);
+  for (const d of $("tree").children)
+    d.open = openScenes.has(d.dataset.scene);
   for (const b of $("tree").querySelectorAll("button.panel"))
     b.classList.toggle("selected", isSelected(b.dataset.panel));
 }
