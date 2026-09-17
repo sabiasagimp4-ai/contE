@@ -519,6 +519,133 @@ test("pasting nothing changes nothing", () => {
   assert.equal(controller.store.past.length, 0);
 });
 
+test("duplicatePanels with withAudio carries clips onto the copy, keyed by the new panel (B10)", () => {
+  const store = new Store();
+  store.edit((p) => p.scenes[0].shots[0].panels.push(panel()));
+  const { controller } = controllerWith(store);
+  const [first, second] = ids(controller);
+  controller.edit((p) => {
+    p.assets.push({
+      id: "sound-1",
+      kind: "audio",
+      name: "a.wav",
+      mime: "audio/wav",
+      bytes: 4,
+    });
+    addClip(p, {
+      assetId: "sound-1",
+      track: "se",
+      anchor: second,
+      at: 0,
+      frames: 10,
+    });
+  });
+
+  controller.execute("duplicatePanels", { ids: [second], withAudio: true });
+
+  const rows = flatten(controller.project);
+  assert.equal(rows.length, 3);
+  assert.equal(controller.project.audio.length, 2, "複製のクリップが増えていない");
+  const [original, copy] = controller.project.audio;
+  assert.equal(original.anchor, second);
+  assert.notEqual(copy.anchor, second);
+  assert.equal(copy.anchor, rows[2].panel.id);
+  assert.notEqual(copy.id, original.id);
+  assert.equal(copy.assetId, original.assetId);
+  assert.equal(copy.frames, original.frames);
+
+  controller.undo();
+  assert.equal(controller.project.audio.length, 1, "Undoで複製したクリップも一緒に戻らない");
+});
+
+test("duplicatePanels without withAudio behaves exactly as before (B10)", () => {
+  const store = new Store();
+  store.edit((p) => p.scenes[0].shots[0].panels.push(panel()));
+  const { controller } = controllerWith(store);
+  const [, second] = ids(controller);
+  controller.edit((p) => {
+    p.assets.push({
+      id: "sound-1",
+      kind: "audio",
+      name: "a.wav",
+      mime: "audio/wav",
+      bytes: 4,
+    });
+    addClip(p, {
+      assetId: "sound-1",
+      track: "se",
+      anchor: second,
+      at: 0,
+      frames: 10,
+    });
+  });
+
+  controller.execute("duplicatePanels", { ids: [second] });
+
+  assert.equal(flatten(controller.project).length, 3);
+  assert.equal(controller.project.audio.length, 1, "withAudioなしで音を複製してしまっている");
+});
+
+test("pasting carries clips anchored to copied panels, remapped to the new ids (B10)", () => {
+  const { controller } = controllerWith();
+  const first = controller.activeId;
+  const asset = {
+    id: "sound-1",
+    kind: "audio",
+    name: "a.wav",
+    mime: "audio/wav",
+    bytes: 4,
+  };
+  const source = structuredClone(flatten(controller.project)[0].panel);
+  const clip = {
+    id: "clip-1",
+    assetId: "sound-1",
+    track: "se",
+    anchor: source.id,
+    at: 0,
+    frames: 5,
+    offset: 0,
+    gain: 1,
+  };
+
+  controller.execute("pastePanels", {
+    afterId: first,
+    panels: [source],
+    assets: [asset],
+    clips: [clip],
+  });
+
+  const pastedId = flatten(controller.project)[1].panel.id;
+  assert.equal(controller.project.audio.length, 1);
+  assert.equal(controller.project.audio[0].anchor, pastedId);
+  assert.notEqual(controller.project.audio[0].id, "clip-1");
+  assert.equal(controller.project.assets.length, 1);
+});
+
+test("pasting drops clips whose asset it cannot carry, same rule as images (B10)", () => {
+  const { controller } = controllerWith();
+  const source = structuredClone(flatten(controller.project)[0].panel);
+  const clip = {
+    id: "clip-1",
+    assetId: "missing",
+    track: "se",
+    anchor: source.id,
+    at: 0,
+    frames: 5,
+    offset: 0,
+    gain: 1,
+  };
+
+  const result = controller.execute("pastePanels", {
+    afterId: controller.activeId,
+    panels: [source],
+    clips: [clip],
+  });
+
+  assert.equal(result.failed, undefined);
+  assert.equal(controller.project.audio.length, 0);
+});
+
 test("setBoundary moves frames between two panels without changing the total", () => {
   const store = new Store();
   store.edit((p) => p.scenes[0].shots[0].panels.push(panel(), panel()));

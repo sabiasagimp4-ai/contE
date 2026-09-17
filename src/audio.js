@@ -136,6 +136,19 @@ export function removeClips(p, ids) {
   p.audio = p.audio.filter((c) => !drop.has(c.id));
   return p.audio.length !== before;
 }
+// idMapはPanel複製が作った旧ID→新IDの対応表。旧Panelにかかっていたクリップだけを
+// 新しいAnchorへ複製する（B10）。素材本体は共有し、参照だけを新しいIDで複製する。
+export function duplicateClipsFor(p, idMap) {
+  const added = [];
+  for (const clip of [...p.audio]) {
+    const anchor = idMap.get(clip.anchor);
+    if (!anchor) continue;
+    const copy = { ...clip, id: uid(), anchor };
+    p.audio.push(copy);
+    added.push(copy);
+  }
+  return added;
+}
 // Panelが消えたときは、そのPanelに属する音も一緒に消す。孤児を残さない。
 export function pruneClips(p) {
   const panels = new Set(flatten(p).map((r) => r.panel.id));

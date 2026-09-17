@@ -14,6 +14,7 @@ import {
   removeClips,
   pruneClips,
   pruneAudioAssets,
+  duplicateClipsFor,
   AudioEngine,
 } from "../src/audio.js";
 import { project, panel, flatten, Store, validate } from "../src/model.js";
@@ -86,6 +87,33 @@ test("moving a clip re-anchors it to the panel it starts on", () => {
   assert.equal(placeClip(p, rows, clip.id, 100), false);
   assert.equal(trimClip(p, clip.id, 0), true);
   assert.equal(clip.frames, 1);
+});
+test("duplicateClipsFor copies only clips anchored to the mapped panels (B10)", () => {
+  const p = withAudio();
+  const rows = flatten(p);
+  const kept = addClip(p, {
+    assetId: "sound-1",
+    track: "se",
+    anchor: rows[0].panel.id,
+    at: 3,
+    frames: 10,
+  });
+  addClip(p, {
+    assetId: "sound-1",
+    track: "bgm",
+    anchor: rows[1].panel.id,
+    at: 0,
+    frames: 5,
+  });
+  const idMap = new Map([[rows[0].panel.id, "new-panel"]]);
+  const added = duplicateClipsFor(p, idMap);
+  assert.equal(added.length, 1);
+  assert.equal(p.audio.length, 3);
+  assert.equal(added[0].anchor, "new-panel");
+  assert.equal(added[0].assetId, kept.assetId);
+  assert.equal(added[0].at, kept.at);
+  assert.equal(added[0].frames, kept.frames);
+  assert.notEqual(added[0].id, kept.id);
 });
 test("deleting a panel takes its clips with it and leaves no orphans", () => {
   const p = withAudio();

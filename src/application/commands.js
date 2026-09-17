@@ -38,13 +38,22 @@ export const commands = {
     r.shot.panels.splice(r.pi + 1, 0, added);
     return only(added.id);
   }),
-  duplicatePanels: define(["structure", "timing"], ({ ids }) => (p) => {
-    const targets = new Set(ids);
-    for (const h of p.scenes.flatMap((s) => s.shots))
-      h.panels = h.panels.flatMap((b) =>
-        targets.has(b.id) ? [b, { ...structuredClone(b), id: uid() }] : [b],
-      );
-  }),
+  duplicatePanels: define(
+    ["structure", "timing", "audio"],
+    ({ ids, withAudio = false }) =>
+      (p) => {
+        const targets = new Set(ids);
+        const idMap = new Map();
+        for (const h of p.scenes.flatMap((s) => s.shots))
+          h.panels = h.panels.flatMap((b) => {
+            if (!targets.has(b.id)) return [b];
+            const added = { ...structuredClone(b), id: uid() };
+            idMap.set(b.id, added.id);
+            return [b, added];
+          });
+        if (withAudio) audio.duplicateClipsFor(p, idMap);
+      },
+  ),
   deletePanels: define(
     ["structure", "timing", "audio"],
     ({ ids }) =>
@@ -74,16 +83,18 @@ export const commands = {
   // 貼り付けはIDを振り直して複製する。参照している素材メタデータが今のProject
   // に無ければ一緒に持ち込む（原本はAsset IDで共有されるので中身は変わらない）。
   pastePanels: define(
-    ["structure", "timing", "assets"],
-    ({ afterId, panels, assets = [] }) =>
+    ["structure", "timing", "assets", "audio"],
+    ({ afterId, panels, assets = [], clips = [] }) =>
       (p) => {
         const r = rowOf(p, afterId) ?? flatten(p).at(-1);
         if (!r || !panels?.length) return;
         const known = new Set(p.assets.map((a) => a.id));
-        const added = panels.map((b) => ({
-          ...structuredClone(b),
-          id: uid(),
-        }));
+        const idMap = new Map();
+        const added = panels.map((b) => {
+          const copy = { ...structuredClone(b), id: uid() };
+          idMap.set(b.id, copy.id);
+          return copy;
+        });
         for (const asset of assets)
           if (!known.has(asset.id)) {
             p.assets.push(structuredClone(asset));
@@ -93,6 +104,12 @@ export const commands = {
         for (const b of added)
           if (b.image && !known.has(b.image.assetId)) b.image = null;
         r.shot.panels.splice(r.pi + 1, 0, ...added);
+        // 持ち込めなかった音の参照は、画像と同じ規則でクリップごと外す。
+        for (const clip of clips) {
+          const anchor = idMap.get(clip.anchor);
+          if (!anchor || !known.has(clip.assetId)) continue;
+          p.audio.push({ ...clip, id: uid(), anchor });
+        }
         return { active: added[0].id, ids: added.map((b) => b.id) };
       },
     ({ afterId }) => ({ panelIds: [afterId] }),

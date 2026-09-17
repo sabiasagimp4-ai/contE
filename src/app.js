@@ -84,7 +84,7 @@ const ONION = { on: false, alpha: 0.28, prev: "#d2544a", next: "#4a86d2" };
 // 動かさない。ドラッグを離す・中止すると null に戻る。
 let cameraPreview = null;
 // Panelのコピー。別の作品へ貼っても絵が出るよう、参照する素材の情報も一緒に持つ。
-// 音はPanelに属さないので複製と同じく持ち運ばない。
+// AnchorされたクリップもPanelと一緒に持ち運ぶ（B10）。
 let clipboard = null;
 const view = { zoom: 1, x: 0, y: 0 };
 const activeId = () => store.selection.active;
@@ -1111,7 +1111,11 @@ function paint(preview = false) {
 // UIの操作名からCommandへの対応。編集の計算はcommands.js側にある。
 const acts = {
   add: () => act("addPanel", { activeId: activeId() }),
-  duplicate: () => act("duplicatePanels", { ids: editor.selectedIds }),
+  duplicate: () =>
+    act("duplicatePanels", {
+      ids: editor.selectedIds,
+      withAudio: $("dupAudio").checked,
+    }),
   delete: () => act("deletePanels", { ids: editor.selectedIds }),
   split: () => act("splitShot", { activeId: activeId() }),
   merge: () => act("mergeShot", { activeId: activeId() }),
@@ -1128,6 +1132,7 @@ const acts = {
       afterId: activeId(),
       panels: clipboard.panels,
       assets: clipboard.assets,
+      clips: clipboard.clips,
     });
     notice(`${clipboard.panels.length} Panelを貼り付けました`);
   },
@@ -1137,9 +1142,12 @@ function copyPanels() {
   const ids = new Set(editor.selectedIds);
   const panels = rows.filter((r) => ids.has(r.panel.id)).map((r) => r.panel);
   if (!panels.length) return false;
+  const clips = store.p.audio.filter((c) => ids.has(c.anchor));
   const used = new Set(panels.map((b) => b.image?.assetId).filter(Boolean));
+  for (const clip of clips) used.add(clip.assetId);
   clipboard = {
     panels: panels.map((b) => structuredClone(b)),
+    clips: clips.map((c) => structuredClone(c)),
     assets: store.p.assets
       .filter((asset) => used.has(asset.id))
       .map((asset) => structuredClone(asset)),
