@@ -1,4 +1,5 @@
 import { load, validate, flatten } from "./model.js";
+import { serializeProject } from "./serialize.js";
 export const SNAPSHOT_LIMIT = 8;
 const isQuota = (e) =>
   e?.name === "QuotaExceededError" ||
@@ -19,11 +20,13 @@ export class ProjectRepository {
     await this.storage.open?.();
     return this;
   }
-  async save(p, { kind = "auto" } = {}) {
+  // jsonを渡すと二重にJSON化しない（E1）。分割シリアライズした結果を
+  // そのまま使う経路で、Autosaverがここを通る。
+  async save(p, { kind = "auto", json } = {}) {
     // 壊れたデータを保存させない。検証前に既存の保存へ触れない。
     validate(p);
     const savedAt = this.now();
-    const data = JSON.stringify(p);
+    const data = json ?? JSON.stringify(p);
     const meta = {
       id: `${kind}-${savedAt}-${Math.random().toString(36).slice(2, 8)}`,
       kind,
@@ -188,6 +191,8 @@ export class Autosaver {
     this.state = "idle";
     this.sourceToken = null;
     this.isCurrent = isCurrent;
+    // 直列化（E1）を打ち切れるようにする。resolved/cancelで使う。
+    this.controller = null;
   }
   get pending() {
     return !!this.source || this.state === "failed";
@@ -216,9 +221,16 @@ export class Autosaver {
     const source = this.source;
     const token = this.sourceToken;
     this.#emit("saving");
+    // Scene単位で分割シリアライズする間、resolved/cancelから打ち切れるようにする。
+    const controller = new AbortController();
+    this.controller = controller;
     this.running = (async () => {
       try {
-        const meta = await this.repo.save(source(), { kind: "auto" });
+        const project = source();
+        const json = await serializeProject(project, {
+          signal: controller.signal,
+        });
+        const meta = await this.repo.save(project, { kind: "auto", json });
         const current =
           this.source === source &&
           (!token || this.isCurrent(token));
@@ -234,10 +246,13 @@ export class Autosaver {
         }
         return meta;
       } catch (e) {
+        // resolved/cancelによる打ち切り。状態は呼び出し側が既に確定させている。
+        if (e.name === "AbortError") return null;
         this.#emit("failed", { message: e.message });
         return null;
       } finally {
         this.running = null;
+        if (this.controller === controller) this.controller = null;
       }
     })();
     const meta = await this.running;
@@ -248,6 +263,8 @@ export class Autosaver {
   }
   // 手動保存などで同じ内容が保存済みになったとき、待機中の自動保存を解除する。
   resolved(meta) {
+    // 進行中の直列化があっても、もう使わないので打ち切る。
+    this.controller?.abort();
     this.clearTimer(this.timer);
     this.timer = null;
     this.source = null;
@@ -256,6 +273,7 @@ export class Autosaver {
     this.#emit("saved", { meta });
   }
   cancel() {
+    this.controller?.abort();
     this.clearTimer(this.timer);
     this.timer = null;
     this.source = null;

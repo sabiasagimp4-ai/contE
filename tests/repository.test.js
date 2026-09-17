@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ProjectRepository, Autosaver } from "../src/repository.js";
 import { MemoryStorage } from "../src/storage.js";
-import { project, panel, flatten, BRUSH } from "../src/model.js";
+import { project, panel, scene, shot, flatten, BRUSH } from "../src/model.js";
 const clock = (start = 1000) => {
   let t = start;
   return () => (t += 1000);
@@ -69,6 +69,19 @@ test("repository writes payload and metadata through one batch", async () => {
     ],
   );
   assert.deepEqual(await repo.load(meta.id), p);
+});
+test("save() accepts a pre-serialized json string and skips re-stringifying (E1)", async () => {
+  const { repo } = repository();
+  const p = project();
+  const different = project();
+  different.title = "分割シリアライズ側で作った文字列であることの目印";
+  const meta = await repo.save(p, {
+    kind: "manual",
+    json: JSON.stringify(different),
+  });
+  // メタデータはpから作るが、本体は渡したjsonをそのまま使う。
+  assert.equal(meta.title, p.title);
+  assert.deepEqual(await repo.load(meta.id), different);
 });
 test("repository keeps the previous save when a batch is aborted", async () => {
   const { repo, storage } = repository();
@@ -333,4 +346,54 @@ test("a stale autosave does not report the latest revision as saved", async () =
   await saver.flush();
   assert.equal(saver.pending, false);
   assert.equal(flatten((await repo.latest()).project).length, 2);
+});
+// 複数Sceneのプロジェクトでないと、分割シリアライズがyieldするタイミングが
+// なくcancel/resolvedのabortが効いたかどうか確かめられない（E1）。
+const multiSceneProject = () => {
+  const p = project();
+  p.scenes = Array.from({ length: 3 }, () => scene(undefined, [shot([panel()])]));
+  return p;
+};
+test("cancel() interrupts an in-flight serialize instead of failing it (E1)", async () => {
+  const { repo } = repository();
+  const p = multiSceneProject();
+  const states = [];
+  const saver = new Autosaver(repo, {
+    onState: (s) => states.push(s),
+    setTimer: () => null,
+    clearTimer: () => {},
+  });
+  saver.schedule(() => p);
+  const run = saver.flush();
+  saver.cancel();
+  const meta = await run;
+  assert.equal(meta, null);
+  assert.equal(states.at(-1).state, "idle");
+  assert.ok(
+    !states.some((s) => s.state === "failed"),
+    "打ち切りが失敗として報告されている",
+  );
+  assert.deepEqual(await repo.list(), []);
+});
+test("resolved() interrupts an in-flight serialize instead of overwriting the manual save (E1)", async () => {
+  const { repo } = repository();
+  const p = multiSceneProject();
+  const states = [];
+  const saver = new Autosaver(repo, {
+    onState: (s) => states.push(s),
+    setTimer: () => null,
+    clearTimer: () => {},
+  });
+  saver.schedule(() => p);
+  const run = saver.flush();
+  const manual = await repo.save(p, { kind: "manual" });
+  saver.resolved(manual);
+  const meta = await run;
+  assert.equal(meta, null);
+  assert.equal(states.at(-1).state, "saved");
+  assert.ok(
+    !states.some((s) => s.state === "failed"),
+    "打ち切りが失敗として報告されている",
+  );
+  assert.equal((await repo.list()).length, 1, "打ち切ったはずの自動保存も書かれている");
 });

@@ -1397,6 +1397,71 @@ try {
   await page.waitForFunction(() =>
     document.querySelector("#clipInfo").textContent.includes("見つかりません"),
   );
+  // E1：保存を止めない（分割シリアライズ）。2000 Panel（各10Stroke×50点つき）を
+  // 読み込んで自動保存させ、その間も描画（rAF）が進み続けること、長タスクの
+  // 最大値を記録する。
+  const { project: mkProject, panel: mkPanel, uid: mkUid, BRUSH: mkBrush } =
+    await import("../src/model.js");
+  const heavy = mkProject();
+  heavy.scenes = Array.from({ length: 20 }, (_, si) => ({
+    id: mkUid(),
+    name: `Scene ${si + 1}`,
+    shots: [
+      {
+        id: mkUid(),
+        name: "",
+        panels: Array.from({ length: 100 }, () => ({
+          ...mkPanel(),
+          strokes: Array.from({ length: 10 }, () => ({
+            size: mkBrush.default,
+            erase: false,
+            points: Array.from({ length: 50 }, (_, i) => [i / 50, i / 50, 1]),
+          })),
+        })),
+      },
+    ],
+  }));
+  await page.locator("#file").setInputFiles({
+    name: "2000.contp",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(heavy)),
+  });
+  await page.waitForFunction(
+    () => document.querySelectorAll("#tree .panel").length === 2000,
+  );
+  const e1 = await page.evaluate(async () => {
+    let frames = 0,
+      running = true;
+    const tick = () => {
+      frames++;
+      if (running) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    let maxLongTask = 0;
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries())
+        maxLongTask = Math.max(maxLongTask, entry.duration);
+    });
+    try {
+      observer.observe({ entryTypes: ["longtask"] });
+    } catch {
+      // Long Tasks APIが無い環境でも、rAFの進み具合だけで応答性は確認できる。
+    }
+    document.activeElement.blur();
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "n", bubbles: true }),
+    );
+    const text = () => document.querySelector("#savestate").textContent;
+    while (!text().startsWith("ブラウザに保存"))
+      await new Promise((r) => setTimeout(r, 20));
+    running = false;
+    observer.disconnect();
+    return { frames, maxLongTask: +maxLongTask.toFixed(1) };
+  });
+  assert.ok(
+    e1.frames > 3,
+    `2000 Panelの自動保存中に描画が止まった（rAFが${e1.frames}回しか進まなかった）`,
+  );
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(
@@ -1407,6 +1472,7 @@ try {
         sync,
         paperReady,
         animatic,
+        e1,
         errors,
       },
       null,
