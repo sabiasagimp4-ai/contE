@@ -296,6 +296,17 @@ export const commands = {
       },
     ({ panelId }) => ({ panelIds: [panelId] }),
   ),
+  // 図形ツール用（B7）。矢印は本体+かえし2本の計3Strokeを1回の編集で足す。
+  addStrokes: define(
+    ["visual"],
+    ({ panelId, strokes }) =>
+      (p) => {
+        const b = panelOf(p, panelId);
+        if (!b || !strokes?.length) return;
+        b.strokes = [...b.strokes, ...strokes];
+      },
+    ({ panelId }) => ({ panelIds: [panelId] }),
+  ),
 
   // --- 画像 ---------------------------------------------------------------
   setPanelImage: define(
@@ -424,6 +435,7 @@ export const commandLabels = {
   setCameraValues: "Cameraの値の変更",
   pasteCameraKeys: "Cameraキーの貼り付け",
   addStroke: "描画",
+  addStrokes: "描画",
   setPanelImage: "画像の設定",
   clearPanelImage: "画像の削除",
   replacePanelImage: "画像の差し替え",

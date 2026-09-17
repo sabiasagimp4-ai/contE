@@ -410,6 +410,33 @@ test("distributeFrames only touches the chosen panels and undoes as one step (B6
   assert.equal(before.find((r) => r.panel.id === second).panel.frames, 48);
 });
 
+test("addStrokes appends several strokes in one edit and undoes as one step (B7)", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  const before = flatten(controller.project)[0].panel.strokes;
+  const shaft = { size: 0.01, erase: false, points: [[0, 0.5, 1], [1, 0.5, 1]] };
+  const barb1 = { size: 0.01, erase: false, points: [[1, 0.5, 1], [0.9, 0.4, 1]] };
+  const barb2 = { size: 0.01, erase: false, points: [[1, 0.5, 1], [0.9, 0.6, 1]] };
+
+  const result = controller.execute("addStrokes", {
+    panelId,
+    strokes: [shaft, barb1, barb2],
+  });
+  assert.equal(result.changed, true);
+  const strokes = flatten(controller.project).find((r) => r.panel.id === panelId)
+    .panel.strokes;
+  assert.equal(strokes.length, before.length + 3);
+  assert.deepEqual(strokes.slice(-3), [shaft, barb1, barb2]);
+
+  controller.undo();
+  assert.equal(
+    flatten(controller.project).find((r) => r.panel.id === panelId).panel.strokes
+      .length,
+    before.length,
+    "3本まとめて1段のUndoで消えるべき",
+  );
+});
+
 test("pasting panels duplicates them with new ids after the target", () => {
   const { controller } = controllerWith();
   const first = controller.activeId;

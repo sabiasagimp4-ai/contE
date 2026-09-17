@@ -35,6 +35,7 @@ import { ImportController } from "./application/import-controller.js";
 import { labelOf } from "./application/commands.js";
 import { scrubAll, scrubNumber } from "./ui/number-scrub.js";
 import { autoScroll } from "./ui/auto-scroll.js";
+import * as shapeTools from "./ui/shape-tools.js";
 const $ = (id) => document.getElementById(id);
 const session = new EditorSession(new Store());
 // 確定編集の入口はEditorControllerひとつ。副作用は下の購読で一度だけ行う。
@@ -73,7 +74,9 @@ const endFrame = () => tl.total(rows);
 const viewport = () => $("timeline").clientWidth || 900;
 // 画像素材の表示用ビットマップ。プロジェクトにはIDだけが入る。
 const images = new Map();
-const tool = { erase: false, size: 3 / 1280 };
+// shapeはnullなら今まで通りのフリーハンド。line/rect/arrowのときは
+// pointerdown〜upの2点から図形のpointsを作る（B7）。
+const tool = { erase: false, size: 3 / 1280, shape: null };
 // 前後のコマを薄く重ねる（オニオンスキン）。前は赤、後ろは青で区別する。
 // 画面の見せ方なのでProjectにもlayoutにも保存しない。
 const ONION = { on: false, alpha: 0.28, prev: "#d2544a", next: "#4a86d2" };
@@ -1406,7 +1409,20 @@ function setView(zoom, x, y) {
   $("viewInfo").textContent = `${Math.round(view.zoom * 100)}%`;
   paint();
 }
-let panning = null;
+let panning = null,
+  shapeStart = null;
+// 直線・矩形・矢印のpointsを作る。ドラッグがほぼ無いクリックは何も足さない
+// （フリーハンドの1点＝点とは違い、図形は最低限の大きさが要る）。Shiftで
+// 直線/矢印は45度刻み、矩形は正方形へ吸着する（B7）。
+function shapeStrokes(x0, y0, x1, y1, snap) {
+  if (Math.hypot(x1 - x0, y1 - y0) < 0.004) return [];
+  const wrap = (points) => ({ size: tool.size, erase: false, points });
+  if (tool.shape === "line") return [wrap(shapeTools.linePoints(x0, y0, x1, y1, snap))];
+  if (tool.shape === "rect") return [wrap(shapeTools.rectPoints(x0, y0, x1, y1, snap))];
+  if (tool.shape === "arrow")
+    return shapeTools.arrowPointSets(x0, y0, x1, y1, snap).map(wrap);
+  return [];
+}
 $("drawing").onpointerdown = (e) => {
   stop();
   if (e.button === 1 || e.altKey) {
@@ -1416,6 +1432,11 @@ $("drawing").onpointerdown = (e) => {
     return;
   }
   if (e.button !== 0) return;
+  if (tool.shape) {
+    shapeStart = point(e);
+    $("drawing").setPointerCapture(e.pointerId);
+    return;
+  }
   stroke = {
     size: tool.size,
     erase: tool.erase,
@@ -1433,6 +1454,20 @@ $("drawing").onpointermove = (e) => {
     );
     return;
   }
+  if (shapeStart) {
+    const [x1, y1] = point(e);
+    const strokes = shapeStrokes(shapeStart[0], shapeStart[1], x1, y1, e.shiftKey);
+    draw(
+      $("drawing").getContext("2d"),
+      { ...current().panel, strokes: [...current().panel.strokes, ...strokes] },
+      1280,
+      720,
+      null,
+      images,
+      view,
+    );
+    return;
+  }
   if (!stroke) return;
   stroke.points.push([...point(e), pressure(e)]);
   draw(
@@ -1445,8 +1480,16 @@ $("drawing").onpointermove = (e) => {
     view,
   );
 };
-$("drawing").onpointerup = () => {
+$("drawing").onpointerup = (e) => {
   panning = null;
+  if (shapeStart) {
+    const [x1, y1] = point(e);
+    const strokes = shapeStrokes(shapeStart[0], shapeStart[1], x1, y1, e.shiftKey);
+    shapeStart = null;
+    if (strokes.length) act("addStrokes", { panelId: activeId(), strokes });
+    else paint();
+    return;
+  }
   if (stroke) {
     const s = stroke;
     stroke = null;
@@ -1456,6 +1499,7 @@ $("drawing").onpointerup = () => {
 $("drawing").onpointercancel = () => {
   panning = null;
   stroke = null;
+  shapeStart = null;
   paint();
 };
 // ホイールはカーソル位置を基準に拡大縮小する。
@@ -1473,14 +1517,27 @@ $("drawing").onwheel = (e) => {
   );
 };
 $("fit").onclick = () => setView(1, 0, 0);
+const TOOL_BUTTONS = ["brushTool", "eraserTool", "lineTool", "rectTool", "arrowTool"];
+const selectToolButton = (id) => {
+  for (const t of TOOL_BUTTONS) $(t).classList.toggle("on", t === id);
+};
 for (const [id, erase] of [
   ["brushTool", false],
   ["eraserTool", true],
 ])
   $(id).onclick = () => {
     tool.erase = erase;
-    $("brushTool").classList.toggle("on", !erase);
-    $("eraserTool").classList.toggle("on", erase);
+    tool.shape = null;
+    selectToolButton(id);
+  };
+for (const [id, shape] of [
+  ["lineTool", "line"],
+  ["rectTool", "rect"],
+  ["arrowTool", "arrow"],
+])
+  $(id).onclick = () => {
+    tool.shape = shape;
+    selectToolButton(id);
   };
 $("onion").onclick = () => {
   ONION.on = !ONION.on;

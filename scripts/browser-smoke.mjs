@@ -99,6 +99,29 @@ try {
   await page.mouse.down();
   await page.mouse.move(700, 400, { steps: 10 });
   await page.mouse.up();
+  // B7：直線ツール。ドラッグで1本のStrokeを1回のUndoで戻る量として足す。
+  await page.locator("#lineTool").click();
+  const drawBox = await page.locator("#drawing").boundingBox();
+  const shapeProbe = () =>
+    page.evaluate(() => [
+      ...document
+        .querySelector("#drawing")
+        .getContext("2d")
+        .getImageData(Math.round(1280 * 0.4), Math.round(720 * 0.6), 1, 1).data,
+    ]);
+  const beforeLine = await shapeProbe();
+  await page.mouse.move(drawBox.x + drawBox.width * 0.2, drawBox.y + drawBox.height * 0.6);
+  await page.mouse.down();
+  await page.mouse.move(drawBox.x + drawBox.width * 0.6, drawBox.y + drawBox.height * 0.6);
+  await page.mouse.up();
+  assert.deepEqual(
+    await shapeProbe(),
+    [37, 41, 50, 255],
+    "直線が描けていない",
+  );
+  await page.keyboard.press("Control+z");
+  assert.deepEqual(await shapeProbe(), beforeLine, "Undo1回で直線が消えていない");
+  await page.locator("#brushTool").click();
   await page.keyboard.press("n");
   await page.keyboard.press("]");
   await page.keyboard.press("Control+z");
