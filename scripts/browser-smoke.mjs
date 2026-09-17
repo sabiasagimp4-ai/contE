@@ -413,6 +413,36 @@ try {
       .trim(),
   );
   assert.notEqual(paneWidth, "220px");
+  // A9：行の高さ切り替え。数値はカスタムプロパティ1か所から出るので、
+  // 大きさを変えても行名の列とTimeline本体の帯がずれてはいけない。
+  const rowMetrics = () =>
+    page.evaluate(() => {
+      const trackTop = document.querySelector("#track").getBoundingClientRect().top;
+      const rel = (sel) =>
+        +(document.querySelector(sel).getBoundingClientRect().top - trackTop).toFixed(2);
+      return {
+        clip: rel(".clip"),
+        rowNameClips: rel(".rowName.clips"),
+        camera: rel("#cameraTrack"),
+        rowNameCamera: rel(".rowName.camera"),
+        cameraHeight: document.querySelector("#cameraTrack").getBoundingClientRect().height,
+      };
+    });
+  const mdMetrics = await rowMetrics();
+  assert.equal(mdMetrics.clip, mdMetrics.rowNameClips, "中：コマの帯と行名がずれている");
+  assert.equal(mdMetrics.camera, mdMetrics.rowNameCamera, "中：Cameraの帯と行名がずれている");
+  await page.locator("#rowSize").selectOption("lg");
+  const lgMetrics = await rowMetrics();
+  assert.equal(lgMetrics.clip, lgMetrics.rowNameClips, "大：コマの帯と行名がずれている");
+  assert.equal(lgMetrics.camera, lgMetrics.rowNameCamera, "大：Cameraの帯と行名がずれている");
+  assert.ok(lgMetrics.cameraHeight > mdMetrics.cameraHeight, "大で行が高くなっていない");
+  await page.locator("#rowSize").selectOption("sm");
+  const smMetrics = await rowMetrics();
+  assert.equal(smMetrics.clip, smMetrics.rowNameClips, "小：コマの帯と行名がずれている");
+  assert.equal(smMetrics.camera, smMetrics.rowNameCamera, "小：Cameraの帯と行名がずれている");
+  assert.ok(smMetrics.cameraHeight < mdMetrics.cameraHeight, "小で行が低くなっていない");
+  // 以降の座標に基づくテストへ影響しないよう、既定の「中」へ戻しておく。
+  await page.locator("#rowSize").selectOption("md");
   // P2：fps目盛、選択範囲の表示、Cameraキーの追加/移動/削除とUndo。
   const ticks = await page.locator("#ruler .tick").allInnerTexts();
   assert.ok(ticks.length > 1, "ruler has no ticks");
@@ -909,6 +939,9 @@ try {
     ]),
     [200, 90, 60, 255],
   );
+  // A9：行の高さはlayoutと同じ仕組み（IndexedDbのmeta）で持つので、
+  // 再起動をまたいで保たれる。
+  await page.locator("#rowSize").selectOption("lg");
   // 自動保存と復旧：編集 → ブラウザ内保存 → 再起動 → 復旧で同じ内容へ戻る。
   const persisted = await page.evaluate(async () => {
     document.activeElement.blur();
@@ -960,6 +993,9 @@ try {
     ),
     paneWidth,
   );
+  // A9：再起動後も「大」のまま。以降のテストへ影響しないよう既定へ戻す。
+  assert.equal(await page.locator("#rowSize").inputValue(), "lg");
+  await page.locator("#rowSize").selectOption("md");
   // P4：500 Panelでもプレビューが返り、出力は途中で止められる。
   const paperStart = Date.now();
   await page.locator("#paper").click();

@@ -598,16 +598,43 @@ footer label {
   font-size: 10.5px;
 }
 /* 時間グラフの左に行名の列を置く。AEのレイヤー名の列にあたり、横スクロールしない。
-   行の上端はこのファイルのトラック位置（#clips/#cameraTrack/#audioTrack）と、
-   app.jsが音声レーンへ与える26px間隔に合わせている。片方だけ動かさない。 */
+   行の高さはここのカスタムプロパティ1か所にまとめてあり、.clip・#cameraTrack・
+   #audioTrackもrowNameの各行も同じ値（--off-*）から位置を出す（A9）。
+   app.jsはgetComputedStyleで--lane-hを読み、音声レーンの間隔をそろえる。 */
 #timeBody {
   display: flex;
   flex: 1;
   min-height: 0;
+  --row-ruler: 22px;
+  --row-clip: 52px;
+  --row-camera: 26px;
+  --row-audio: 24px;
+  --lane-h: 26px;
+  --gap-1: 6px;
+  --gap-2: 4px;
+  --off-clip: calc(var(--row-ruler) + var(--gap-1));
+  --off-camera: calc(var(--off-clip) + var(--row-clip) + var(--gap-1));
+  --off-audio: calc(var(--off-camera) + var(--row-camera) + var(--gap-2));
+}
+/* 行の高さ：小／中／大。timebarの#rowSizeで切り替え、layoutと同じ仕組みで保存する。 */
+#timeBody[data-row-size="sm"] {
+  --row-clip: 40px;
+  --row-camera: 20px;
+  --row-audio: 18px;
+  --lane-h: 20px;
+}
+#timeBody[data-row-size="lg"] {
+  --row-clip: 68px;
+  --row-camera: 34px;
+  --row-audio: 30px;
+  --lane-h: 34px;
 }
 #rowNames {
-  position: relative;
+  position: sticky;
+  left: 0;
+  top: 0;
   flex: 0 0 96px;
+  z-index: 3;
   background: #1f1f1f;
   border-right: 1px solid var(--line);
 }
@@ -615,38 +642,40 @@ footer label {
   position: absolute;
   left: 0;
   right: 0;
-  padding: 3px 8px;
-  font-size: 10.5px;
+  padding: 1px 7px;
+  font-size: 10px;
   color: var(--dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   border-bottom: 1px solid #262626;
+  background: #1a1a1acc;
+  pointer-events: none;
 }
 .rowName.ruler {
   top: 0;
-  height: 22px;
+  height: var(--row-ruler);
   background: #212121;
   border-bottom: 1px solid var(--line);
 }
 .rowName.clips {
-  top: 28px;
-  height: 52px;
+  top: var(--off-clip);
+  height: var(--row-clip);
   color: #c4c4c4;
 }
 .rowName.camera {
-  top: 86px;
-  height: 26px;
+  top: var(--off-camera);
+  height: var(--row-camera);
 }
 /* 音声のレーン名はapp.jsがトラック一覧から作る。位置は#audioTrackの中と同じ。 */
 #audioNames {
   position: absolute;
   left: 0;
   right: 0;
-  top: 116px;
+  top: var(--off-audio);
 }
 .rowName.audio {
-  height: 24px;
+  height: var(--row-audio);
 }
 #timeline {
   overflow: auto;
@@ -663,45 +692,19 @@ footer label {
   /* 行の区切りは左の行名の列と同じ位置。上の#rowNamesと対で直す。 */
   background-image: linear-gradient(
     to bottom,
-    transparent 0 28px,
-    #202020 28px 80px,
-    #191919 80px 86px,
-    #1f1f1f 86px 112px,
-    #191919 112px 116px,
-    #1d1d1d 116px 192px,
-    transparent 192px
+    transparent 0 var(--off-clip),
+    #202020 var(--off-clip) calc(var(--off-clip) + var(--row-clip)),
+    #191919 calc(var(--off-clip) + var(--row-clip)) var(--off-camera),
+    #1f1f1f var(--off-camera) calc(var(--off-camera) + var(--row-camera)),
+    #191919 calc(var(--off-camera) + var(--row-camera)) var(--off-audio),
+    #1d1d1d var(--off-audio) calc(var(--off-audio) + var(--lane-h) * 3),
+    transparent calc(var(--off-audio) + var(--lane-h) * 3)
   );
-}
-/* 行の名前は横スクロールしても左端に残す。AEのレイヤー名の列にあたる。 */
-#rowNames {
-  position: sticky;
-  left: 0;
-  top: 0;
-  width: 0;
-  height: 0;
-  z-index: 3;
-}
-.rowName {
-  position: absolute;
-  left: 0;
-  padding: 1px 7px;
-  font-size: 10px;
-  color: var(--dim);
-  background: #1a1a1acc;
-  border-right: 1px solid var(--line);
-  white-space: nowrap;
-  pointer-events: none;
-}
-.rowName.clips {
-  top: 30px;
-}
-.rowName.camera {
-  top: 90px;
 }
 #ruler {
   position: absolute;
   inset: 0 0 auto 0;
-  height: 22px;
+  height: var(--row-ruler);
   background: #212121;
   border-bottom: 1px solid var(--line);
 }
@@ -723,7 +726,7 @@ footer label {
 /* 選択範囲はAEのワークエリアのように上に薄く敷く。 */
 #band {
   position: absolute;
-  top: 22px;
+  top: var(--row-ruler);
   bottom: 0;
   background: #ffffff0d;
   border-left: 1px solid #ffffff26;
@@ -732,8 +735,8 @@ footer label {
 }
 .clip {
   position: absolute;
-  top: 28px;
-  height: 52px;
+  top: var(--off-clip);
+  height: var(--row-clip);
   white-space: nowrap;
   overflow: hidden;
   text-align: left;
@@ -754,8 +757,8 @@ footer label {
 /* 並べ替えの落とし先。コマの境界に立てる。 */
 .drop {
   position: absolute;
-  top: 24px;
-  height: 60px;
+  top: calc(var(--off-clip) - 4px);
+  height: calc(var(--row-clip) + 8px);
   width: 2px;
   margin-left: -1px;
   background: var(--accent-hi);
@@ -794,12 +797,12 @@ footer label {
   position: absolute;
   left: 0;
   right: 0;
-  top: 86px;
-  height: 26px;
+  top: var(--off-camera);
+  height: var(--row-camera);
 }
 .lane {
   position: absolute;
-  height: 26px;
+  height: var(--row-camera);
   border: 1px solid #383838;
   border-radius: 2px;
   background: #272727;
@@ -808,10 +811,10 @@ footer label {
   border-color: #4d4030;
   background: #2d2820;
 }
-/* キーフレームはAEと同じひし形。選択したものだけ明るくする。 */
+/* キーフレームはAEと同じひし形。選択したものだけ明るくする。行の高さに合わせて中央に置く。 */
 .camkey {
   position: absolute;
-  top: 7px;
+  top: calc((var(--row-camera) - 11px) / 2);
   width: 11px;
   height: 11px;
   margin-left: -5.5px;
@@ -829,21 +832,21 @@ footer label {
   position: absolute;
   left: 0;
   right: 0;
-  top: 116px;
-  height: 78px;
+  top: var(--off-audio);
+  height: calc(var(--lane-h) * 3);
 }
 .audiolane {
   position: absolute;
   left: 0;
   right: 0;
-  height: 24px;
+  height: var(--row-audio);
   border-top: 1px solid #2a2a2a;
 }
 
 .sound {
   position: absolute;
   top: 2px;
-  height: 20px;
+  height: calc(var(--row-audio) - 4px);
   border: 1px solid #46705f;
   background: #1f3831;
   border-radius: 2px;

@@ -410,21 +410,24 @@ function soundInspector(r) {
       : `${current.asset?.name} · ${sound.seconds(current.clip.assetId).toFixed(2)}秒の素材`;
 }
 // 音声レーン。波形は素材ごとに1度だけ計算し、クリップ幅に合わせて描く。
-// レーン名は横スクロールしない左の列へ置く。行の高さはここの26pxが基準で、
-// 名前の列も同じ間隔で並べる。
-const LANE_HEIGHT = 26;
+// レーン名は横スクロールしない左の列へ置く。行の高さはstyle.cssの--lane-hが
+// 基準で、名前の列も同じ間隔で並べる。行の高さ切り替え（A9）で変わる。
+const laneHeight = () =>
+  parseFloat(getComputedStyle($("timeBody")).getPropertyValue("--lane-h")) ||
+  26;
 function audioTrack(px, left, width) {
   const node = $("audioTrack");
   const names = $("audioNames");
+  const height = laneHeight();
   node.replaceChildren();
   names.replaceChildren();
   audio.AUDIO_TRACK_ORDER.forEach((track, index) => {
     const lane = document.createElement("div");
     lane.className = "audiolane";
-    lane.style.top = `${index * LANE_HEIGHT}px`;
+    lane.style.top = `${index * height}px`;
     const name = document.createElement("div");
     name.className = "rowName audio";
-    name.style.top = `${index * LANE_HEIGHT}px`;
+    name.style.top = `${index * height}px`;
     name.textContent = audio.TRACK_LABEL[track];
     names.append(name);
     for (const item of audio.clipsInRange(
@@ -2153,7 +2156,8 @@ $("animaticStart").onclick = async () => {
 };
 // ペインの幅/高さ。ドラッグで変え、次回の起動でも同じ配置で開く。
 // Timelineの初期高さは目盛・Panel・Camera・音声の4段が全部見える値にする。
-const layout = { tree: 220, inspector: 260, timeline: 270 };
+// rowSizeはProjectではなくlayoutの一部（表示状態）として持つ（A9）。
+const layout = { tree: 220, inspector: 260, timeline: 270, rowSize: "md" };
 const limits = {
   tree: [140, 480],
   inspector: [180, 520],
@@ -2161,8 +2165,17 @@ const limits = {
 };
 function applyLayout() {
   for (const [key, value] of Object.entries(layout))
-    document.documentElement.style.setProperty(`--${key}`, `${value}px`);
+    if (key !== "rowSize")
+      document.documentElement.style.setProperty(`--${key}`, `${value}px`);
+  $("timeBody").dataset.rowSize = layout.rowSize;
+  $("rowSize").value = layout.rowSize;
 }
+$("rowSize").onchange = () => {
+  layout.rowSize = $("rowSize").value;
+  applyLayout();
+  timeline();
+  if (persistence) repo.setLayout({ ...layout }).catch(() => {});
+};
 for (const [id, key, axis, sign] of [
   ["splitTree", "tree", "x", 1],
   ["splitInspector", "inspector", "x", -1],
