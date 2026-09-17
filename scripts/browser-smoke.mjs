@@ -167,6 +167,62 @@ try {
   assert.equal(await page.locator("nav").isVisible(), true, "戻ってもnavが見えない");
   await page.locator("#paper").click();
   assert.equal(await page.locator("#pages canvas").count(), 1);
+  // D3：紙面プリセット。組み込みを選ぶと即座に用紙設定へ反映され、保存した分は
+  // Dialogを閉じて開き直しても一覧に残る。
+  const beforePreset = await page.evaluate(() => {
+    const c = document.querySelector("#pages canvas");
+    return [c.width, c.height];
+  });
+  await page.locator("#paperPreset").selectOption("builtin:簡易一覧");
+  await page.waitForFunction(
+    (before) => {
+      const c = document.querySelector("#pages canvas");
+      return c.width !== before[0] || c.height !== before[1];
+    },
+    beforePreset,
+  );
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const c = document.querySelector("#pages canvas");
+      return [c.width, c.height];
+    }),
+    [2480, 1754],
+    "プリセット選択で用紙寸法が変わっていない（簡易一覧はA3横）",
+  );
+  await page.evaluate(() => {
+    window.prompt = () => "私のプリセット";
+  });
+  await page.locator("#paperPresetSave").click();
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("#paperPreset option")].some(
+      (o) => o.value === "custom:私のプリセット",
+    ),
+  );
+  await page.locator("#closePaper").click();
+  await page.locator("#paper").click();
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("#paperPreset option")].some(
+      (o) => o.value === "custom:私のプリセット",
+    ),
+  );
+  await page.locator("#paperPreset").selectOption("custom:私のプリセット");
+  assert.equal(
+    await page.locator("#paperPresetDelete").isDisabled(),
+    false,
+    "保存したプリセットを選んでも削除ボタンが有効にならない",
+  );
+  await page.locator("#paperPresetDelete").click();
+  await page.waitForFunction(
+    () =>
+      ![...document.querySelectorAll("#paperPreset option")].some(
+        (o) => o.value === "custom:私のプリセット",
+      ),
+  );
+  await page.locator("#paperPreset").selectOption("builtin:標準");
+  await page.waitForFunction(() => {
+    const c = document.querySelector("#pages canvas");
+    return c.width === 1240 && c.height === 1754;
+  });
   assert.equal(await page.locator("#print").isDisabled(), false);
   const png = page.waitForEvent("download");
   await page.locator("#png").click();

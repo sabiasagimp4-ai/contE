@@ -7,6 +7,54 @@ import {
 import { resolveClips, soundNotes, soundText } from "./audio.js";
 import { draw } from "./drawing.js";
 export const defaults = paperDefaults;
+// よく使う組み合わせを名前で呼び出せるようにする（D3）。header/footerは文書ごとの
+// テキストなのでプリセットには含めない。ユーザーが保存した分はrepositoryのmeta
+// ストアへ別に持つ。
+export const PAPER_PRESETS = [
+  {
+    name: "標準",
+    size: "A4",
+    orientation: "portrait",
+    rows: 4,
+    margin: 45,
+    font: 18,
+    columns: [
+      { key: "cut", width: 10 },
+      { key: "image", width: 40 },
+      { key: "dialogue", width: 18 },
+      { key: "sound", width: 16 },
+      { key: "notes", width: 16 },
+    ],
+  },
+  {
+    name: "台詞多め",
+    size: "A4",
+    orientation: "portrait",
+    rows: 3,
+    margin: 45,
+    font: 20,
+    columns: [
+      { key: "cut", width: 8 },
+      { key: "image", width: 28 },
+      { key: "dialogue", width: 34 },
+      { key: "sound", width: 15 },
+      { key: "notes", width: 15 },
+    ],
+  },
+  {
+    name: "簡易一覧",
+    size: "A3",
+    orientation: "landscape",
+    rows: 6,
+    margin: 30,
+    font: 14,
+    columns: [
+      { key: "cut", width: 10 },
+      { key: "image", width: 55 },
+      { key: "dialogue", width: 35 },
+    ],
+  },
+];
 export const COLUMN_LABEL = {
   cut: "CUT",
   image: "コンテ",

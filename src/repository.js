@@ -115,6 +115,14 @@ export class ProjectRepository {
   async setLayout(layout) {
     await this.storage.put("meta", "layout", layout);
   }
+  // 紙面プリセット（D3）。組み込み分はコード側の定数が持つので、ここではユーザーが
+  // 保存した分だけを持つ。Projectには入れず、layoutと同じmetaストアに置く。
+  async getPaperPresets() {
+    return (await this.storage.get("meta", "paperPresets")) ?? [];
+  }
+  async setPaperPresets(presets) {
+    await this.storage.put("meta", "paperPresets", presets);
+  }
   async putAsset(id, blob) {
     await this.storage.put("assets", id, blob);
   }

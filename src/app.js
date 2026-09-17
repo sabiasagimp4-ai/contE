@@ -12,7 +12,13 @@ import {
   PAPER_COLUMNS,
 } from "./model.js";
 import { draw, cameraFrame } from "./drawing.js";
-import { layoutPages, renderPage, download, COLUMN_LABEL } from "./paper.js";
+import {
+  layoutPages,
+  renderPage,
+  download,
+  COLUMN_LABEL,
+  PAPER_PRESETS,
+} from "./paper.js";
 import {
   forEachPage,
   Job,
@@ -2112,6 +2118,79 @@ function columnSettings() {
   }
   scrubAll(list);
 }
+// 紙面プリセット（D3）。組み込み分はpaper.jsの定数、保存した分はrepoのmetaストア。
+// header/footerや尺・階層番号・Camera作画の表示は文書ごとの選択なので含めない。
+async function renderPaperPresets() {
+  const select = $("paperPreset");
+  const custom = persistence ? await repo.getPaperPresets().catch(() => []) : [];
+  select.replaceChildren(
+    new Option("選択…", ""),
+    ...PAPER_PRESETS.map((p) => new Option(p.name, `builtin:${p.name}`)),
+    ...custom.map((p) => new Option(`${p.name}（保存済み）`, `custom:${p.name}`)),
+  );
+  $("paperPresetDelete").disabled = true;
+}
+function applyPaperPreset(preset) {
+  paperEdit((paper) => {
+    paper.size = preset.size;
+    paper.orientation = preset.orientation;
+    paper.rows = preset.rows;
+    paper.margin = preset.margin;
+    paper.font = preset.font;
+    paper.columns = preset.columns.map((c) => ({ ...c }));
+  });
+  paperSettings();
+}
+$("paperPreset").onchange = async () => {
+  const value = $("paperPreset").value;
+  $("paperPresetDelete").disabled = !value.startsWith("custom:");
+  if (value.startsWith("builtin:")) {
+    const preset = PAPER_PRESETS.find((p) => p.name === value.slice(8));
+    if (preset) applyPaperPreset(preset);
+  } else if (value.startsWith("custom:")) {
+    const name = value.slice(7);
+    const preset = (await repo.getPaperPresets().catch(() => [])).find(
+      (p) => p.name === name,
+    );
+    if (preset) applyPaperPreset(preset);
+  }
+};
+$("paperPresetSave").onclick = async () => {
+  if (!persistence)
+    return notice("プリセットを保存できません（ブラウザ内保存が使えません）");
+  const name = prompt("プリセット名")?.trim();
+  if (!name) return;
+  const o = paper();
+  const preset = {
+    name,
+    size: o.size,
+    orientation: o.orientation,
+    rows: o.rows,
+    margin: o.margin,
+    font: o.font,
+    columns: o.columns.map((c) => ({ ...c })),
+  };
+  const list = (await repo.getPaperPresets().catch(() => [])).filter(
+    (p) => p.name !== name,
+  );
+  list.push(preset);
+  await repo.setPaperPresets(list);
+  await renderPaperPresets();
+  $("paperPreset").value = `custom:${name}`;
+  $("paperPresetDelete").disabled = false;
+  notice(`プリセット「${name}」を保存しました`);
+};
+$("paperPresetDelete").onclick = async () => {
+  const value = $("paperPreset").value;
+  if (!value.startsWith("custom:")) return;
+  const name = value.slice(7);
+  const list = (await repo.getPaperPresets().catch(() => [])).filter(
+    (p) => p.name !== name,
+  );
+  await repo.setPaperPresets(list);
+  await renderPaperPresets();
+  notice(`プリセット「${name}」を削除しました`);
+};
 let pageIndex = 0,
   pages = [],
   job = null;
@@ -2227,6 +2306,7 @@ $("paper").onclick = async () => {
   $("paperDialog").showModal();
   await ensureImages(store.p);
   paperSettings();
+  renderPaperPresets();
   preview();
 };
 $("closePaper").onclick = () => {

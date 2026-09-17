@@ -155,6 +155,23 @@ test("list() orders snapshots newest-first and keeps broken ones without deletin
   // 読めない世代も一覧からは消えない（B9: 履歴一覧で灰色表示するため）。
   assert.ok((await storage.keys("snapshots")).includes(second.id));
 });
+test("paper presets round-trip through the meta store and default to empty (D3)", async () => {
+  const { repo } = repository();
+  assert.deepEqual(await repo.getPaperPresets(), []);
+  const presets = [
+    {
+      name: "自分用",
+      size: "A4",
+      orientation: "portrait",
+      rows: 5,
+      margin: 40,
+      font: 16,
+      columns: [{ key: "cut", width: 10 }],
+    },
+  ];
+  await repo.setPaperPresets(presets);
+  assert.deepEqual(await repo.getPaperPresets(), presets);
+});
 test("dismissing a recovery candidate keeps its data", async () => {
   const { repo } = repository();
   const meta = await repo.save(project());
