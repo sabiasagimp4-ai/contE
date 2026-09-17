@@ -256,6 +256,14 @@ nav {
 nav button {
   padding: 3px 10px;
 }
+nav label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 2px;
+  font-size: 11px;
+  color: var(--dim);
+}
 #savestate {
   margin-left: auto;
   color: var(--dim);

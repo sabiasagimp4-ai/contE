@@ -60,6 +60,8 @@ let cameraKeys = new Set([0]);
 const primaryCameraKey = () => Math.min(...cameraKeys);
 // 目標尺（秒）。実行時の入力で、Projectにもlayoutにも保存しない（B1）。
 let targetSeconds = null;
+// ループ再生（B3）。表示状態でありProjectにもlayoutにも保存しない。
+let loop = false;
 const sound = new AudioEngine();
 let clipId = null,
   resolved = [];
@@ -1223,6 +1225,17 @@ for (const id of ["cx", "cy", "cz", "cr"])
       paint();
     },
   });
+// 再生範囲（B3）。複数Panelを選択していればその範囲を再生する。それ以外は
+// ループのときだけ現在のShot全体、通常はこれまで通り現在位置から末尾まで。
+function playRange() {
+  const span = tl.selectionRange(rows, store.selection.ids);
+  if (span && span.panels > 1) return { from: span.start, to: span.end };
+  if (loop) {
+    const shotRows = rows.filter((r) => r.shot.id === current().shot.id);
+    return { from: shotRows[0].start, to: shotRows.at(-1).end };
+  }
+  return { from: frame >= endFrame() ? 0 : Math.round(frame), to: endFrame() };
+}
 $("play").onclick = () => {
   if (playing) {
     stop();
@@ -1230,30 +1243,37 @@ $("play").onclick = () => {
   }
   playing = true;
   $("play").textContent = "■ 停止";
-  if (frame >= endFrame()) frame = 0;
-  const start = performance.now(),
-    base = Math.round(frame);
-  frame = base;
-  // 音があるときは音声時計を基準にする。無いときだけ表示用の時計を使う。
-  const schedule = audio.scheduleFor(resolved, base, store.p.fps, endFrame());
-  if (schedule.length) sound.play(schedule, base, store.p.fps);
-  const tick = (now) => {
-    frame =
-      sound.frameAt(store.p.fps) ??
-      frameAtTime(base, start, now, store.p.fps, endFrame());
-    frame = Math.max(base, Math.min(endFrame(), frame));
-    if (frame >= endFrame()) {
-      frame = endFrame();
-      stop();
-    }
-    paint(true);
-    if ($("followHead").checked) {
-      const view = $("timeline");
-      view.scrollLeft = tl.follow(frame, scale(), view.scrollLeft, viewport());
-    }
-    if (playing) raf = requestAnimationFrame(tick);
+  const { from, to } = playRange();
+  const playFrom = (base) => {
+    frame = base;
+    const start = performance.now();
+    // 音があるときは音声時計を基準にする。無いときだけ表示用の時計を使う。
+    const schedule = audio.scheduleFor(resolved, base, store.p.fps, to);
+    if (schedule.length) sound.play(schedule, base, store.p.fps);
+    const tick = (now) => {
+      frame =
+        sound.frameAt(store.p.fps) ?? frameAtTime(base, start, now, store.p.fps, to);
+      frame = Math.max(base, Math.min(to, frame));
+      const reachedEnd = frame >= to;
+      if (reachedEnd) frame = to;
+      paint(true);
+      if ($("followHead").checked) {
+        const view = $("timeline");
+        view.scrollLeft = tl.follow(frame, scale(), view.scrollLeft, viewport());
+      }
+      if (reachedEnd) {
+        if (loop) playFrom(from);
+        else stop();
+        return;
+      }
+      if (playing) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
   };
-  raf = requestAnimationFrame(tick);
+  playFrom(from);
+};
+$("loop").onchange = () => {
+  loop = $("loop").checked;
 };
 function zoomTo(index, anchorFrame = frame) {
   const previous = scale();

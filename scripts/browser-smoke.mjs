@@ -733,6 +733,26 @@ try {
     Math.abs(sync.driftFrames) < 12,
     `audio clock drifted ${sync.driftFrames} frames in ${sync.seconds}s`,
   );
+  // B3：範囲再生・Shotループ。複数Panelを選んでからループを付けると、その
+  // 範囲だけを再生して先頭へ戻り続ける（=ループしていなければ範囲の終わりで
+  // 止まるはずの時間を過ぎても再生を続けている）。
+  await page.locator('[data-tab="structure"]').click();
+  await page.locator("#strip button").first().click();
+  await page.locator("#strip button").nth(1).click({ modifiers: ["Shift"] });
+  assert.match(await page.locator("#range").innerText(), /選択 2 Panel/);
+  await page.locator("#loop").check();
+  const loopResult = await page.evaluate(async () => {
+    document.querySelector("#play").click();
+    await new Promise((r) => setTimeout(r, 6000));
+    const stillPlaying = document
+      .querySelector("#play")
+      .textContent.includes("停止");
+    document.querySelector("#play").click();
+    return { stillPlaying };
+  });
+  assert.equal(loopResult.stillPlaying, true, "ループが効かず途中で止まってしまった");
+  await page.locator("#loop").uncheck();
+  await page.locator("#strip button").first().click();
   // P5：Animatic出力。フレーム厳密なPNG連番と、音つきWebMの実録画。
   await page.locator("#animatic").click();
   const animaticInfo = await page.locator("#animaticInfo").innerText();
