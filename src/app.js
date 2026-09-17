@@ -23,6 +23,7 @@ import {
 } from "./exporter.js";
 import * as animatic from "./animatic.js";
 import * as tl from "./timeline.js";
+import * as duration from "./derived/duration.js";
 import * as audio from "./audio.js";
 import { AudioEngine } from "./audio.js";
 import { ProjectRepository, Autosaver } from "./repository.js";
@@ -56,6 +57,8 @@ let store = editor.store,
 // Projectにもlayoutにも保存しない。常に1つ以上を持つ。
 let cameraKeys = new Set([0]);
 const primaryCameraKey = () => Math.min(...cameraKeys);
+// 目標尺（秒）。実行時の入力で、Projectにもlayoutにも保存しない（B1）。
+let targetSeconds = null;
 const sound = new AudioEngine();
 let clipId = null,
   resolved = [];
@@ -351,8 +354,31 @@ function render() {
   else markStrip();
   painted = { project: store.p, shotId: r.shot.id };
   timeline();
+  durationInfo();
   paint();
   reveal();
+}
+// 総尺・目標尺との差・Shotごとの内訳（B1）。目標尺は保存しない実行時の値。
+function durationInfo() {
+  const s = duration.summary(store.p, rows);
+  let text = `合計 ${s.frames}f / ${s.seconds.toFixed(2)}s`;
+  if (targetSeconds !== null && targetSeconds > 0) {
+    const gap = duration.gapTo(targetSeconds, s.frames, store.p.fps);
+    text += gap.frames === 0
+      ? "（目標ちょうど）"
+      : `（目標${gap.frames > 0 ? "+" : ""}${gap.seconds.toFixed(2)}s）`;
+  }
+  $("durationSummary").textContent = text;
+  const names = new Map();
+  for (const sc of store.p.scenes)
+    sc.shots.forEach((h, hi) => names.set(h.id, `${sc.name} / ${h.name || `Shot ${hi + 1}`}`));
+  $("shotBreakdown").replaceChildren(
+    ...duration.byShot(store.p, rows).map((entry) => {
+      const line = document.createElement("div");
+      line.textContent = `${names.get(entry.shotId)} : ${entry.frames}f / ${entry.seconds.toFixed(2)}s · ${entry.panels} Panel`;
+      return line;
+    }),
+  );
 }
 function cameraInspector(r) {
   const keys = r.panel.camera;
@@ -2268,6 +2294,12 @@ $("rowSize").onchange = () => {
   applyLayout();
   timeline();
   if (persistence) repo.setLayout({ ...layout }).catch(() => {});
+};
+// 目標尺は表示だけの値。Projectにもlayoutにも保存しない（B1）。
+$("targetSeconds").onchange = () => {
+  const v = Number($("targetSeconds").value);
+  targetSeconds = $("targetSeconds").value === "" || !Number.isFinite(v) ? null : v;
+  durationInfo();
 };
 for (const [id, key, axis, sign] of [
   ["splitTree", "tree", "x", 1],

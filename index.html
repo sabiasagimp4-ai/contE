@@ -173,6 +173,7 @@
           ><button data-act="right">後ろへ移動</button
           ><button data-act="delete">選択Panelを削除</button
           ><button data-act="scene">Scene追加</button>
+          <div id="shotBreakdown" class="hint"></div>
         </div>
       </section>
     </main>
@@ -204,7 +205,16 @@
             <option value="sm">小</option>
             <option value="md" selected>中</option>
             <option value="lg">大</option></select
-        ></label>
+        ></label
+        ><output id="durationSummary"></output
+        ><label class="inline"
+          >目標<input
+            id="targetSeconds"
+            type="number"
+            min="0"
+            step="0.1"
+            placeholder="秒"
+        /></label>
       </div>
       <div id="timeBody">
         <div id="rowNames" aria-hidden="true">

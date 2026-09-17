@@ -581,6 +581,16 @@ footer label {
 #zoom {
   width: 120px;
 }
+/* 総尺と目標尺との差（B1）。#time/#rangeと同じ調子でTimelineのバーに出す。 */
+#durationSummary {
+  padding: 0 8px;
+  font-size: 10.5px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+#targetSeconds {
+  width: 56px;
+}
 /* 現在時刻はAEと同じくタイムラインの左上に置く。 */
 #time {
   padding: 0 8px;
