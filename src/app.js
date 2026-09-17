@@ -35,6 +35,7 @@ import * as duration from "./derived/duration.js";
 import { searchPanels } from "./derived/search.js";
 import * as audio from "./audio.js";
 import { AudioEngine } from "./audio.js";
+import * as markers from "./markers.js";
 import { ProjectRepository, Autosaver } from "./repository.js";
 import { buildShareHtml } from "./share.js";
 import { IndexedDbStorage, MemoryStorage } from "./storage.js";
@@ -77,7 +78,9 @@ let loop = false;
 let cameraClipboard = null;
 const sound = new AudioEngine();
 let clipId = null,
-  resolved = [];
+  markerId = null,
+  resolved = [],
+  resolvedMarkers = [];
 const scale = () => tl.scaleAt(scaleIndex);
 const endFrame = () => tl.total(rows);
 const viewport = () => $("timeline").clientWidth || 900;
@@ -356,6 +359,7 @@ function render() {
   session.store.select(store.selection);
   store = editor.store;
   resolved = audio.resolveClips(store.p, rows);
+  resolvedMarkers = markers.resolveMarkers(store.p, rows);
   const r = current();
   const rebuilt = painted.project !== store.p;
   $("title").value = store.p.title;
@@ -379,6 +383,7 @@ function render() {
   labelInspector(r);
   cameraInspector(r);
   soundInspector(r);
+  markerInspector(r);
   if (rebuilt || painted.shotId !== r.shot.id) renderStrip(r);
   else markStrip();
   painted = { project: store.p, shotId: r.shot.id };
@@ -493,6 +498,27 @@ function soundInspector(r) {
     : missing
       ? `${current.asset?.name ?? "素材"} が見つかりません。差し替えると同じ位置で鳴ります。`
       : `${current.asset?.name} · ${sound.seconds(current.clip.assetId).toFixed(2)}秒の素材`;
+}
+// このPanelに立つマーカー（C1）。音声Clipと違い点なので、区間の重なりではなく
+// 開始位置で判定する（markersInRangeと同じ規則）。
+function markerInspector(r) {
+  const here = markers.markersInRange(resolvedMarkers, r.start, r.end);
+  if (!here.some((m) => m.marker.id === markerId))
+    markerId = here[0]?.marker.id ?? null;
+  $("markerList").replaceChildren(
+    ...here.map((m) => {
+      const option = document.createElement("option");
+      option.value = m.marker.id;
+      option.selected = m.marker.id === markerId;
+      option.textContent = `${m.start}f · ${m.marker.text || "（本文なし）"}`;
+      return option;
+    }),
+  );
+  const current = here.find((m) => m.marker.id === markerId);
+  $("markerText").value = current?.marker.text ?? "";
+  $("markerColor").value = current?.marker.color ?? "#ffcc00";
+  for (const id of ["markerText", "markerColor", "markerDelete"])
+    $(id).disabled = !current;
 }
 // 音声レーン。波形は素材ごとに1度だけ計算し、クリップ幅に合わせて描く。
 // レーン名は横スクロールしない左の列へ置く。行の高さはstyle.cssの--lane-hが
@@ -644,6 +670,60 @@ function startClipTrim(e, item, trim, el, px) {
   trim.onpointerup = (v) => finish(v, true);
   trim.onpointercancel = (v) => finish(v, false);
 }
+// マーカーの行（C1）。音声Clipと同じ絶対フレーム換算だが、長さを持たない点なので
+// ドラッグは位置の付け替え（moveMarker）だけで、トリムは無い。
+function markerTrack(px, left, width) {
+  const node = $("markerTrack");
+  node.replaceChildren();
+  for (const item of markers.markersInRange(
+    resolvedMarkers,
+    (left - width) / px,
+    (left + width * 2) / px,
+  ))
+    node.append(markerFlag(item, px));
+}
+function markerFlag(item, px) {
+  const el = document.createElement("div");
+  el.className = `marker${item.marker.id === markerId ? " selected" : ""}`;
+  el.style.left = `${item.start * px}px`;
+  el.style.setProperty("--marker-color", item.marker.color);
+  el.title = `${item.start}f · ${item.marker.text || "（本文なし）"}`;
+  el.onpointerdown = (e) => startMarkerDrag(e, item, el, px);
+  return el;
+}
+function startMarkerDrag(e, item, el, px) {
+  stop();
+  markerId = item.marker.id;
+  const origin = e.clientX,
+    start = item.start;
+  let moved = false;
+  el.setPointerCapture(e.pointerId);
+  const scroller = autoScroll($("timeline"));
+  const targets = snapCandidates();
+  const next = (v) => {
+    const raw = start + (v.clientX - origin) / px;
+    if (!targets.length) return Math.max(0, Math.round(raw));
+    const { value, hit } = tl.snapAt(raw, targets, px);
+    if (hit) showSnapline(value, px);
+    else hideSnapline();
+    return Math.max(0, value);
+  };
+  el.onpointermove = (v) => {
+    moved = true;
+    scroller.track(v.clientX);
+    el.style.left = `${next(v) * px}px`;
+  };
+  const finish = (v, commit) => {
+    el.onpointermove = el.onpointerup = el.onpointercancel = null;
+    scroller();
+    const startFrame = commit && moved ? next(v) : null;
+    hideSnapline();
+    if (startFrame === null) return render();
+    act("moveMarker", { markerId: item.marker.id, startFrame });
+  };
+  el.onpointerup = (v) => finish(v, true);
+  el.onpointercancel = (v) => finish(v, false);
+}
 // 選択が変わったときだけ視界へ入れる。ユーザーのスクロールを毎回奪わない。
 let revealed = null;
 function reveal() {
@@ -746,6 +826,7 @@ function timeline() {
   clips(px, left, width);
   cameraTrack(px, left, width);
   audioTrack(px, left, width);
+  markerTrack(px, left, width);
   const span = tl.selectionRange(rows, store.selection.ids);
   const band = $("band");
   band.style.left = `${span.start * px}px`;
@@ -1175,6 +1256,7 @@ const acts = {
       panels: clipboard.panels,
       assets: clipboard.assets,
       clips: clipboard.clips,
+      markers: clipboard.markers,
     });
     notice(`${clipboard.panels.length} Panelを貼り付けました`);
   },
@@ -1185,11 +1267,13 @@ function copyPanels() {
   const panels = rows.filter((r) => ids.has(r.panel.id)).map((r) => r.panel);
   if (!panels.length) return false;
   const clips = store.p.audio.filter((c) => ids.has(c.anchor));
+  const markerList = store.p.markers.filter((m) => ids.has(m.anchor));
   const used = new Set(panels.map((b) => b.image?.assetId).filter(Boolean));
   for (const clip of clips) used.add(clip.assetId);
   clipboard = {
     panels: panels.map((b) => structuredClone(b)),
     clips: clips.map((c) => structuredClone(c)),
+    markers: markerList.map((m) => structuredClone(m)),
     assets: store.p.assets
       .filter((asset) => used.has(asset.id))
       .map((asset) => structuredClone(asset)),
@@ -1829,6 +1913,29 @@ $("clipRepair").onclick = () => {
   };
   picker.click();
 };
+// マーカー（C1）：再生ヘッドの位置へ、そこを含むPanelを基準に追加する。
+// 音声と違い取込を伴わないので、Commandを直接呼ぶだけで済む。
+$("markerAdd").onclick = () => {
+  const at = Math.round(frame);
+  const host = rowAtFrame(rows, at);
+  const added = uid();
+  act(
+    "addMarker",
+    { markerId: added, anchor: host.panel.id, at: at - host.start, text: "", color: "#ffcc00" },
+    (result) => {
+      if (result.changed) markerId = added;
+    },
+  );
+};
+$("markerList").onchange = () => {
+  markerId = $("markerList").value;
+  render();
+};
+$("markerText").onchange = () =>
+  act("setMarkerField", { markerId, field: "text", value: $("markerText").value.slice(0, 200) });
+$("markerColor").onchange = () =>
+  act("setMarkerField", { markerId, field: "color", value: $("markerColor").value });
+$("markerDelete").onclick = () => act("deleteMarker", { markerId });
 for (const [id, key] of [
   ["sceneName", "renameScene"],
   ["shotName", "renameShot"],

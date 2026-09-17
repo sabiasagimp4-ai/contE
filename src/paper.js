@@ -5,6 +5,7 @@ import {
   paperDefaults,
 } from "./model.js";
 import { resolveClips, soundNotes, soundText } from "./audio.js";
+import { resolveMarkers, markerNotes, markerText } from "./markers.js";
 import { draw } from "./drawing.js";
 export const defaults = paperDefaults;
 // よく使う組み合わせを名前で呼び出せるようにする（D3）。header/footerは文書ごとの
@@ -62,6 +63,7 @@ export const COLUMN_LABEL = {
   sound: "SE / BGM",
   notes: "演出",
   camera: "Camera",
+  marker: "マーカー",
 };
 const font = (size, bold = false) =>
   `${bold ? "bold " : ""}${size}px "Noto Sans JP", sans-serif`;
@@ -99,7 +101,7 @@ export function wrapLines(text, width, measure) {
   }
   return lines;
 }
-export function columnText(p, all, clips, r, o, key) {
+export function columnText(p, all, clips, r, o, key, markersResolved) {
   switch (key) {
     case "cut": {
       const index = all.findIndex((v) => v.panel.id === r.panel.id) + 1;
@@ -130,6 +132,10 @@ export function columnText(p, all, clips, r, o, key) {
             .map((k) => `${Math.round(k.t * r.panel.frames)}f`)
             .join(" → ")}`;
     }
+    case "marker":
+      return markerText(
+        markerNotes(p, all, r, markersResolved ?? resolveMarkers(p, all)),
+      );
     default:
       return "";
   }
@@ -138,6 +144,7 @@ export function columnText(p, all, clips, r, o, key) {
 export function layoutPages(p, o, measure, rows = flatten(p)) {
   const geometry = pageGeometry(o);
   const clips = resolveClips(p, rows);
+  const markersResolved = resolveMarkers(p, rows);
   const lineHeight = o.font * 1.45;
   const pages = [];
   let page = [];
@@ -156,7 +163,7 @@ export function layoutPages(p, o, measure, rows = flatten(p)) {
         .map((c) => [
           c.key,
           wrapLines(
-            columnText(p, rows, clips, r, o, c.key),
+            columnText(p, rows, clips, r, o, c.key, markersResolved),
             c.width - 16,
             (text) => measure(text, o.font),
           ),

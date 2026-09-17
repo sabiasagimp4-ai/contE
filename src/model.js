@@ -58,6 +58,7 @@ export const PAPER_COLUMNS = [
   "sound",
   "notes",
   "camera",
+  "marker",
 ];
 export const paperDefaults = () => ({
   size: "A4",

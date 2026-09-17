@@ -112,6 +112,7 @@
           <button class="tab on" data-tab="content">内容</button
           ><button class="tab" data-tab="camera">Camera</button
           ><button class="tab" data-tab="sound">音</button
+          ><button class="tab" data-tab="marker">マーカー</button
           ><button class="tab" data-tab="structure">構成</button>
         </div>
         <div class="pane" data-pane="content">
@@ -201,6 +202,18 @@
             クリップは開始位置のPanelに属します。前のPanelの尺が変わると一緒に動き、Panelを削除すると音も消えます（Undoで戻ります）。
           </p>
         </div>
+        <div class="pane" data-pane="marker" hidden>
+          <button id="markerAdd">再生ヘッドにマーカー追加</button>
+          <label
+            >このPanelに立つマーカー<select id="markerList" size="4"></select
+          ></label>
+          <label>本文<textarea id="markerText"></textarea></label
+          ><label>色<input id="markerColor" type="color" value="#ffcc00" /></label>
+          <button id="markerDelete">選択マーカーを削除</button>
+          <p class="hint">
+            マーカーは開始位置のPanelに属します。前のPanelの尺が変わると一緒に動き、Panelを削除すると消えます（Undoで戻ります）。紙面書き出しにも注記として載ります。
+          </p>
+        </div>
         <div class="pane" data-pane="structure" hidden>
           <label>Scene名<input id="sceneName" /></label
           ><label>Shot名<input id="shotName" placeholder="未設定" /></label>
@@ -267,6 +280,7 @@
           <div class="rowName clips">コマ</div>
           <div class="rowName camera">Camera</div>
           <div id="audioNames"></div>
+          <div class="rowName marker">マーカー</div>
         </div>
         <div id="timeline">
           <div id="track">
@@ -275,6 +289,7 @@
             <div id="clips"></div>
             <div id="cameraTrack"></div>
             <div id="audioTrack"></div>
+            <div id="markerTrack"></div>
             <div id="snapline" hidden></div>
             <div id="head"></div>
           </div>

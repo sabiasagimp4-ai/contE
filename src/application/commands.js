@@ -19,6 +19,7 @@ import {
   uid,
 } from "../model.js";
 import * as audio from "../audio.js";
+import * as markers from "../markers.js";
 
 const rowOf = (p, id) => flatten(p).find((r) => r.panel.id === id);
 const panelOf = (p, id) => rowOf(p, id)?.panel;
@@ -39,7 +40,7 @@ export const commands = {
     return only(added.id);
   }),
   duplicatePanels: define(
-    ["structure", "timing", "audio"],
+    ["structure", "timing", "audio", "markers"],
     ({ ids, withAudio = false }) =>
       (p) => {
         const targets = new Set(ids);
@@ -52,10 +53,12 @@ export const commands = {
             return [b, added];
           });
         if (withAudio) audio.duplicateClipsFor(p, idMap);
+        // マーカーは注記なので、音と違い常にPanelの複製へ付いてくる。
+        markers.duplicateMarkersFor(p, idMap);
       },
   ),
   deletePanels: define(
-    ["structure", "timing", "audio"],
+    ["structure", "timing", "audio", "markers"],
     ({ ids }) =>
       (p) => {
         const targets = new Set(ids);
@@ -67,9 +70,10 @@ export const commands = {
           s.shots = s.shots.filter((h) => h.panels.length);
         }
         p.scenes = p.scenes.filter((s) => s.shots.length);
-        // 消えたPanelに付いていた音も一緒に消す。孤児のクリップを残さない。
+        // 消えたPanelに付いていた音・マーカーも一緒に消す。孤児を残さない。
         audio.pruneClips(p);
         audio.pruneAudioAssets(p);
+        markers.pruneMarkers(p);
       },
     ({ ids }) => ({ panelIds: ids }),
   ),
@@ -83,8 +87,8 @@ export const commands = {
   // 貼り付けはIDを振り直して複製する。参照している素材メタデータが今のProject
   // に無ければ一緒に持ち込む（原本はAsset IDで共有されるので中身は変わらない）。
   pastePanels: define(
-    ["structure", "timing", "assets", "audio"],
-    ({ afterId, panels, assets = [], clips = [] }) =>
+    ["structure", "timing", "assets", "audio", "markers"],
+    ({ afterId, panels, assets = [], clips = [], markers: markerList = [] }) =>
       (p) => {
         const r = rowOf(p, afterId) ?? flatten(p).at(-1);
         if (!r || !panels?.length) return;
@@ -109,6 +113,12 @@ export const commands = {
           const anchor = idMap.get(clip.anchor);
           if (!anchor || !known.has(clip.assetId)) continue;
           p.audio.push({ ...clip, id: uid(), anchor });
+        }
+        // マーカーは素材を参照しないので、貼り付けたPanelへそのまま付け替える。
+        for (const marker of markerList) {
+          const anchor = idMap.get(marker.anchor);
+          if (!anchor) continue;
+          p.markers.push({ ...marker, id: uid(), anchor });
         }
         return { active: added[0].id, ids: added.map((b) => b.id) };
       },
@@ -441,6 +451,27 @@ export const commands = {
     ({ asset }) => ({ assetIds: [asset.id] }),
   ),
 
+  // --- マーカー（C1） -------------------------------------------------------
+  addMarker: define(
+    ["markers"],
+    ({ markerId, anchor, at, text = "", color }) =>
+      (p) => {
+        markers.addMarker(p, { id: markerId, anchor, at, text, color });
+        return only(anchor);
+      },
+    ({ anchor }) => ({ panelIds: [anchor] }),
+  ),
+  setMarkerField: define(["markers"], ({ markerId, field, value }) => (p) => {
+    const marker = p.markers.find((m) => m.id === markerId);
+    if (marker) marker[field] = value;
+  }),
+  moveMarker: define(["markers"], ({ markerId, startFrame }) => (p) => {
+    markers.moveMarker(p, flatten(p), markerId, startFrame);
+  }),
+  deleteMarker: define(["markers"], ({ markerId }) => (p) => {
+    markers.removeMarkers(p, [markerId]);
+  }),
+
   // --- 紙面 ---------------------------------------------------------------
   updatePaper: define(["paper"], ({ change }) => (p) => change(p.paper)),
 };
@@ -489,6 +520,10 @@ export const commandLabels = {
   trimClip: "音クリップの尺の変更",
   deleteClip: "音クリップの削除",
   replaceClipAsset: "音の差し替え",
+  addMarker: "マーカーの追加",
+  setMarkerField: "マーカーの変更",
+  moveMarker: "マーカーの移動",
+  deleteMarker: "マーカーの削除",
   updatePaper: "紙面設定の変更",
 };
 export function labelOf(kind) {

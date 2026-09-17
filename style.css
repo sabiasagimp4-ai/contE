@@ -679,24 +679,28 @@ footer label {
   --row-clip: 52px;
   --row-camera: 26px;
   --row-audio: 24px;
+  --row-marker: 18px;
   --lane-h: 26px;
   --gap-1: 6px;
   --gap-2: 4px;
   --off-clip: calc(var(--row-ruler) + var(--gap-1));
   --off-camera: calc(var(--off-clip) + var(--row-clip) + var(--gap-1));
   --off-audio: calc(var(--off-camera) + var(--row-camera) + var(--gap-2));
+  --off-marker: calc(var(--off-audio) + var(--lane-h) * 3 + var(--gap-2));
 }
 /* 行の高さ：小／中／大。timebarの#rowSizeで切り替え、layoutと同じ仕組みで保存する。 */
 #timeBody[data-row-size="sm"] {
   --row-clip: 40px;
   --row-camera: 20px;
   --row-audio: 18px;
+  --row-marker: 14px;
   --lane-h: 20px;
 }
 #timeBody[data-row-size="lg"] {
   --row-clip: 68px;
   --row-camera: 34px;
   --row-audio: 30px;
+  --row-marker: 22px;
   --lane-h: 34px;
 }
 #rowNames {
@@ -747,6 +751,10 @@ footer label {
 .rowName.audio {
   height: var(--row-audio);
 }
+.rowName.marker {
+  top: var(--off-marker);
+  height: var(--row-marker);
+}
 #timeline {
   overflow: auto;
   flex: 1;
@@ -768,7 +776,9 @@ footer label {
     #1f1f1f var(--off-camera) calc(var(--off-camera) + var(--row-camera)),
     #191919 calc(var(--off-camera) + var(--row-camera)) var(--off-audio),
     #1d1d1d var(--off-audio) calc(var(--off-audio) + var(--lane-h) * 3),
-    transparent calc(var(--off-audio) + var(--lane-h) * 3)
+    #191919 calc(var(--off-audio) + var(--lane-h) * 3) var(--off-marker),
+    #241f16 var(--off-marker) calc(var(--off-marker) + var(--row-marker)),
+    transparent calc(var(--off-marker) + var(--row-marker))
   );
 }
 #ruler {
@@ -924,6 +934,31 @@ footer label {
   right: 0;
   height: var(--row-audio);
   border-top: 1px solid #2a2a2a;
+}
+#markerTrack {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--off-marker);
+  height: var(--row-marker);
+}
+/* マーカーは長さを持たない一点なので、旗のような三角形で位置だけを示す（C1）。 */
+.marker {
+  position: absolute;
+  top: 1px;
+  width: 0;
+  height: 0;
+  margin-left: -6px;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 9px solid var(--marker-color, #ffcc00);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.marker.selected {
+  filter: brightness(1.5);
+  outline: 1px solid #fff;
+  outline-offset: 1px;
 }
 
 .sound {

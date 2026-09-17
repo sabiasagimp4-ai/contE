@@ -1337,6 +1337,41 @@ try {
   await page.waitForFunction(() =>
     document.querySelector("#tree .panel.selected")?.classList.contains("labeled"),
   );
+  // C1：マーカー。再生ヘッドの位置へ追加し、Timelineの旗・Inspectorの一覧・
+  // 紙面の注記列まで反映されることを確認する。
+  await page.locator('[data-tab="marker"]').click();
+  await page.locator("#markerAdd").click();
+  await page.waitForFunction(
+    () => document.querySelectorAll("#markerTrack .marker").length === 1,
+  );
+  await page.locator("#markerText").fill("作画注意：手の作画に注意");
+  await page.locator("#markerText").blur();
+  await page.evaluate(() => {
+    const el = document.querySelector("#markerColor");
+    el.value = "#00ff00";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForFunction(() =>
+    document.querySelector("#markerTrack .marker")?.title.includes("作画注意"),
+  );
+  assert.equal(
+    await page.locator("#markerList option").count(),
+    1,
+    "マーカー一覧に反映されていない",
+  );
+  // 紙面にも注記の列として追加できる（列を有効にしてもエラーにならないこと）。
+  await page.locator("#paper").click();
+  await page
+    .locator("#paperColumns .column", { hasText: "マーカー" })
+    .locator('input[type="checkbox"]')
+    .click();
+  await page.waitForFunction(() => document.querySelectorAll("#pages canvas").length > 0);
+  await page.locator("#closePaper").click();
+  await page.locator("#markerDelete").click();
+  await page.waitForFunction(
+    () => document.querySelectorAll("#markerTrack .marker").length === 0,
+  );
+  await page.locator('[data-tab="content"]').click();
   // A9：行の高さはlayoutと同じ仕組み（IndexedDbのmeta）で持つので、
   // 再起動をまたいで保たれる。
   await page.locator("#rowSize").selectOption("lg");

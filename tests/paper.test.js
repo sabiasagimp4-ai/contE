@@ -24,6 +24,7 @@ import {
   setCameraKey,
 } from "../src/model.js";
 import { addClip } from "../src/audio.js";
+import { addMarker } from "../src/markers.js";
 // 1文字の幅をフォントサイズの0.6倍と見なす簡易計測。実ブラウザの代わりに使う。
 const measure = (text, size = 18) => [...text].length * size * 0.6;
 const settings = (over = {}) => ({ ...paperDefaults(), ...over });
@@ -134,6 +135,20 @@ test("column text reports numbers, duration, sound and camera consistently", () 
     ),
     "CUT 1",
   );
+});
+// C1：紙面への注記。markを渡さなければ内部で計算するので、既存の呼び出し
+// （clips/marksを省略する呼び方）とも両立する。
+test("column text reports markers landing on the row (C1)", () => {
+  const p = project();
+  const rows = flatten(p);
+  addMarker(p, { anchor: rows[0].panel.id, at: 3, text: "作画注意", color: "#f00" });
+  addMarker(p, { anchor: rows[0].panel.id, at: 5, text: "背景差し替え", color: "#0f0" });
+  validate(p);
+  assert.equal(
+    columnText(p, rows, undefined, rows[0], settings(), "marker"),
+    "▶ 作画注意\n▶ 背景差し替え",
+  );
+  assert.equal(COLUMN_LABEL.marker, "マーカー");
 });
 test("export runs page by page, reports progress and stops when cancelled", async () => {
   const seen = [];

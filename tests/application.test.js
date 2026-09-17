@@ -680,6 +680,105 @@ test("pasting drops clips whose asset it cannot carry, same rule as images (B10)
   assert.equal(controller.project.audio.length, 0);
 });
 
+// C1：マーカー。音声Clipと同じanchor+atだが、長さを持たない一点の注記。
+test("addMarker places a marker anchored to the given panel", () => {
+  const { controller } = controllerWith();
+  const anchor = controller.activeId;
+  const result = controller.execute("addMarker", {
+    markerId: "m1",
+    anchor,
+    at: 3,
+    text: "作画注意",
+    color: "#ff0000",
+  });
+  assert.equal(result.changed, true);
+  assert.equal(controller.project.markers.length, 1);
+  assert.deepEqual(controller.project.markers[0], {
+    id: "m1",
+    anchor,
+    at: 3,
+    text: "作画注意",
+    color: "#ff0000",
+  });
+});
+
+test("setMarkerField edits text and color; moveMarker re-anchors it", () => {
+  const store = new Store();
+  store.edit((p) => p.scenes[0].shots[0].panels.push(panel()));
+  const { controller } = controllerWith(store);
+  const [first, second] = ids(controller);
+  controller.execute("addMarker", { markerId: "m1", anchor: first, at: 0, text: "", color: "#000" });
+
+  controller.execute("setMarkerField", { markerId: "m1", field: "text", value: "台詞タイミング注意" });
+  controller.execute("setMarkerField", { markerId: "m1", field: "color", value: "#00ff00" });
+  const edited = controller.project.markers[0];
+  assert.equal(edited.text, "台詞タイミング注意");
+  assert.equal(edited.color, "#00ff00");
+
+  const firstFrames = controller.project.scenes[0].shots[0].panels[0].frames;
+  controller.execute("moveMarker", { markerId: "m1", startFrame: firstFrames + 2 });
+  const moved = controller.project.markers[0];
+  assert.equal(moved.anchor, second);
+  assert.equal(moved.at, 2);
+});
+
+test("deleteMarker removes only the targeted marker", () => {
+  const { controller } = controllerWith();
+  const anchor = controller.activeId;
+  controller.execute("addMarker", { markerId: "m1", anchor, at: 0, text: "a", color: "#000" });
+  controller.execute("addMarker", { markerId: "m2", anchor, at: 1, text: "b", color: "#000" });
+  controller.execute("deleteMarker", { markerId: "m1" });
+  assert.deepEqual(controller.project.markers.map((m) => m.id), ["m2"]);
+});
+
+test("duplicatePanels always carries markers onto the copy, unlike audio which needs withAudio (C1)", () => {
+  const { controller } = controllerWith();
+  const target = controller.activeId;
+  controller.execute("addMarker", { markerId: "m1", anchor: target, at: 0, text: "note", color: "#000" });
+
+  controller.execute("duplicatePanels", { ids: [target] });
+
+  const rows = flatten(controller.project);
+  assert.equal(controller.project.markers.length, 2, "複製にマーカーが付いてきていない");
+  const copy = controller.project.markers.find((m) => m.id !== "m1");
+  assert.equal(copy.anchor, rows[1].panel.id);
+
+  controller.undo();
+  assert.equal(controller.project.markers.length, 1, "Undoで複製したマーカーも一緒に戻らない");
+});
+
+test("deletePanels prunes markers anchored to the deleted panel (C1)", () => {
+  const store = new Store();
+  store.edit((p) => p.scenes[0].shots[0].panels.push(panel()));
+  const { controller } = controllerWith(store);
+  const [first, second] = ids(controller);
+  controller.execute("addMarker", { markerId: "m1", anchor: second, at: 0, text: "", color: "#000" });
+
+  controller.execute("deletePanels", { ids: [second] });
+
+  assert.deepEqual(controller.project.markers, []);
+  controller.undo();
+  assert.equal(controller.project.markers.length, 1, "Undoでマーカーも一緒に戻らない");
+});
+
+test("pasting carries markers anchored to copied panels, remapped to the new ids (C1)", () => {
+  const { controller } = controllerWith();
+  const first = controller.activeId;
+  const source = structuredClone(flatten(controller.project)[0].panel);
+  const marker = { id: "m1", anchor: source.id, at: 0, text: "note", color: "#000" };
+
+  controller.execute("pastePanels", {
+    afterId: first,
+    panels: [source],
+    markers: [marker],
+  });
+
+  const pastedId = flatten(controller.project)[1].panel.id;
+  assert.equal(controller.project.markers.length, 1);
+  assert.equal(controller.project.markers[0].anchor, pastedId);
+  assert.notEqual(controller.project.markers[0].id, "m1");
+});
+
 test("setBoundary moves frames between two panels without changing the total", () => {
   const store = new Store();
   store.edit((p) => p.scenes[0].shots[0].panels.push(panel(), panel()));
