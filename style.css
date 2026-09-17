@@ -1048,6 +1048,33 @@ summary {
   color: var(--dim);
   font-size: 11px;
 }
+/* 保存履歴から選んで復元（B9）。読めない世代は理由つきで灰色にし、選べない。 */
+#recoverHistory {
+  max-height: 40vh;
+  overflow: auto;
+  border: 1px solid var(--line-soft);
+}
+.recoverRow {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 10.5px;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-bottom: 1px solid #262626;
+}
+.recoverRow:hover:not(:disabled) {
+  background: var(--head);
+}
+.recoverRow:disabled {
+  color: var(--dim);
+  cursor: default;
+}
+.recoverRow .broken {
+  color: var(--bad);
+}
 #paperSettings {
   display: flex;
   flex-wrap: wrap;

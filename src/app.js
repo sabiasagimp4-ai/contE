@@ -2599,28 +2599,81 @@ async function loadImages() {
     );
   return missing;
 }
+// 複数の入口（起動時の自動候補／履歴ボタン）で共有する復元の実処理。
+async function restoreFrom(meta, project) {
+  $("recoverDialog").close();
+  stop();
+  replaceStore(project);
+  frame = 0;
+  fileDirty = true;
+  render();
+  saver.resolved(meta);
+  notice(`${clock(meta.savedAt)}の保存を復元しました。ファイルへの保存は別に行ってください。`);
+  await loadImages();
+}
+// 保存履歴から選んで復元する一覧（B9）。読めない世代は理由つきで灰色にし、
+// 選べないだけで削除はしない。SNAPSHOT_LIMIT件までなので毎回読み直しても軽い。
+async function renderRecoveryList() {
+  const node = $("recoverHistory");
+  node.textContent = "読み込み中…";
+  const metas = await repo.list().catch(() => []);
+  const rows = await Promise.all(
+    metas.map(async (meta) => {
+      try {
+        return { meta, project: await repo.load(meta.id) };
+      } catch (e) {
+        return { meta, error: e.message };
+      }
+    }),
+  );
+  if (!rows.length) {
+    node.textContent = "保存履歴はありません。";
+    return;
+  }
+  node.replaceChildren(
+    ...rows.map(({ meta, project, error }) => {
+      const b = document.createElement("button");
+      b.className = "recoverRow";
+      b.disabled = !project;
+      const kind = meta.kind === "manual" ? "手動保存" : "自動保存";
+      const size = `${(meta.bytes / 1024).toFixed(1)}KB`;
+      b.textContent = `${clock(meta.savedAt)} ／ ${meta.title} ／ ${kind} ／ ${meta.panels} Panel ／ ${size}`;
+      if (error) {
+        const reason = document.createElement("span");
+        reason.className = "broken";
+        reason.textContent = `（読み込めません：${error}）`;
+        b.append(reason);
+      } else {
+        b.onclick = () => restoreFrom(meta, project);
+      }
+      return b;
+    }),
+  );
+}
 function offerRecovery({ meta, project }) {
+  for (const id of ["recoverInfo", "recoverHint", "recover", "discardRecovery"])
+    $(id).hidden = false;
+  $("recoverTitle").textContent = "前回の作業が残っています";
   $("recoverInfo").textContent = `${clock(meta.savedAt)} ／ ${
     meta.title
   } ／ ${meta.panels} Panel ／ ${meta.kind === "manual" ? "手動保存" : "自動保存"}`;
-  $("recover").onclick = async () => {
-    $("recoverDialog").close();
-    stop();
-    replaceStore(project);
-    frame = 0;
-    fileDirty = true;
-    render();
-    saver.resolved(meta);
-    notice("前回の作業を復旧しました。ファイルへの保存は別に行ってください。");
-    await loadImages();
-  };
+  $("recover").onclick = () => restoreFrom(meta, project);
   $("discardRecovery").onclick = async () => {
     $("recoverDialog").close();
     await repo.dismiss(meta.savedAt).catch(() => {});
     notice("復旧候補を今回は使いません（保存データは残っています）");
   };
+  renderRecoveryList();
   $("recoverDialog").showModal();
 }
+$("history").onclick = () => {
+  for (const id of ["recoverInfo", "recoverHint", "recover", "discardRecovery"])
+    $(id).hidden = true;
+  $("recoverTitle").textContent = "保存履歴";
+  renderRecoveryList();
+  $("recoverDialog").showModal();
+};
+$("recoverClose").onclick = () => $("recoverDialog").close();
 (async () => {
   try {
     await repo.open();

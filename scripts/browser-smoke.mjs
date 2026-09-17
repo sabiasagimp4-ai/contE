@@ -1202,6 +1202,37 @@ try {
   // A9：再起動後も「大」のまま。以降のテストへ影響しないよう既定へ戻す。
   assert.equal(await page.locator("#rowSize").inputValue(), "lg");
   await page.locator("#rowSize").selectOption("md");
+  // B9：保存履歴から選んで復元。世代Aは直前の自動復旧で戻した状態、
+  // ここでもう1コマ足して世代Bを作り、履歴一覧から世代Aへ戻せることを確かめる。
+  const genA = persisted.panels;
+  await page.evaluate(async () => {
+    document.activeElement.blur();
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "n", bubbles: true }),
+    );
+    while (!document.querySelector("#savestate").textContent.startsWith("ブラウザに保存"))
+      await new Promise((r) => setTimeout(r, 50));
+  });
+  const genB = await page.evaluate(
+    () => document.querySelectorAll("#tree .panel").length,
+  );
+  assert.equal(genB, genA + 1, "世代Bの生成に失敗している");
+  await page.locator("#history").click();
+  await page.waitForSelector("#recoverDialog[open]");
+  assert.equal(await page.locator("#recoverInfo").isHidden(), true);
+  await page.waitForFunction(
+    () => document.querySelectorAll("#recoverHistory .recoverRow").length >= 2,
+  );
+  const rowA = page.locator("#recoverHistory .recoverRow", {
+    hasText: new RegExp(`／ ${genA} Panel ／`),
+  });
+  await rowA.first().click();
+  await page.waitForFunction(
+    (n) => document.querySelectorAll("#tree .panel").length === n,
+    genA,
+  );
+  assert.equal(await page.locator("#recoverDialog").isVisible(), false);
+  assert.match(await page.locator("#status").innerText(), /復元しました/);
   // P4：500 Panelでもプレビューが返り、出力は途中で止められる。
   const paperStart = Date.now();
   await page.locator("#paper").click();

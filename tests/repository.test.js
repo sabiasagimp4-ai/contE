@@ -138,6 +138,23 @@ test("a save that keeps failing throws and leaves earlier saves readable", async
   await assert.rejects(() => repo.save(project()));
   assert.equal((await repo.latest()).meta.id, first.id);
 });
+test("list() orders snapshots newest-first and keeps broken ones without deleting them", async () => {
+  const { repo, storage } = repository();
+  const first = await repo.save(project(), { kind: "manual" });
+  const second = await repo.save(project());
+  const third = await repo.save(project());
+  await storage.put("payloads", second.id, "{ これはJSONではない");
+  const metas = await repo.list();
+  assert.deepEqual(
+    metas.map((m) => m.id),
+    [third.id, second.id, first.id],
+  );
+  await assert.rejects(() => repo.load(second.id));
+  assert.deepEqual(await repo.load(first.id), await repo.load(first.id));
+  assert.deepEqual(await repo.load(third.id), await repo.load(third.id));
+  // 読めない世代も一覧からは消えない（B9: 履歴一覧で灰色表示するため）。
+  assert.ok((await storage.keys("snapshots")).includes(second.id));
+});
 test("dismissing a recovery candidate keeps its data", async () => {
   const { repo } = repository();
   const meta = await repo.save(project());

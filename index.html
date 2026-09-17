@@ -11,6 +11,8 @@
       ><input id="title" aria-label="プロジェクト名" /><button id="save">
         保存</button
       ><button id="open">開く</button
+      ><button id="history" title="ブラウザ内保存の履歴から選んで復元">
+        履歴</button
       ><input id="file" type="file" accept=".contp" hidden /><span
         id="savestate"
         role="status"
@@ -309,13 +311,16 @@
       <canvas id="animaticPreview" width="854" height="480"></canvas>
     </dialog>
     <dialog id="recoverDialog">
-      <h2>前回の作業が残っています</h2>
+      <h2 id="recoverTitle">前回の作業が残っています</h2>
       <p id="recoverInfo"></p>
-      <p class="hint">
+      <p id="recoverHint" class="hint">
         破棄しても保存データはすぐには消えません。復旧すると現在の編集内容は置き換わります。
       </p>
       <button id="recover">復旧する</button
       ><button id="discardRecovery">破棄する</button>
+      <p class="hint">保存履歴から選んで復元することもできます。</p>
+      <div id="recoverHistory"></div>
+      <button id="recoverClose">閉じる</button>
     </dialog>
     <script type="module" src="src/app.js"></script>
   </body>
