@@ -35,6 +35,19 @@ test("split and merge preserve frames, order and undo identity", () => {
   s.redo();
   assert.equal(JSON.stringify(s.p), before);
 });
+test("undo/redo report which kind of edit they moved through (A7)", () => {
+  const s = new Store();
+  s.edit((p) => (p.title = "A"), "setTitle");
+  s.edit((p) => (p.title = "B"), "setPanelFrames");
+  assert.deepEqual(s.undo(), { kind: "setPanelFrames" });
+  assert.equal(s.p.title, "A");
+  assert.deepEqual(s.redo(), { kind: "setPanelFrames" });
+  assert.equal(s.p.title, "B");
+  assert.deepEqual(s.undo(), { kind: "setPanelFrames" });
+  assert.deepEqual(s.undo(), { kind: "setTitle" });
+  // 履歴が尽きたら何も動かさず、kindも返さない。
+  assert.equal(s.undo(), null);
+});
 test("invalid edit is atomic and leaves redo intact", () => {
   const s = new Store();
   s.edit((p) => (p.title = "changed"));

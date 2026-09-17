@@ -51,6 +51,22 @@ test("undo and redo share the edit result contract", () => {
   assert.equal(editor.store.p.title, "変更");
 });
 
+test("undo/redo carry the kind of the edit they moved through (A7)", () => {
+  const editor = new EditorSession(new Store());
+  editor.edit((p) => (p.title = "変更"), "setTitle");
+
+  const undone = editor.undo();
+  assert.equal(undone.undoneKind, "setTitle");
+  const redone = editor.redo();
+  assert.equal(redone.undoneKind, "setTitle");
+
+  // 何も動かさなかったときはnull。
+  editor.undo();
+  const noHistory = editor.undo();
+  assert.equal(noHistory.changed, false);
+  assert.equal(noHistory.undoneKind, null);
+});
+
 test("replacing a project invalidates tokens from the previous session", () => {
   const editor = new EditorSession(new Store());
   const oldToken = editor.capture();

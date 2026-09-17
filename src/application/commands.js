@@ -311,6 +311,44 @@ export function commandOf(name) {
   if (!spec) throw Error(`不明なコマンド: ${name}`);
   return spec;
 }
+// Command名から状態表示用の日本語名への辞書（A7）。「元に戻す：尺の変更」のように使う。
+// EditorController.edit()の直接呼び出しで使う汎用のkind（"edit"等）もここへ足す。
+export const commandLabels = {
+  addPanel: "Panelの追加",
+  duplicatePanels: "Panelの複製",
+  deletePanels: "Panelの削除",
+  splitShot: "Shotの分割",
+  mergeShot: "Shotの結合",
+  addScene: "Sceneの追加",
+  pastePanels: "貼り付け",
+  nudgePanel: "Panelの並べ替え",
+  reorderPanels: "Panelの並べ替え",
+  setPanelField: "内容の変更",
+  setPanelFrames: "尺の変更",
+  nudgePanelFrames: "尺の変更",
+  setBoundary: "境界の移動",
+  setTitle: "タイトルの変更",
+  renameScene: "Scene名の変更",
+  renameShot: "Shot名の変更",
+  putCameraKey: "Cameraキーの追加",
+  moveCameraKey: "Cameraキーの移動",
+  deleteCameraKey: "Cameraキーの削除",
+  setCameraValues: "Cameraの値の変更",
+  addStroke: "描画",
+  setPanelImage: "画像の設定",
+  clearPanelImage: "画像の削除",
+  setImageOpacity: "画像の不透明度の変更",
+  addAudioClip: "音の配置",
+  setClipField: "音クリップの変更",
+  placeClip: "音クリップの移動",
+  trimClip: "音クリップの尺の変更",
+  deleteClip: "音クリップの削除",
+  replaceClipAsset: "音の差し替え",
+  updatePaper: "紙面設定の変更",
+};
+export function labelOf(kind) {
+  return commandLabels[kind] ?? "編集";
+}
 // 変更範囲は宣言したkindsと、引数から分かる対象IDで作る。
 export function changeSetOf(name, args = {}) {
   const spec = commandOf(name);

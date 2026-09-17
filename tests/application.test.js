@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EditorSession } from "../src/editor-session.js";
 import { EditorController } from "../src/application/editor-controller.js";
-import { commands, changeSetOf } from "../src/application/commands.js";
+import { commands, changeSetOf, labelOf } from "../src/application/commands.js";
 import { Store, flatten, project, panel } from "../src/model.js";
 import { addClip } from "../src/audio.js";
 
@@ -421,6 +421,24 @@ test("setBoundary undoes as a single step for both panels", () => {
     (b) => b.frames,
   );
   assert.deepEqual(after, before);
+});
+
+test("undo/redo report the Command name as kind, with a label for display (A7)", () => {
+  const store = new Store();
+  store.edit((p) => p.scenes[0].shots[0].panels.push(panel()));
+  const { controller } = controllerWith(store);
+  const [first, second] = ids(controller);
+
+  controller.execute("setBoundary", { leftId: first, rightId: second, leftFrames: 20 });
+  const undone = controller.undo();
+  assert.equal(undone.undoneKind, "setBoundary");
+  assert.equal(labelOf(undone.undoneKind), "境界の移動");
+
+  const redone = controller.redo();
+  assert.equal(redone.undoneKind, "setBoundary");
+
+  // 未知のkindでも表示は落ちない。
+  assert.equal(labelOf("foo"), "編集");
 });
 
 test("setBoundary changes nothing for an unknown panel id", () => {

@@ -439,7 +439,8 @@ export class Store {
     return this.selection;
   }
   // fnは選択を返せる。プロジェクトが変わらない操作は履歴段数を消費しない。
-  edit(fn) {
+  // kindはCommand名などの識別子。Undo/Redoの内容表示にだけ使う。
+  edit(fn, kind) {
     const next = {
       ...this.p,
       assets: this.p.assets.map((a) => ({ ...a })),
@@ -472,20 +473,21 @@ export class Store {
       this.selection = selection;
       return false;
     }
-    this.past.push({ p: this.p, selection: this.selection });
+    this.past.push({ p: this.p, selection: this.selection, kind });
     if (this.past.length > 80) this.past.shift();
     this.p = next;
     this.selection = selection;
     this.future = [];
     return true;
   }
+  // 戻す/やり直す対象のkindを返す。何も動かなければnull。
   #move(from, to) {
-    if (!from.length) return false;
-    to.push({ p: this.p, selection: this.selection });
+    if (!from.length) return null;
     const entry = from.pop();
+    to.push({ p: this.p, selection: this.selection, kind: entry.kind });
     this.p = entry.p;
     this.selection = normalizeSelection(entry.selection, this.p);
-    return true;
+    return { kind: entry.kind };
   }
   undo() {
     return this.#move(this.past, this.future);

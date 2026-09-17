@@ -30,6 +30,7 @@ import { IndexedDbStorage, MemoryStorage } from "./storage.js";
 import { EditorSession } from "./editor-session.js";
 import { EditorController } from "./application/editor-controller.js";
 import { ImportController } from "./application/import-controller.js";
+import { labelOf } from "./application/commands.js";
 import { scrubAll, scrubNumber } from "./ui/number-scrub.js";
 import { autoScroll } from "./ui/auto-scroll.js";
 const $ = (id) => document.getElementById(id);
@@ -125,6 +126,10 @@ editor.subscribe((result) => {
       if (movedActive || result.kind === "undo" || result.kind === "redo")
         frame = startOf(activeId());
       markDirty();
+      if (result.kind === "undo")
+        notice(`元に戻す：${labelOf(result.undoneKind)}`);
+      else if (result.kind === "redo")
+        notice(`やり直す：${labelOf(result.undoneKind)}`);
     }
     afterCommit?.(result);
     render();

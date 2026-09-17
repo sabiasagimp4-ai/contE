@@ -90,7 +90,7 @@ export class EditorSession {
 
   edit(fn, kind = "edit", changes = ALL_CHANGES) {
     const before = copySelection(this.store.selection);
-    const changed = this.store.edit(fn);
+    const changed = this.store.edit(fn, kind);
     const selectionChanged = this.#selectionChange(before);
     if (changed) this.revision += 1;
     return this.#result(kind, changed, selectionChanged, {
@@ -115,14 +115,17 @@ export class EditorSession {
     return this.#history("redo");
   }
 
-  #history(kind) {
+  #history(step) {
     const before = copySelection(this.store.selection);
-    const changed = this.store[kind]();
+    const outcome = this.store[step]();
+    const changed = !!outcome;
     const selectionChanged = this.#selectionChange(before);
     if (changed) this.revision += 1;
     // Undo/Redoの逆方向の変更範囲はまだ判定しない。全更新で正しさを優先する。
-    return this.#result(kind, changed, selectionChanged, {
+    return this.#result(step, changed, selectionChanged, {
       changes: changed ? ALL_CHANGES : NO_CHANGES,
+      // 戻した/やり直した編集の種類。状態表示が「元に戻す：尺の変更」のように出す。
+      undoneKind: outcome ? outcome.kind : null,
     });
   }
 
