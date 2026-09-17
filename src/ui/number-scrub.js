@@ -79,6 +79,25 @@ export function scrubNumber(input, { onPreview, onCancel } = {}) {
     input.addEventListener("pointerup", up);
     input.addEventListener("pointercancel", cancel);
   });
+  // フォーカスがある間だけホイールで刻む。ページのスクロールはフォーカスが
+  // 無ければ奪わない。1目盛りごとに確定するので、ドラッグのような予告表示は無い。
+  input.addEventListener("wheel", (event) => {
+    if (document.activeElement !== input || input.disabled || input.readOnly)
+      return;
+    event.preventDefault();
+    const step = Number(input.step) || 1;
+    const min = numberOr(input.min, undefined);
+    const max = numberOr(input.max, undefined);
+    const base = Number(input.value) || 0;
+    const dir = event.deltaY < 0 ? 1 : -1;
+    input.value = scrubValue(base, dir * 3, {
+      step,
+      min,
+      max,
+      scale: scaleFor(event),
+    });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
   return input;
 }
 

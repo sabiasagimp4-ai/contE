@@ -309,6 +309,39 @@ try {
     framesBefore,
     "ドラッグ1回が1段のUndoで戻らない",
   );
+  // A8：数値入力はフォーカス中だけホイールで刻む。フォーカスが無ければ
+  // ページ側のスクロールを奪わない。
+  const pageScrollBefore = await page.evaluate(() => window.scrollY);
+  await page.locator("#frames").focus();
+  await page.locator("#frames").hover();
+  await page.mouse.wheel(0, -100);
+  await page.waitForFunction(
+    (was) => Number(document.querySelector("#frames").value) > was,
+    framesBefore,
+  );
+  assert.equal(
+    Number(await page.locator("#frames").inputValue()),
+    framesBefore + 1,
+    "ホイール1目盛りで1段刻んでいない",
+  );
+  assert.equal(
+    await page.evaluate(() => window.scrollY),
+    pageScrollBefore,
+    "フォーカス中のホイールでページが動いた",
+  );
+  await page.mouse.wheel(0, 100);
+  assert.equal(Number(await page.locator("#frames").inputValue()), framesBefore);
+  await page.evaluate(() => document.activeElement.blur());
+  const beforeUnfocusedWheel = Number(
+    await page.locator("#frames").inputValue(),
+  );
+  await page.mouse.wheel(0, -100);
+  await page.waitForTimeout(50);
+  assert.equal(
+    Number(await page.locator("#frames").inputValue()),
+    beforeUnfocusedWheel,
+    "フォーカスが無いのに数値が変わった",
+  );
   // P1：Shift範囲選択とドラッグ順序変更、Undoで元の並びへ戻る。
   await page.keyboard.press("n");
   const strip = page.locator("#strip button");
