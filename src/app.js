@@ -134,6 +134,8 @@ editor.subscribe((result) => {
 // Ctrl/Cmdで増減、Shiftで全体順序上の範囲選択。
 function select(id, e = {}) {
   stop();
+  // マウス操作は常にキーボードでの範囲拡張のアンカーをリセットする。
+  arrowAnchor = null;
   const all = rows.map((r) => r.panel.id);
   let ids;
   if (e.shiftKey) {
@@ -150,6 +152,44 @@ function select(id, e = {}) {
     () => (frame = startOf(editor.activeId)),
     () => editor.select({ active: id, ids }),
   );
+}
+// キーボードでの選択拡張。Shiftを押し続けている間は最初に掴んだ位置
+// （アンカー）を固定し、そこから現在位置までを選択にする。他の選択操作
+// （マウスクリック）が入るとselect()内でリセットする。
+let arrowAnchor = null;
+function moveSelection(targetIndex, extend) {
+  const clamped = Math.max(0, Math.min(rows.length - 1, targetIndex));
+  const target = rows[clamped];
+  if (!target) return;
+  if (extend) {
+    if (arrowAnchor === null) arrowAnchor = activeId();
+    const anchorIndex = rows.findIndex((r) => r.panel.id === arrowAnchor);
+    const from = Math.min(anchorIndex, clamped),
+      to = Math.max(anchorIndex, clamped);
+    const ids = rows.slice(from, to + 1).map((r) => r.panel.id);
+    commitWith(
+      () => (frame = startOf(target.panel.id)),
+      () => editor.select({ active: target.panel.id, ids }),
+    );
+  } else {
+    arrowAnchor = null;
+    select(target.panel.id);
+  }
+}
+// 前後のShotの先頭Panelのindexを返す。全体順序でShotをまたいで移動する。
+function shotBoundaryIndex(delta) {
+  const i = rows.findIndex((r) => r.panel.id === activeId());
+  if (delta > 0) {
+    let j = i;
+    while (j < rows.length - 1 && rows[j + 1].shot.id === rows[i].shot.id) j++;
+    return Math.min(rows.length - 1, j + 1);
+  }
+  let j = i;
+  while (j > 0 && rows[j - 1].shot.id === rows[i].shot.id) j--;
+  if (j === 0) return 0;
+  let k = j - 1;
+  while (k > 0 && rows[k - 1].shot.id === rows[j - 1].shot.id) k--;
+  return k;
 }
 function history(step) {
   return step === "undo" ? editor.undo() : editor.redo();
@@ -1586,16 +1626,13 @@ document.addEventListener("keydown", (e) => {
   else if (k === " ") fn = () => $("play").click();
   else if (k === "arrowright" || k === "arrowleft")
     fn = () => {
+      const delta = k === "arrowright" ? 1 : -1;
       const i = rows.findIndex((r) => r.panel.id === activeId());
-      select(
-        rows[
-          Math.max(
-            0,
-            Math.min(rows.length - 1, i + (k === "arrowright" ? 1 : -1)),
-          )
-        ].panel.id,
-      );
+      const targetIndex = mod ? shotBoundaryIndex(delta) : i + delta;
+      moveSelection(targetIndex, e.shiftKey);
     };
+  else if (k === "home") fn = () => moveSelection(0, e.shiftKey);
+  else if (k === "end") fn = () => moveSelection(rows.length - 1, e.shiftKey);
   else if (k === "[" || k === "]")
     fn = () =>
       act("nudgePanelFrames", {
