@@ -1372,6 +1372,31 @@ try {
     () => document.querySelectorAll("#markerTrack .marker").length === 0,
   );
   await page.locator('[data-tab="content"]').click();
+  // C5：ワークエリア（再生・出力範囲）。IN/OUTで設定し、Timelineの帯・
+  // Animatic出力の情報に反映され、解除もできることを確認する。
+  await page.evaluate(() => document.activeElement.blur());
+  await page.keyboard.press("Home");
+  await page.locator("#workAreaIn").click();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.locator("#workAreaOut").click();
+  await page.waitForFunction(() => !document.querySelector("#workAreaBand").hidden);
+  assert.match(
+    await page.locator("#workAreaInfo").innerText(),
+    /ワークエリア \d+〜\d+f/,
+    "ワークエリアの範囲表示が出ていない",
+  );
+  assert.equal(await page.locator("#workAreaClear").isDisabled(), false);
+  await page.locator("#animatic").click();
+  assert.match(
+    await page.locator("#animaticInfo").innerText(),
+    /ワークエリアのみ/,
+    "Animatic出力の情報にワークエリアが反映されていない",
+  );
+  await page.locator("#closeAnimatic").click();
+  await page.locator("#workAreaClear").click();
+  await page.waitForFunction(() => document.querySelector("#workAreaBand").hidden);
+  assert.equal(await page.locator("#workAreaInfo").innerText(), "ワークエリア未設定");
   // A9：行の高さはlayoutと同じ仕組み（IndexedDbのmeta）で持つので、
   // 再起動をまたいで保たれる。
   await page.locator("#rowSize").selectOption("lg");

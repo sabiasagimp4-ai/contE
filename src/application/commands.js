@@ -474,6 +474,12 @@ export const commands = {
 
   // --- 紙面 ---------------------------------------------------------------
   updatePaper: define(["paper"], ({ change }) => (p) => change(p.paper)),
+
+  // --- ワークエリア（C5） ---------------------------------------------------
+  // fromとtoは呼び出し側が決める。Store.editが総尺を超えないよう自動で詰める。
+  setWorkArea: define(["timing"], ({ workArea }) => (p) => {
+    p.workArea = workArea;
+  }),
 };
 
 export function commandOf(name) {
@@ -525,6 +531,7 @@ export const commandLabels = {
   moveMarker: "マーカーの移動",
   deleteMarker: "マーカーの削除",
   updatePaper: "紙面設定の変更",
+  setWorkArea: "ワークエリアの変更",
 };
 export function labelOf(kind) {
   return commandLabels[kind] ?? "編集";

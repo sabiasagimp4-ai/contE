@@ -41,8 +41,15 @@
         >ループ<input
           id="loop"
           type="checkbox"
-          title="複数Panel選択中はその範囲、無ければ現在のShotをループする"
+          title="複数Panel選択中はその範囲、ワークエリアがあればそこを、無ければ現在のShotをループする"
       /></label
+      ><button id="workAreaIn" title="再生ヘッドの位置をワークエリアの始点にする">
+        IN</button
+      ><button id="workAreaOut" title="再生ヘッドの位置をワークエリアの終点にする">
+        OUT</button
+      ><button id="workAreaClear" title="ワークエリアを外す">
+        ワークエリア解除</button
+      ><output id="workAreaInfo" class="hint"></output
       ><button id="paper">紙コンテ出力</button
       ><button id="animatic">Animatic出力</button
       ><button id="present" title="Stageだけを表示する（Escで戻る）">
@@ -285,6 +292,7 @@
         <div id="timeline">
           <div id="track">
             <div id="ruler"></div>
+            <div id="workAreaBand" hidden></div>
             <div id="band"></div>
             <div id="clips"></div>
             <div id="cameraTrack"></div>

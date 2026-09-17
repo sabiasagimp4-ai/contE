@@ -813,6 +813,17 @@ footer label {
   border-right: 1px solid #ffffff26;
   pointer-events: none;
 }
+/* ワークエリア（C5）。ループ再生と出力の既定範囲を、Timeline全体を貫く帯で示す。 */
+#workAreaBand {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: #ffcc0014;
+  border-left: 2px solid #ffcc00;
+  border-right: 2px solid #ffcc00;
+  pointer-events: none;
+  z-index: 1;
+}
 .clip {
   position: absolute;
   top: var(--off-clip);

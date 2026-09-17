@@ -835,6 +835,21 @@ function timeline() {
     span.frames / store.p.fps
   ).toFixed(2)}s`;
   $("head").style.left = `${frame * px}px`;
+  workAreaView(px);
+}
+// ワークエリア（C5）。設定中はTimelineへ帯で示し、Inspector横のoutputへ範囲を出す。
+function workAreaView(px) {
+  const area = store.p.workArea;
+  const band = $("workAreaBand");
+  band.hidden = !area;
+  if (area) {
+    band.style.left = `${area.from * px}px`;
+    band.style.width = `${Math.max(2, (area.to - area.from) * px)}px`;
+  }
+  $("workAreaInfo").textContent = area
+    ? `ワークエリア ${area.from}〜${area.to}f`
+    : "ワークエリア未設定";
+  $("workAreaClear").disabled = !area;
 }
 function ruler(px, end, left, width) {
   const node = $("ruler");
@@ -1391,12 +1406,14 @@ for (const id of ["cx", "cy", "cz", "cr"])
       paint();
     },
   });
-// 再生範囲（B3）。複数Panelを選択していればその範囲を再生する。それ以外は
-// ループのときだけ現在のShot全体、通常はこれまで通り現在位置から末尾まで。
+// 再生範囲（B3/C5）。複数Panelを選択していればその範囲を再生する。ループの
+// ときはワークエリアがあればそれを、無ければ現在のShot全体をループする。
+// 通常再生はこれまで通り現在位置から末尾まで（ワークエリアがあっても奪わない）。
 function playRange() {
   const span = tl.selectionRange(rows, store.selection.ids);
   if (span && span.panels > 1) return { from: span.start, to: span.end };
   if (loop) {
+    if (store.p.workArea) return store.p.workArea;
     const shotRows = rows.filter((r) => r.shot.id === current().shot.id);
     return { from: shotRows[0].start, to: shotRows.at(-1).end };
   }
@@ -1441,6 +1458,19 @@ $("play").onclick = () => {
 $("loop").onchange = () => {
   loop = $("loop").checked;
 };
+// ワークエリア（C5）。IN/OUTは再生ヘッドの位置を使い、逆転しないよう詰める。
+// Store.edit側でも総尺を超えないよう詰め直すので、ここでは大まかな整合だけ見る。
+$("workAreaIn").onclick = () => {
+  const from = Math.round(frame);
+  const to = store.p.workArea?.to ?? endFrame();
+  act("setWorkArea", { workArea: { from: Math.min(from, to - 1), to } });
+};
+$("workAreaOut").onclick = () => {
+  const to = Math.round(frame);
+  const from = store.p.workArea?.from ?? 0;
+  act("setWorkArea", { workArea: { from, to: Math.max(to, from + 1) } });
+};
+$("workAreaClear").onclick = () => act("setWorkArea", { workArea: null });
 function zoomTo(index, anchorFrame = frame) {
   const previous = scale();
   scaleIndex = Math.max(0, Math.min(tl.SCALES.length - 1, index));
@@ -2571,9 +2601,12 @@ function animaticSetup() {
     $(id).onchange = animaticInfo;
   animaticInfo();
 }
+// ワークエリア（C5）が設定されていれば出力もその範囲に絞る。無ければ全体。
 function animaticSpec() {
+  const { from, to } = store.p.workArea ?? { from: 0, to: endFrame() };
   return animatic.plan(
-    endFrame(),
+    from,
+    to,
     store.p.fps,
     Number($("animaticFps").value),
     $("animaticSize").value,
@@ -2586,6 +2619,7 @@ function animaticInfo() {
   $("animaticStart").disabled = format === "webm" && !mime;
   $("animaticInfo").textContent =
     `${spec.seconds.toFixed(2)}秒 / ${spec.frames}フレーム / ${spec.width}×${spec.height}` +
+    (store.p.workArea ? "・ワークエリアのみ" : "") +
     (format === "webm"
       ? mime
         ? ` · ${mime}・音${resolved.length ? "あり" : "なし"}・録画に約${Math.ceil(spec.seconds)}秒`
@@ -2652,13 +2686,13 @@ async function animaticRecord(spec, mime) {
   const frozenImages = new Map(images);
   const frozenResolved = resolved;
   const fps = store.p.fps;
-  const total = tl.total(frozenRows);
-  const schedule = audio.scheduleFor(frozenResolved, 0, fps, total);
+  // ワークエリア（C5）が設定されていれば、その範囲だけを実時間で録る。
+  const schedule = audio.scheduleFor(frozenResolved, spec.from, fps, spec.to);
   if (schedule.length) {
     const destination = sound.streamDestination();
     for (const track of destination.stream.getAudioTracks())
       stream.addTrack(track);
-    sound.play(schedule, 0, fps, 0.12, destination);
+    sound.play(schedule, spec.from, fps, 0.12, destination);
   }
   const recorder = new animatic.Recorder(stream, mime);
   animaticJob = new Job();
@@ -2668,13 +2702,15 @@ async function animaticRecord(spec, mime) {
     while (true) {
       const clock = sound.frameAt(fps);
       const elapsed =
-        clock !== null ? clock / fps : (performance.now() - started) / 1000;
+        clock !== null
+          ? (clock - spec.from) / fps
+          : (performance.now() - started) / 1000;
       if (elapsed >= spec.seconds) break;
       animaticJob.check();
       animatic.renderFrame(
         context,
         frozenRows,
-        Math.max(0, Math.min(total - 1e-6, elapsed * fps)),
+        Math.max(spec.from, Math.min(spec.to - 1e-6, spec.from + elapsed * fps)),
         spec.width,
         spec.height,
         frozenImages,

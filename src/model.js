@@ -507,6 +507,13 @@ export function normalizeSelection(selection, p) {
   const active = ids.length && !ids.includes(requested) ? ids[0] : requested;
   return { active, ids: ids.length ? ids : [active] };
 }
+// ワークエリアは総尺を超えられない（C5）。選択と同じく、Panelの削除や
+// 尺の変更で総尺が縮んだときに自動で詰める。詰めきれなければ外す。
+export function normalizeWorkArea(workArea, totalFrames) {
+  if (!workArea || workArea.from >= totalFrames) return null;
+  const to = Math.min(workArea.to, totalFrames);
+  return to > workArea.from ? { from: workArea.from, to } : null;
+}
 
 // どのPanelからも参照されなくなった画像メタデータを外す。音声素材は画像の
 // 参照集合に含まれないため、ここでは決して削除しない。
@@ -570,6 +577,7 @@ export class Store {
       })),
     };
     const requested = fn(next);
+    next.workArea = normalizeWorkArea(next.workArea, flatten(next).at(-1)?.end ?? 0);
     validate(next);
     const changed = !sameProject(this.p, next);
     // 選択を返したときだけ選択を変える。代入式の戻り値（配列や真偽値）は選択ではない。

@@ -1018,3 +1018,29 @@ test("pasteCameraKeys undoes as a single step (B4)", () => {
   controller.undo();
   assert.deepEqual(cameraKeysOf(controller, panelId), before);
 });
+
+// C5：ワークエリア（再生・出力範囲）。setWorkAreaはProject直下のfromとtoを
+// そのまま入れる。総尺を超えないよう詰め直すのはStore.edit側（model.test.js）。
+test("setWorkArea sets and clears the project's work area", () => {
+  const store = new Store();
+  store.edit((p) => p.scenes[0].shots[0].panels.push(panel()));
+  const { controller } = controllerWith(store);
+
+  const set = controller.execute("setWorkArea", { workArea: { from: 10, to: 90 } });
+  assert.equal(set.changed, true);
+  assert.deepEqual(controller.project.workArea, { from: 10, to: 90 });
+
+  const cleared = controller.execute("setWorkArea", { workArea: null });
+  assert.equal(cleared.changed, true);
+  assert.equal(controller.project.workArea, null);
+});
+
+test("setWorkArea clamps a range beyond the project length instead of failing", () => {
+  const { controller } = controllerWith();
+  const total = flatten(controller.project).at(-1).end;
+  const result = controller.execute("setWorkArea", {
+    workArea: { from: 0, to: total + 100 },
+  });
+  assert.equal(result.changed, true);
+  assert.deepEqual(controller.project.workArea, { from: 0, to: total });
+});

@@ -25,7 +25,7 @@ const rowsOf = (count = 2, frames = 48) => {
   return flatten(p);
 };
 test("the plan maps output frames onto project time at any fps", () => {
-  const spec = plan(240, 24, 12, "480p");
+  const spec = plan(0, 240, 24, 12, "480p");
   assert.equal(spec.seconds, 10);
   assert.equal(spec.frames, 120);
   assert.deepEqual([spec.width, spec.height], RESOLUTIONS["480p"]);
@@ -34,10 +34,19 @@ test("the plan maps output frames onto project time at any fps", () => {
   assert.equal(spec.sourceFrame(60), 120);
   // 末尾はプロジェクトの終端を越えない。
   assert.ok(spec.sourceFrame(spec.frames) < 240);
-  const fast = plan(240, 24, 30, "1080p");
+  const fast = plan(0, 240, 24, 30, "1080p");
   assert.equal(fast.frames, 300);
   assert.deepEqual([fast.width, fast.height], [1920, 1080]);
   assert.equal(fast.sourceFrame(15), 12);
+});
+// C5：ワークエリア（出力範囲）。fromFrameを0以外にすると、その位置から始まる。
+test("the plan can start from a non-zero work area (C5)", () => {
+  const spec = plan(48, 240, 24, 24);
+  assert.equal(spec.seconds, 8);
+  assert.equal(spec.frames, 192);
+  assert.equal(spec.sourceFrame(0), 48);
+  assert.equal(spec.sourceFrame(48), 96);
+  assert.ok(spec.sourceFrame(spec.frames) < 240);
 });
 test("frame evaluation matches playback at panel boundaries and mid-move", () => {
   const rows = rowsOf(2);
@@ -63,7 +72,7 @@ test("output names drop only the characters a file system rejects", () => {
   assert.equal(FORMATS.frames.extension, "zip");
 });
 test("recording progress counts frames and the remaining wall time", () => {
-  const spec = plan(240, 24, 24);
+  const spec = plan(0, 240, 24, 24);
   assert.deepEqual(recordingProgress(0, spec), {
     done: 0,
     total: 240,

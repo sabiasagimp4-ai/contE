@@ -18,6 +18,7 @@ import {
   clearPanelImage,
   scene,
   sceneName,
+  normalizeWorkArea,
 } from "../src/model.js";
 import { layoutPages } from "../src/paper.js";
 test("split and merge preserve frames, order and undo identity", () => {
@@ -482,4 +483,29 @@ test("camera description ignores wobble but keeps gradual moves", () => {
   setCameraKey(many, 1, { x: 0 });
   // 何度往復しても同じ向きは一度だけ書く。表記が伸び続けない。
   assert.deepEqual(describeCamera(many).moves, ["PAN →", "PAN ←"]);
+});
+
+// C5：ワークエリア（再生・出力範囲）。総尺を超えられず、選択と同じく
+// 総尺が縮んだときは自動で詰める。
+test("normalizeWorkArea clamps to the total and drops what no longer fits", () => {
+  assert.equal(normalizeWorkArea(null, 100), null);
+  assert.deepEqual(normalizeWorkArea({ from: 10, to: 50 }, 100), { from: 10, to: 50 });
+  // 総尺が縮んでtoが超えたら詰める。
+  assert.deepEqual(normalizeWorkArea({ from: 10, to: 50 }, 30), { from: 10, to: 30 });
+  // fromごと総尺を超えたら外す。
+  assert.equal(normalizeWorkArea({ from: 40, to: 50 }, 20), null);
+});
+test("Store.edit clamps the work area when panels shrink the total (C5)", () => {
+  const s = new Store();
+  s.edit((p) => p.scenes[0].shots[0].panels.push(panel(), panel()));
+  s.edit((p) => (p.workArea = { from: 10, to: 140 }));
+  assert.deepEqual(s.p.workArea, { from: 10, to: 140 });
+  // 3枚目のPanelを削って総尺を96まで縮める。
+  s.edit((p) => p.scenes[0].shots[0].panels.splice(2, 1));
+  assert.deepEqual(s.p.workArea, { from: 10, to: 96 });
+  // さらに全体を9fまで縮めると、fromごと総尺をはみ出すので外れる。
+  s.edit((p) => {
+    for (const b of flatten(p).map((r) => r.panel)) b.frames = 3;
+  });
+  assert.equal(s.p.workArea, null);
 });
