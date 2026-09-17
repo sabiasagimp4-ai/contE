@@ -8,6 +8,12 @@ const isQuota = (e) =>
 const countPanels = (p) => flatten(p).length;
 // 保存・復旧・素材の入出力を一か所に集める。UIはここだけを通して永続化する。
 export class ProjectRepository {
+  // 保存とGCの直列キュー（E2/R05）。save()とpruneAssets()を同じ列に並べ、
+  // 互いの途中状態を踏まないようにする。1件の失敗で列全体を止めない。
+  #queue = Promise.resolve();
+  // Import中の原本を指す資産IDの保護カウント（E2/R05）。プロジェクトへ
+  // まだ参照されていない新規素材を、その間だけGCの対象から外す。
+  #protected = new Map();
   constructor(
     storage,
     { now = () => Date.now(), limit = SNAPSHOT_LIMIT } = {},
@@ -15,6 +21,26 @@ export class ProjectRepository {
     this.storage = storage;
     this.now = now;
     this.limit = limit;
+  }
+  #serial(fn) {
+    const run = this.#queue.then(fn, fn);
+    this.#queue = run.then(
+      () => {},
+      () => {},
+    );
+    return run;
+  }
+  // 呼び出し中は該当IDをpruneAssetsの削除対象から外す。取込のload〜apply全体を
+  // 包むことで、Projectへ参照される前の新規素材をGCから守る。
+  async withProtection(id, fn) {
+    this.#protected.set(id, (this.#protected.get(id) ?? 0) + 1);
+    try {
+      return await fn();
+    } finally {
+      const count = this.#protected.get(id) - 1;
+      if (count <= 0) this.#protected.delete(id);
+      else this.#protected.set(id, count);
+    }
   }
   async open() {
     await this.storage.open?.();
@@ -25,6 +51,9 @@ export class ProjectRepository {
   async save(p, { kind = "auto", json } = {}) {
     // 壊れたデータを保存させない。検証前に既存の保存へ触れない。
     validate(p);
+    return this.#serial(() => this.#saveNow(p, kind, json));
+  }
+  async #saveNow(p, kind, json) {
     const savedAt = this.now();
     const data = json ?? JSON.stringify(p);
     const meta = {
@@ -136,7 +165,11 @@ export class ProjectRepository {
     return this.storage.keys("assets");
   }
   // 現在値、保持中の保存世代、Undo/Redoのどこからも参照されない素材だけを捨てる。
+  // 取込中でwithProtectionに登録されているIDは、まだ参照が無くても対象にしない。
   async pruneAssets(p, history = []) {
+    return this.#serial(() => this.#pruneAssetsNow(p, history));
+  }
+  async #pruneAssetsNow(p, history) {
     const used = new Set();
     const collect = (project) => {
       for (const asset of project?.assets ?? []) used.add(asset.id);
@@ -156,7 +189,7 @@ export class ProjectRepository {
     }
     let removed = 0;
     for (const id of await this.assetIds())
-      if (!used.has(id)) {
+      if (!used.has(id) && !this.#protected.has(id)) {
         await this.storage.delete("assets", id);
         removed++;
       }

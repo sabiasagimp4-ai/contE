@@ -797,13 +797,13 @@ R20の統合確認は各リリース境界で該当範囲を実施する。S4ま
 | R02 | 完了 | `IndexedDbStorage.open`の要求所有と世代管理。失敗後の再試行、close、versionchange、onblocked後の成功を整理 | Node 5件（いずれも修正前の実装では失敗） |
 | R03 | 完了 | `describeCamera`を全区間判定へ。往復を動きとして要約し、閾値以下の揺れは数えない | Node（往復PAN/TILT/ZOOM/ROLL、緩やかな移動、紙面のCamera列） |
 | R04 | 完了 | `src/application/commands.js`と`editor-controller.js`。編集の計算をapp.jsから移し、確定編集ごとの通知を一回にした。編集結果へ`changes`を追加 | Node 12件＋ブラウザsmoke全経路 |
-| R05 | 未着手 | 保存・保持整理・GCの直列化と実行中素材の保護は既存のまま | — |
+| R05 | 完了 | `ProjectRepository`に`save()`/`pruneAssets()`を並べる直列キューと、取込中の原本を指すIDをGC対象から外す`withProtection()`を追加。画像・音声の3取込経路すべてを保護区間で包んだ | Node 3件（storage操作が重ならないこと、保護中は消えないこと）＋実IndexedDBでのブラウザsmoke |
 | R06 | 完了 | `import-controller.js`。取り込み開始時に対象とSessionを固定し、作品切替・対象削除・同じ対象への追い越しでは適用せず解放する | Node 7件（完了順序を試験側で制御） |
 | R07 | 完了 | 音声差し替えを新Asset IDで行う。原本は不変。Undoで元の音へ戻る | Node 3件＋ブラウザsmoke（素材のないクリップの差し替えとUndo） |
 | R08 | 完了 | `sampleRange()`と区間つき`peaks()`。クリップが実際に使う区間だけを描き、素材外は無音にする。キャッシュキーへ区間を含める | Node 2件 |
 | R09〜R20 | 未着手 | AssetManager、View抽出、派生索引、部分更新、Stageキャッシュ、部分複製、PlaybackController、ExportController、Sink、Bundleは計画のまま | — |
 
-実施した範囲は§18.8のS1（R00〜R03）と、S2のうちR04・R06〜R08である。S2の完了にはR05（保存とGCの協調）とR09（AssetManager）が残る。
+実施した範囲は§18.8のS1（R00〜R03）と、S2のうちR04〜R08である。S2の完了にはR09（AssetManager）が残る。
 
 **検証の状態**
 

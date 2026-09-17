@@ -264,6 +264,44 @@ test("asset pruning uses snapshot metadata without reparsing every payload", asy
   assert.equal(loads, 0, "new snapshots should carry asset reachability metadata");
   assert.deepEqual([...(await repo.getAsset("kept"))], [1]);
 });
+test("withProtection keeps an in-flight import's asset out of pruneAssets (E2/R05)", async () => {
+  const { repo } = repository();
+  const p = project(); // どのPanelからも参照していない新規素材を想定する。
+  const duringPrune = await repo.withProtection("new-asset", async () => {
+    await repo.putAsset("new-asset", new Uint8Array([1, 2, 3]));
+    // 参照される前にGCが走っても、保護中なので消えない。
+    return repo.pruneAssets(p, []);
+  });
+  assert.equal(duringPrune, 0, "取込中の素材が削除されている");
+  assert.deepEqual([...(await repo.getAsset("new-asset"))], [1, 2, 3]);
+  // 保護が外れれば、参照されていない素材として次のGCで消える。
+  assert.equal(await repo.pruneAssets(p, []), 1);
+  assert.equal(await repo.getAsset("new-asset"), undefined);
+});
+test("save() and pruneAssets() never overlap their storage access (E2/R05)", async () => {
+  const { repo, storage } = repository();
+  await repo.save(project(), { kind: "manual" });
+  let active = 0,
+    overlapped = false;
+  // batchはput/deleteをそのまま呼ぶので、putは差し替えず二重計上を避ける。
+  for (const name of ["batch", "delete", "keys", "values", "get"]) {
+    const original = storage[name].bind(storage);
+    storage[name] = async (...args) => {
+      active++;
+      if (active > 1) overlapped = true;
+      await new Promise((r) => setTimeout(r, 2));
+      try {
+        return await original(...args);
+      } finally {
+        active--;
+      }
+    };
+  }
+  const p2 = project();
+  p2.title = "並行呼び出し";
+  await Promise.all([repo.save(p2, { kind: "manual" }), repo.pruneAssets(p2, [])]);
+  assert.equal(overlapped, false, "save()とpruneAssets()のstorage操作が重なった");
+});
 test("autosave waits, writes once and reports its state", async () => {
   const { repo } = repository();
   const states = [];

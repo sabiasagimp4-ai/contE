@@ -1602,33 +1602,36 @@ $("imageFile").onchange = async () => {
   try {
     if (!f.type.startsWith("image/")) throw Error("画像ファイルではありません");
     if (f.size > 30e6) throw Error("30MBを超える画像は未対応です");
-    const outcome = await imports.run({
-      key: `image:${target}`,
-      targetExists: () => !!panelById(target),
-      load: async () => {
-        const source = await createImageBitmap(f);
-        const id = uid();
-        const meta = {
-          id,
-          kind: "image",
-          name: f.name.slice(0, 80),
-          mime: f.type,
-          bytes: f.size,
-          width: source.width,
-          height: source.height,
-        };
-        source.close?.();
-        // 先にバイナリを保存する。保存できない画像をプロジェクトへ参照させない。
-        await repo.putAsset(id, f);
-        return { meta, bitmap: await bitmapFor(f) };
-      },
-      apply: ({ meta, bitmap }) => {
-        images.set(meta.id, bitmap);
-        // 既に画像があれば差し替え（B5）。無ければ普通に設定するのと同じ結果になる。
-        return act("replacePanelImage", { panelIds: [target], asset: meta, opacity });
-      },
-      release: ({ bitmap }) => bitmap?.close?.(),
-    });
+    // Projectへ参照される前の原本をGCから守る（E2/R05）。
+    const id = uid();
+    const outcome = await repo.withProtection(id, () =>
+      imports.run({
+        key: `image:${target}`,
+        targetExists: () => !!panelById(target),
+        load: async () => {
+          const source = await createImageBitmap(f);
+          const meta = {
+            id,
+            kind: "image",
+            name: f.name.slice(0, 80),
+            mime: f.type,
+            bytes: f.size,
+            width: source.width,
+            height: source.height,
+          };
+          source.close?.();
+          // 先にバイナリを保存する。保存できない画像をプロジェクトへ参照させない。
+          await repo.putAsset(id, f);
+          return { meta, bitmap: await bitmapFor(f) };
+        },
+        apply: ({ meta, bitmap }) => {
+          images.set(meta.id, bitmap);
+          // 既に画像があれば差し替え（B5）。無ければ普通に設定するのと同じ結果になる。
+          return act("replacePanelImage", { panelIds: [target], asset: meta, opacity });
+        },
+        release: ({ bitmap }) => bitmap?.close?.(),
+      }),
+    );
     if (!outcome.applied) {
       notice("画像の取り込みは適用しませんでした（対象が変わりました）");
       return;
@@ -1662,39 +1665,42 @@ $("audioFile").onchange = async () => {
     const offset = at - host.start;
     const track = $("audioKind").value;
     const fps = store.p.fps;
-    const outcome = await imports.run({
-      targetExists: () => !!panelById(anchor),
-      load: async () => {
-        const id = uid();
-        const buffer = await sound.decode(id, file);
-        await repo.putAsset(id, file);
-        return { id, buffer };
-      },
-      apply: ({ id, buffer }) => {
-        const added = uid();
-        return act(
-          "addAudioClip",
-          {
-            clipId: added,
-            asset: {
-              id,
-              kind: "audio",
-              name: file.name.slice(0, 80),
-              mime: file.type,
-              bytes: file.size,
+    // Projectへ参照される前の原本をGCから守る（E2/R05）。
+    const id = uid();
+    const outcome = await repo.withProtection(id, () =>
+      imports.run({
+        targetExists: () => !!panelById(anchor),
+        load: async () => {
+          const buffer = await sound.decode(id, file);
+          await repo.putAsset(id, file);
+          return { id, buffer };
+        },
+        apply: ({ id, buffer }) => {
+          const added = uid();
+          return act(
+            "addAudioClip",
+            {
+              clipId: added,
+              asset: {
+                id,
+                kind: "audio",
+                name: file.name.slice(0, 80),
+                mime: file.type,
+                bytes: file.size,
+              },
+              track,
+              anchor,
+              at: offset,
+              frames: Math.max(1, Math.round(buffer.duration * fps)),
             },
-            track,
-            anchor,
-            at: offset,
-            frames: Math.max(1, Math.round(buffer.duration * fps)),
-          },
-          (result) => {
-            if (result.changed) clipId = added;
-          },
-        );
-      },
-      release: ({ id }) => sound.forget(id),
-    });
+            (result) => {
+              if (result.changed) clipId = added;
+            },
+          );
+        },
+        release: ({ id }) => sound.forget(id),
+      }),
+    );
     if (!outcome.applied) {
       notice("音声の配置は適用しませんでした（対象が変わりました）");
       return;
@@ -1749,28 +1755,31 @@ $("clipRepair").onclick = () => {
       if (!file.type.startsWith("audio/"))
         throw Error("音声ファイルではありません");
       if (file.size > 80e6) throw Error("80MBを超える音声は未対応です");
-      const outcome = await imports.run({
-        key: `clip:${target}`,
-        targetExists: () => store.p.audio.some((c) => c.id === target),
-        load: async () => {
-          const id = uid();
-          const buffer = await sound.decode(id, file);
-          await repo.putAsset(id, file);
-          return { id, buffer };
-        },
-        apply: ({ id }) =>
-          act("replaceClipAsset", {
-            clipId: target,
-            asset: {
-              id,
-              kind: "audio",
-              name: file.name.slice(0, 80),
-              mime: file.type,
-              bytes: file.size,
-            },
-          }),
-        release: ({ id }) => sound.forget(id),
-      });
+      // Projectへ参照される前の原本をGCから守る（E2/R05）。
+      const id = uid();
+      const outcome = await repo.withProtection(id, () =>
+        imports.run({
+          key: `clip:${target}`,
+          targetExists: () => store.p.audio.some((c) => c.id === target),
+          load: async () => {
+            const buffer = await sound.decode(id, file);
+            await repo.putAsset(id, file);
+            return { id, buffer };
+          },
+          apply: ({ id }) =>
+            act("replaceClipAsset", {
+              clipId: target,
+              asset: {
+                id,
+                kind: "audio",
+                name: file.name.slice(0, 80),
+                mime: file.type,
+                bytes: file.size,
+              },
+            }),
+          release: ({ id }) => sound.forget(id),
+        }),
+      );
       if (!outcome.applied) {
         notice("差し替えは適用しませんでした（対象が変わりました）");
         return;
