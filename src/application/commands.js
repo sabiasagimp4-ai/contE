@@ -251,6 +251,20 @@ export const commands = {
       },
     ({ panelId }) => ({ panelIds: [panelId] }),
   ),
+  // キーはtの比率で持つので、尺が違うPanelへ貼っても動きの形は保たれる（B4）。
+  // replaceは既存キーを丸ごと差し替える（0本にはしない）。mergeは同じtの
+  // キーだけ上書きし、無ければ足す（setCameraKeyと同じ規則）。
+  pasteCameraKeys: define(
+    ["camera"],
+    ({ panelId, keys, mode }) =>
+      (p) => {
+        const b = panelOf(p, panelId);
+        if (!b || !keys?.length) return;
+        if (mode === "replace") b.camera = keys.map((k) => ({ ...k }));
+        else for (const k of keys) setCameraKey(b, k.t, k);
+      },
+    ({ panelId }) => ({ panelIds: [panelId] }),
+  ),
 
   // --- 描画 ---------------------------------------------------------------
   addStroke: define(
@@ -372,6 +386,7 @@ export const commandLabels = {
   moveCameraKeys: "Cameraキーの移動",
   deleteCameraKey: "Cameraキーの削除",
   setCameraValues: "Cameraの値の変更",
+  pasteCameraKeys: "Cameraキーの貼り付け",
   addStroke: "描画",
   setPanelImage: "画像の設定",
   clearPanelImage: "画像の削除",

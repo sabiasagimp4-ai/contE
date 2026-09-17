@@ -530,3 +530,73 @@ test("moveCameraKeys undoes as a single step for the whole group (A10)", () => {
   controller.undo();
   assert.deepEqual(cameraKeysOf(controller, panelId).map((k) => k.t), before);
 });
+
+test("pasteCameraKeys replace swaps the whole set but never leaves 0 keys (B4)", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  const keys = [
+    { t: 0, x: 0.2, y: 0, zoom: 1, rotation: 0 },
+    { t: 0.5, x: 0.4, y: 0, zoom: 2, rotation: 0 },
+  ];
+  controller.execute("pasteCameraKeys", { panelId, keys, mode: "replace" });
+  assert.deepEqual(cameraKeysOf(controller, panelId), keys);
+
+  const refused = controller.execute("pasteCameraKeys", {
+    panelId,
+    keys: [],
+    mode: "replace",
+  });
+  assert.equal(refused.changed, false, "空のクリップボードでは0本にしてはいけない");
+  assert.equal(cameraKeysOf(controller, panelId).length, 2);
+});
+
+test("pasteCameraKeys merge only overwrites keys at the same t (B4)", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  controller.execute("putCameraKey", { panelId, t: 0.5, values: { zoom: 5 } });
+  // t=0(既存の初期キー) と t=0.5(上のキーと同じt) を貼り付け、t=1は新規で足す。
+  const keys = [
+    { t: 0, x: 0.9, y: 0, zoom: 1, rotation: 0 },
+    { t: 0.5, x: 0, y: 0, zoom: 9, rotation: 0 },
+    { t: 1, x: 0, y: 0, zoom: 1, rotation: 0 },
+  ];
+  controller.execute("pasteCameraKeys", { panelId, keys, mode: "merge" });
+  const after = cameraKeysOf(controller, panelId);
+  assert.equal(after.length, 3);
+  assert.equal(after.find((k) => k.t === 0).x, 0.9, "同じtの既存キーを上書きしていない");
+  assert.equal(after.find((k) => k.t === 0.5).zoom, 9);
+  assert.ok(after.find((k) => k.t === 1), "新しいtのキーが足されていない");
+});
+
+test("pasteCameraKeys keeps the t ratio, so the shape survives a different frame count (B4)", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  const keys = [
+    { t: 0, x: 0, y: 0, zoom: 1, rotation: 0 },
+    { t: 0.25, x: 1, y: 0, zoom: 1, rotation: 0 },
+  ];
+  controller.execute("setPanelFrames", { ids: [panelId], frames: 200 });
+  controller.execute("pasteCameraKeys", { panelId, keys, mode: "replace" });
+  const after = cameraKeysOf(controller, panelId);
+  assert.deepEqual(
+    after.map((k) => k.t),
+    [0, 0.25],
+    "尺を変えてもtの比率は変わらない",
+  );
+});
+
+test("pasteCameraKeys undoes as a single step (B4)", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  const before = cameraKeysOf(controller, panelId);
+  controller.execute("pasteCameraKeys", {
+    panelId,
+    keys: [
+      { t: 0, x: 1, y: 1, zoom: 3, rotation: 10 },
+      { t: 0.5, x: 0, y: 0, zoom: 1, rotation: 0 },
+    ],
+    mode: "replace",
+  });
+  controller.undo();
+  assert.deepEqual(cameraKeysOf(controller, panelId), before);
+});

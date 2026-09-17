@@ -62,6 +62,9 @@ const primaryCameraKey = () => Math.min(...cameraKeys);
 let targetSeconds = null;
 // ループ再生（B3）。表示状態でありProjectにもlayoutにも保存しない。
 let loop = false;
+// Cameraキーの実行時クリップボード（B4）。tの比率で持つので、尺が違う
+// Panelへ貼っても動きの形は保たれる。Projectにもlayoutにも保存しない。
+let cameraClipboard = null;
 const sound = new AudioEngine();
 let clipId = null,
   resolved = [];
@@ -411,6 +414,8 @@ function cameraInspector(r) {
   );
   // 選んだキーが全部消えると0本になってしまう組み合わせは押せなくする。
   $("keyDelete").disabled = keys.length <= cameraKeys.size;
+  $("cameraPasteReplace").disabled = $("cameraPasteMerge").disabled =
+    !cameraClipboard?.length;
 }
 // このPanelにかかる音のみを出す。重なりで判断し、推測で結びつけない。
 function soundInspector(r) {
@@ -1195,6 +1200,22 @@ $("keyList").onchange = () => {
   cameraKeys = new Set([Number($("keyList").value)]);
   render();
 };
+// Cameraキーのコピー/貼り付け（B4）。選んでいる本数分をコピーし、尺が
+// 違うPanelへもtの比率のまま貼れる。
+$("cameraCopy").onclick = () => {
+  const keys = current().panel.camera;
+  cameraClipboard = [...cameraKeys]
+    .sort((a, b) => a - b)
+    .map((i) => ({ ...keys[i] }));
+  notice(`Cameraキーを${cameraClipboard.length}本コピーしました`);
+  cameraInspector(current());
+};
+for (const [id, mode] of [
+  ["cameraPasteReplace", "replace"],
+  ["cameraPasteMerge", "merge"],
+])
+  $(id).onclick = () =>
+    act("pasteCameraKeys", { panelId: activeId(), keys: cameraClipboard, mode });
 const values = () =>
   Object.fromEntries(
     ["cx", "cy", "cz", "cr"].map((id, i) => [
