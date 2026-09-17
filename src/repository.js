@@ -6,6 +6,19 @@ const isQuota = (e) =>
   e?.code === 22 ||
   /quota|容量/i.test(e?.message ?? "");
 const countPanels = (p) => flatten(p).length;
+// 複数タブの排他（E4）。navigator.locksが無い環境ではこれまでどおり
+// タブ内の直列化（#serial）だけで動く。BroadcastChannelも無ければ
+// 保存通知・素材の生存確認はしない（単一タブとして動く）。
+// windowの有無も見るのは、Node（テスト実行環境）がBroadcastChannelだけを
+// グローバルに持つため。ブラウザらしい環境でなければ既定では作らない。
+const browserLike = typeof window !== "undefined";
+const defaultLocks = () =>
+  (browserLike && typeof navigator !== "undefined" ? navigator.locks : null) ??
+  null;
+const defaultChannel = () =>
+  browserLike && typeof BroadcastChannel !== "undefined"
+    ? new BroadcastChannel("conte-repository")
+    : null;
 // 保存・復旧・素材の入出力を一か所に集める。UIはここだけを通して永続化する。
 export class ProjectRepository {
   // 保存とGCの直列キュー（E2/R05）。save()とpruneAssets()を同じ列に並べ、
@@ -14,13 +27,36 @@ export class ProjectRepository {
   // Import中の原本を指す資産IDの保護カウント（E2/R05）。プロジェクトへ
   // まだ参照されていない新規素材を、その間だけGCの対象から外す。
   #protected = new Map();
+  // このタブを他タブと区別するための印（E4）。保存通知や生存確認の
+  // メッセージが自分自身のものかを見分けるためだけに使う。
+  #tabId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  // このタブが今参照している素材IDを答える関数。appが起動時に差し替える。
+  #liveAssets = () => new Set();
   constructor(
     storage,
-    { now = () => Date.now(), limit = SNAPSHOT_LIMIT } = {},
+    {
+      now = () => Date.now(),
+      limit = SNAPSHOT_LIMIT,
+      locks = defaultLocks(),
+      channel = defaultChannel(),
+      livenessTimeout = 60,
+    } = {},
   ) {
     this.storage = storage;
     this.now = now;
     this.limit = limit;
+    this.locks = locks;
+    this.channel = channel;
+    this.livenessTimeout = livenessTimeout;
+    this.channel?.addEventListener("message", (e) => {
+      const msg = e.data;
+      if (msg?.type === "liveness-query" && msg.from !== this.#tabId)
+        this.channel.postMessage({
+          type: "liveness-reply",
+          queryId: msg.queryId,
+          assetIds: [...this.#liveAssets()],
+        });
+    });
   }
   #serial(fn) {
     const run = this.#queue.then(fn, fn);
@@ -29,6 +65,49 @@ export class ProjectRepository {
       () => {},
     );
     return run;
+  }
+  // 現在このタブが参照している素材IDを答えられるようにする（E4）。
+  // 他タブのpruneAssetsが、保存前の参照まで壊さないための問い合わせに使う。
+  setLiveAssets(getIds) {
+    this.#liveAssets = getIds;
+  }
+  // navigator.locksが使える環境だけ、名前つきロックでタブ間の実行を排他する。
+  // 無い環境では今までどおりタブ内の直列化（#serial）だけで動く（E4）。
+  async #withLocks(names, fn) {
+    if (!this.locks?.request) return fn();
+    const [name, ...rest] = names;
+    return this.locks.request(name, () =>
+      rest.length ? this.#withLocks(rest, fn) : fn(),
+    );
+  }
+  // 他タブに今使っている素材IDを尋ね、短い猶予だけ返事を待つ（E4）。
+  // BroadcastChannelが無ければ何も待たずに空集合を返す。
+  async #askOtherTabs(timeoutMs = this.livenessTimeout) {
+    if (!this.channel) return new Set();
+    const queryId = `${this.#tabId}-${this.now()}-${Math.random()}`;
+    const used = new Set();
+    const handler = (e) => {
+      if (e.data?.type === "liveness-reply" && e.data.queryId === queryId)
+        for (const id of e.data.assetIds) used.add(id);
+    };
+    this.channel.addEventListener("message", handler);
+    this.channel.postMessage({
+      type: "liveness-query",
+      queryId,
+      from: this.#tabId,
+    });
+    await new Promise((resolve) => setTimeout(resolve, timeoutMs));
+    this.channel.removeEventListener("message", handler);
+    return used;
+  }
+  // 保存が起きたことを他タブへ知らせる。復旧候補の提示を重複させないために使う。
+  onRemoteSave(callback) {
+    if (!this.channel) return () => {};
+    const handler = (e) => {
+      if (e.data?.type === "saved") callback(e.data);
+    };
+    this.channel.addEventListener("message", handler);
+    return () => this.channel.removeEventListener("message", handler);
   }
   // 呼び出し中は該当IDをpruneAssetsの削除対象から外す。取込のload〜apply全体を
   // 包むことで、Projectへ参照される前の新規素材をGCから守る。
@@ -51,7 +130,9 @@ export class ProjectRepository {
   async save(p, { kind = "auto", json } = {}) {
     // 壊れたデータを保存させない。検証前に既存の保存へ触れない。
     validate(p);
-    return this.#serial(() => this.#saveNow(p, kind, json));
+    return this.#serial(() =>
+      this.#withLocks(["conte-write"], () => this.#saveNow(p, kind, json)),
+    );
   }
   async #saveNow(p, kind, json) {
     const savedAt = this.now();
@@ -77,6 +158,8 @@ export class ProjectRepository {
       await this.#write(meta, data);
     }
     await this.#prune();
+    // 他タブへ保存の発生を知らせる。復旧候補の提示を重複させないために使う。
+    this.channel?.postMessage({ type: "saved", savedAt, kind, from: this.#tabId });
     return meta;
   }
   async #write(meta, data) {
@@ -166,8 +249,14 @@ export class ProjectRepository {
   }
   // 現在値、保持中の保存世代、Undo/Redoのどこからも参照されない素材だけを捨てる。
   // 取込中でwithProtectionに登録されているIDは、まだ参照が無くても対象にしない。
+  // navigator.locksが使える環境では、削除の前に他タブが今使っている素材も
+  // 尋ねて保護する（E4）。無い環境ではこれまでどおりタブ内の情報だけで判断する。
   async pruneAssets(p, history = []) {
-    return this.#serial(() => this.#pruneAssetsNow(p, history));
+    return this.#serial(() =>
+      this.#withLocks(["conte-write", "conte-gc"], () =>
+        this.#pruneAssetsNow(p, history),
+      ),
+    );
   }
   async #pruneAssetsNow(p, history) {
     const used = new Set();
@@ -187,6 +276,11 @@ export class ProjectRepository {
         // 旧形式または読めない保存は、正常な世代のGCを妨げない。
       }
     }
+    for (const id of await this.#askOtherTabs()) used.add(id);
+    // 呼び出し時に渡されたp/historyは呼び出し前の一瞬を捉えたものでしかない。
+    // #askOtherTabsで待っている間に自タブで新しい参照ができることもあるので、
+    // 削除の直前に自タブの「今」をもう一度反映する（E4）。
+    for (const id of this.#liveAssets()) used.add(id);
     let removed = 0;
     for (const id of await this.assetIds())
       if (!used.has(id) && !this.#protected.has(id)) {

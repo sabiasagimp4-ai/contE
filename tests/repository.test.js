@@ -435,3 +435,168 @@ test("resolved() interrupts an in-flight serialize instead of overwriting the ma
   );
   assert.equal((await repo.list()).length, 1, "打ち切ったはずの自動保存も書かれている");
 });
+// navigator.locksの最小限の模造品。名前ごとにFIFOで直列化する（E4）。
+// 「2つのタブ」を1プロセス内で再現するため、2つのProjectRepositoryへ
+// 同じインスタンスを渡して共有する。
+function fakeLockManager() {
+  const queues = new Map();
+  return {
+    request(name, fn) {
+      const prev = queues.get(name) ?? Promise.resolve();
+      const run = prev.then(fn, fn);
+      queues.set(
+        name,
+        run.then(
+          () => {},
+          () => {},
+        ),
+      );
+      return run;
+    },
+  };
+}
+test("without navigator.locks, two repositories can still race their storage access (E4 control)", async () => {
+  const storage = new MemoryStorage();
+  const repoA = new ProjectRepository(storage, { now: clock() });
+  const repoB = new ProjectRepository(storage, { now: clock(2000) });
+  await repoA.save(project(), { kind: "manual" });
+  let active = 0,
+    overlapped = false;
+  for (const name of ["batch", "delete", "keys", "values", "get"]) {
+    const original = storage[name].bind(storage);
+    storage[name] = async (...args) => {
+      active++;
+      if (active > 1) overlapped = true;
+      await new Promise((r) => setTimeout(r, 2));
+      try {
+        return await original(...args);
+      } finally {
+        active--;
+      }
+    };
+  }
+  await Promise.all([
+    repoA.save(project(), { kind: "manual" }),
+    repoB.pruneAssets(project(), []),
+  ]);
+  assert.equal(
+    overlapped,
+    true,
+    "ロックが無いのに2つのRepositoryが重ならなかった（このテスト自体が無意味になっている）",
+  );
+});
+test("navigator.locks serializes save()/pruneAssets() across two repositories sharing one tab lock manager (E4)", async () => {
+  const storage = new MemoryStorage();
+  const locks = fakeLockManager();
+  const repoA = new ProjectRepository(storage, { now: clock(), locks });
+  const repoB = new ProjectRepository(storage, { now: clock(2000), locks });
+  await repoA.save(project(), { kind: "manual" });
+  let active = 0,
+    overlapped = false;
+  for (const name of ["batch", "delete", "keys", "values", "get"]) {
+    const original = storage[name].bind(storage);
+    storage[name] = async (...args) => {
+      active++;
+      if (active > 1) overlapped = true;
+      await new Promise((r) => setTimeout(r, 2));
+      try {
+        return await original(...args);
+      } finally {
+        active--;
+      }
+    };
+  }
+  await Promise.all([
+    repoA.save(project(), { kind: "manual" }),
+    repoB.pruneAssets(project(), []),
+  ]);
+  assert.equal(
+    overlapped,
+    false,
+    "navigator.locksがあるのに2つのRepositoryのstorage操作が重なった",
+  );
+});
+test("onRemoteSave fires in another repository sharing the same BroadcastChannel (E4)", async () => {
+  const channelName = `test-e4-${Math.random()}`;
+  const { repo: repoA } = repository({
+    channel: new BroadcastChannel(channelName),
+  });
+  const { repo: repoB } = repository({
+    channel: new BroadcastChannel(channelName),
+  });
+  try {
+    const events = [];
+    const off = repoB.onRemoteSave((data) => events.push(data));
+    const meta = await repoA.save(project(), { kind: "manual" });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(events.length, 1);
+    assert.equal(events[0].savedAt, meta.savedAt);
+    assert.equal(events[0].kind, "manual");
+    off();
+    await repoA.save(project(), { kind: "manual" });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(events.length, 1, "unsubscribe後も通知を受け取っている");
+  } finally {
+    repoA.channel.close();
+    repoB.channel.close();
+  }
+});
+test("pruneAssets asks other tabs before deleting, and keeps what they report as live (E4)", async () => {
+  const channelName = `test-e4-${Math.random()}`;
+  const { repo: repoA, storage } = repository({
+    channel: new BroadcastChannel(channelName),
+    livenessTimeout: 20,
+  });
+  const { repo: repoB } = repository({
+    channel: new BroadcastChannel(channelName),
+    livenessTimeout: 20,
+  });
+  try {
+    // repoBのタブは、まだどのSnapshotにも保存していない新規素材を参照している。
+    await repoA.putAsset("live-elsewhere", new Uint8Array([1]));
+    repoB.setLiveAssets(() => new Set(["live-elsewhere"]));
+    const p = project(); // repoA自身は何も参照していない
+    const removed = await repoA.pruneAssets(p, []);
+    assert.equal(removed, 0, "他タブが使用中の素材を消してしまっている");
+    assert.deepEqual([...(await storage.get("assets", "live-elsewhere"))], [1]);
+  } finally {
+    repoA.channel.close();
+    repoB.channel.close();
+  }
+});
+test("pruneAssets keeps an asset the same tab now references, even if the passed p is stale (E4)", async () => {
+  // pruneAssets(p, history)のpは呼び出し前の一瞬を捉えたものでしかない。
+  // #askOtherTabsで待っている間（cross-tab環境）に自タブで新しい参照ができる
+  // ことがあるので、削除の直前にsetLiveAssetsの「今」も反映されないと、
+  // 取込直後の素材を誤って消してしまう（実ブラウザのE2/E4回帰で再現した）。
+  const { repo } = repository({ livenessTimeout: 5 });
+  await repo.putAsset("just-imported", new Uint8Array([9]));
+  // 呼び出し時点のpはまだこの素材を知らない（インポートのCommandがまだ
+  // 反映されていないタイミングを模す）。
+  const staleP = project();
+  repo.setLiveAssets(() => new Set(["just-imported"]));
+  const removed = await repo.pruneAssets(staleP, []);
+  assert.equal(removed, 0, "取込直後の素材を古いpの情報だけで消してしまった");
+  assert.deepEqual([...(await repo.getAsset("just-imported"))], [9]);
+});
+test("pruneAssets still removes assets nobody (including other tabs) uses (E4)", async () => {
+  const channelName = `test-e4-${Math.random()}`;
+  const { repo: repoA, storage } = repository({
+    channel: new BroadcastChannel(channelName),
+    livenessTimeout: 20,
+  });
+  const { repo: repoB } = repository({
+    channel: new BroadcastChannel(channelName),
+    livenessTimeout: 20,
+  });
+  try {
+    await repoA.putAsset("truly-orphaned", new Uint8Array([1]));
+    repoB.setLiveAssets(() => new Set()); // 他タブも使っていない
+    const removed = await repoA.pruneAssets(project(), []);
+    assert.equal(removed, 1);
+    assert.equal(await storage.get("assets", "truly-orphaned"), undefined);
+  } finally {
+    repoA.channel.close();
+    repoB.channel.close();
+  }
+});

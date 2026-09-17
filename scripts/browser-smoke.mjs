@@ -1546,6 +1546,91 @@ try {
     e1.frames > 3,
     `2000 Panelの自動保存中に描画が止まった（rAFが${e1.frames}回しか進まなかった）`,
   );
+  // E4：複数タブの排他。同じ保存先（同一オリジン・同一コンテキスト＝同じ
+  // ブラウザの2タブ相当）を開いた2ページで、片方のGCがもう片方の保存前の
+  // 参照を壊さないこと（navigator.locks + BroadcastChannelでの生存確認）。
+  {
+    const url = `http://127.0.0.1:${server.address().port}`;
+    const context = await browser.newContext();
+    const e4errors = [];
+    context.on("weberror", (e) => e4errors.push(e.error().message));
+    const pageA = await context.newPage();
+    const pageB = await context.newPage();
+    pageA.on("dialog", (d) => d.accept());
+    pageB.on("dialog", (d) => d.accept());
+    try {
+      await pageA.goto(url);
+      await pageB.goto(url);
+      await pageA.waitForFunction(
+        () => document.querySelector("#savestate").className !== "failed",
+      );
+      await pageB.waitForFunction(
+        () => document.querySelector("#savestate").className !== "failed",
+      );
+      const assetCount = () =>
+        pageA.evaluate(async () => {
+          const { IndexedDbStorage } = await import("/src/storage.js");
+          const storage = new IndexedDbStorage();
+          await storage.open();
+          return (await storage.keys("assets")).length;
+        });
+      assert.equal(await assetCount(), 0, "新しいコンテキストなのに素材が残っている");
+      // B側で新しい画像を取り込む。自動保存（最短600ms）より先にA側の
+      // 手動保存（＝pruneAssets）を仕掛けたいので、ここでは待たない。
+      await pageB.locator("#tree .panel").first().click();
+      await pageB.locator("#imageFile").setInputFiles({
+        name: "tabB.png",
+        mimeType: "image/png",
+        buffer: testPng(8, 8, [80, 160, 240]),
+      });
+      await pageB.waitForFunction(() =>
+        document.querySelector("#assetInfo").textContent.includes("tabB.png"),
+      );
+      assert.equal(await assetCount(), 1, "Bの取込がAssetストアへ反映されていない");
+      const saveA = pageA.waitForEvent("download");
+      await pageA.locator("#save").click();
+      await saveA;
+      await pageA.waitForFunction(() =>
+        document
+          .querySelector("#savestate")
+          .textContent.includes("ブラウザに保存"),
+      );
+      // Aの保存（とpruneAssets）が終わった後も、Bが取り込んだ画像の原本が
+      // GCで消えていないこと。ライブの表示だけでなくAssetストア本体で確かめる。
+      assert.equal(
+        await assetCount(),
+        1,
+        "他タブの保存前だった画像の原本がGCで消えてしまった",
+      );
+      assert.match(
+        await pageB.locator("#assetInfo").innerText(),
+        /tabB\.png/,
+        "他タブの保存で、保存前だった画像の名前表示が消えてしまった",
+      );
+      // 同時保存：ほぼ同時に手動保存しても、両方成功し取り違えないこと。
+      const [dlA, dlB] = await Promise.all([
+        pageA.waitForEvent("download"),
+        pageB.waitForEvent("download"),
+        pageA.locator("#save").click(),
+        pageB.locator("#save").click(),
+      ]);
+      assert.equal(dlA.suggestedFilename(), "project.contp");
+      assert.equal(dlB.suggestedFilename(), "project.contp");
+      await pageA.waitForFunction(() =>
+        document
+          .querySelector("#savestate")
+          .textContent.includes("ブラウザに保存"),
+      );
+      await pageB.waitForFunction(() =>
+        document
+          .querySelector("#savestate")
+          .textContent.includes("ブラウザに保存"),
+      );
+      assert.deepEqual(e4errors, []);
+    } finally {
+      await context.close();
+    }
+  }
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify(

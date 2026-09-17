@@ -2654,6 +2654,8 @@ render();
 const repo = new ProjectRepository(
   IndexedDbStorage.available() ? new IndexedDbStorage() : new MemoryStorage(),
 );
+// 他タブのGCが、保存前の参照を壊さないよう問い合わせに答える（E4）。
+repo.setLiveAssets(() => new Set(store.p.assets.map((a) => a.id)));
 let persistence = false;
 const clock = (t) =>
   new Date(t).toLocaleString("ja-JP", {
@@ -2790,7 +2792,11 @@ async function renderRecoveryList() {
     }),
   );
 }
+// 復旧候補として提示中の保存時刻。他タブの保存通知と突き合わせて、
+// 提示を重複させないために使う（E4）。
+let offeredSavedAt = null;
 function offerRecovery({ meta, project }) {
+  offeredSavedAt = meta.savedAt;
   for (const id of ["recoverInfo", "recoverHint", "recover", "discardRecovery"])
     $(id).hidden = false;
   $("recoverTitle").textContent = "前回の作業が残っています";
@@ -2814,6 +2820,19 @@ $("history").onclick = () => {
   $("recoverDialog").showModal();
 };
 $("recoverClose").onclick = () => $("recoverDialog").close();
+// 別タブが自分より新しく保存したら、提示中の復旧候補は用済みなので閉じる
+// （E4：復旧候補の提示を重複させない）。履歴一覧を見ているだけのときは閉じない。
+repo.onRemoteSave(({ savedAt }) => {
+  if (
+    $("recoverDialog").open &&
+    !$("recoverInfo").hidden &&
+    offeredSavedAt !== null &&
+    savedAt > offeredSavedAt
+  ) {
+    $("recoverDialog").close();
+    notice("別のタブで保存が進んだため、復旧の確認を閉じました");
+  }
+});
 (async () => {
   try {
     await repo.open();
