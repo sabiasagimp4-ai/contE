@@ -17,7 +17,6 @@ import {
   forEachPage,
   Job,
   Cancelled,
-  zip,
   ZipBuilder,
   canvasBytes,
 } from "./exporter.js";
@@ -2249,15 +2248,18 @@ window.addEventListener("afterprint", () => {
   if ($("paperDialog").open) showPage();
 });
 // PNGは1ファイルのZIPにまとめる。連番の個別ダウンロードを何十回も許可させない。
+// 全ページ分の{name,bytes}を配列で貯めてからzip()するとPNGを二重に抱えるので、
+// 1ページできるたびにZipBuilderへ足し、Blobは最後にまとめて作る（D2）。
 $("png").onclick = async () => {
-  const files = await exportPages(
-    async (canvas, i) => ({
+  const builder = new ZipBuilder();
+  const result = await exportPages(async (canvas, i) => {
+    builder.add({
       name: `conte-${String(i + 1).padStart(3, "0")}.png`,
       bytes: await canvasBytes(canvas),
-    }),
-    "PNGを生成",
-  );
-  if (!files) return showPage();
+    });
+    return null;
+  }, "PNGを生成");
+  if (!result) return showPage();
   // ファイル名に使えない記号を落とす。空になったらcontEの既定名にする。
   const base =
     store.p.title
@@ -2265,8 +2267,8 @@ $("png").onclick = async () => {
       .trim()
       .slice(0, 40) || "conte";
   const name = `${base}-png.zip`;
-  download(zip(files), name);
-  notice(`${files.length}枚のPNGを${name}にまとめました`);
+  download(builder.finish(), name);
+  notice(`${builder.count}枚のPNGを${name}にまとめました`);
   showPage();
 };
 // Animatic出力。映像は再生と同じ評価、音は再生と同じ予約をストリームへ流す。

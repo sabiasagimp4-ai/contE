@@ -1,8 +1,15 @@
 // Optional QA tools; not runtime dependencies. Install Playwright separately.
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
+import { readFile } from "node:fs/promises";
 import { deflateSync } from "node:zlib";
 import { serve } from "./serve.mjs";
+// ZipBuilder（src/exporter.js）が書く終端レコードの並びに合わせて件数だけ読む。
+// コメント無しの無圧縮ZIPなので、末尾22バイトの固定位置に総エントリ数がある。
+async function zipEntryCount(download) {
+  const buffer = await readFile(await download.path());
+  return buffer.readUInt16LE(buffer.length - 12);
+}
 const loaded = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const { chromium } = loaded.chromium ? loaded : loaded.default;
 // テスト用の実PNGを作る。アプリの依存ではなく、この検証スクリプト内だけで使う。
@@ -996,8 +1003,13 @@ try {
   assert.match(await page.locator("#status").innerText(), /続き行 [1-9]/);
   const zipDownload = page.waitForEvent("download");
   await page.locator("#png").click();
-  assert.equal((await zipDownload).suggestedFilename(), "conte-paper-png.zip");
-  assert.match(await page.locator("#paperProgress").innerText(), /完了/);
+  const zip = await zipDownload;
+  assert.equal(zip.suggestedFilename(), "conte-paper-png.zip");
+  const paperDone = await page.locator("#paperProgress").innerText();
+  assert.match(paperDone, /完了/);
+  // D2：1ページずつZipBuilderへ足すので、書き出したファイル数は最終ページ数と一致する。
+  const pageTotal = Number(paperDone.match(/完了（(\d+)ページ）/)[1]);
+  assert.equal(await zipEntryCount(zip), pageTotal);
   await page.locator("#closePaper").click();
   // P2：500 Panelでも生成するクリップは画面分だけ。全体表示と境界スクラブも確認する。
   const clipCount = await page.locator(".clip").count();
