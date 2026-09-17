@@ -1058,6 +1058,46 @@ try {
     ]),
     [200, 90, 60, 255],
   );
+  // B5：画像の差し替え。既に画像があるPanelへ別の画像を選ぶと、参照だけ新しい
+  // Asset IDへ付け替わり、使われなくなった元の画像メタデータは消える。
+  await page.locator("#imageFile").setInputFiles({
+    name: "bg2.png",
+    mimeType: "image/png",
+    buffer: testPng(8, 8, [60, 200, 90]),
+  });
+  await page.waitForFunction(() =>
+    document.querySelector("#assetInfo").textContent.includes("bg2.png"),
+  );
+  assert.doesNotMatch(
+    await page.locator("#assetInfo").innerText(),
+    /bg\.png/,
+    "差し替えたはずの古い画像名がまだ出ている",
+  );
+  assert.deepEqual(
+    await page.evaluate(() => [
+      ...document
+        .querySelector("#drawing")
+        .getContext("2d")
+        .getImageData(900, 200, 1, 1).data,
+    ]),
+    [60, 200, 90, 255],
+    "差し替えた画像が反映されていない",
+  );
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction(() =>
+    document.querySelector("#assetInfo").textContent.includes("bg.png") &&
+    !document.querySelector("#assetInfo").textContent.includes("bg2.png"),
+  );
+  assert.deepEqual(
+    await page.evaluate(() => [
+      ...document
+        .querySelector("#drawing")
+        .getContext("2d")
+        .getImageData(900, 200, 1, 1).data,
+    ]),
+    [200, 90, 60, 255],
+    "Undoで元の画像へ戻っていない",
+  );
   // A9：行の高さはlayoutと同じ仕組み（IndexedDbのmeta）で持つので、
   // 再起動をまたいで保たれる。
   await page.locator("#rowSize").selectOption("lg");

@@ -205,6 +205,15 @@ const audioAsset = (id, name) => ({
   mime: "audio/wav",
   bytes: 8,
 });
+const imageAsset = (id, name) => ({
+  id,
+  kind: "image",
+  name,
+  mime: "image/png",
+  bytes: 8,
+  width: 10,
+  height: 10,
+});
 
 test("replacing a clip's source keeps the original reachable through undo", () => {
   const { controller } = controllerWith();
@@ -277,6 +286,80 @@ test("replacing a clip that no longer exists changes nothing", () => {
   assert.equal(result.changed, false);
   assert.equal(controller.project.assets.length, 0);
   assert.equal(controller.store.past.length, 0);
+});
+
+test("replacePanelImage swaps the asset and undo restores the original (B5)", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  controller.execute("setPanelImage", {
+    panelId,
+    asset: imageAsset("old-image", "元の絵.png"),
+    opacity: 0.8,
+  });
+  const before = controller.project;
+
+  const replaced = controller.execute("replacePanelImage", {
+    panelIds: [panelId],
+    asset: imageAsset("new-image", "差し替え.png"),
+  });
+
+  assert.equal(replaced.changed, true);
+  const image = flatten(controller.project).find((r) => r.panel.id === panelId).panel.image;
+  assert.equal(image.assetId, "new-image");
+  assert.equal(image.opacity, 0.8, "opacityを省略したら元の値を保つ");
+  assert.equal(before.assets.some((a) => a.id === "old-image"), true, "原本は不変");
+  assert.equal(
+    controller.project.assets.some((a) => a.id === "old-image"),
+    false,
+    "使われなくなった画像メタデータが残っている",
+  );
+
+  controller.undo();
+  const restored = flatten(controller.project).find((r) => r.panel.id === panelId).panel.image;
+  assert.equal(restored.assetId, "old-image");
+  assert.equal(
+    controller.project.assets.find((a) => a.id === "old-image").name,
+    "元の絵.png",
+  );
+});
+
+test("replacePanelImage keeps metadata other panels still reference (B5)", () => {
+  const { controller } = controllerWith();
+  controller.execute("addPanel", { activeId: controller.activeId });
+  const [first, second] = flatten(controller.project).map((r) => r.panel.id);
+  for (const panelId of [first, second])
+    controller.execute("setPanelImage", {
+      panelId,
+      asset: imageAsset("shared", "共有.png"),
+      opacity: 1,
+    });
+  assert.equal(controller.project.assets.length, 1);
+
+  controller.execute("replacePanelImage", {
+    panelIds: [first],
+    asset: imageAsset("new-image", "差し替え.png"),
+  });
+
+  const images = flatten(controller.project).map((r) => r.panel.image.assetId);
+  assert.deepEqual(images, ["new-image", "shared"]);
+  assert.equal(controller.project.assets.length, 2);
+});
+
+test("replacePanelImage can set several panels at once", () => {
+  const { controller } = controllerWith();
+  controller.execute("addPanel", { activeId: controller.activeId });
+  const [first, second] = flatten(controller.project).map((r) => r.panel.id);
+
+  controller.execute("replacePanelImage", {
+    panelIds: [first, second],
+    asset: imageAsset("new-image", "差し替え.png"),
+    opacity: 0.5,
+  });
+
+  const images = flatten(controller.project).map((r) => r.panel.image);
+  assert.equal(images[0].assetId, "new-image");
+  assert.equal(images[1].assetId, "new-image");
+  assert.equal(images[0].opacity, 0.5);
 });
 
 test("pasting panels duplicates them with new ids after the target", () => {

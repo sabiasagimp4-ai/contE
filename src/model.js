@@ -403,21 +403,22 @@ export function normalizeSelection(selection, p) {
   return { active, ids: ids.length ? ids : [active] };
 }
 
-// Panel画像だけを外し、他のPanelからも使われていない画像メタデータを整理する。
-// 音声素材は画像の参照集合に含まれないため、ここでは決して削除しない。
-export function clearPanelImage(p, panelId) {
-  const rows = flatten(p);
-  const target = rows.find((r) => r.panel.id === panelId)?.panel;
-  if (!target?.image) return false;
-  target.image = null;
-  const usedImages = new Set(
-    rows
+// どのPanelからも参照されなくなった画像メタデータを外す。音声素材は画像の
+// 参照集合に含まれないため、ここでは決して削除しない。
+export function pruneImageAssets(p) {
+  const used = new Set(
+    flatten(p)
       .map((r) => r.panel.image?.assetId)
       .filter(Boolean),
   );
-  p.assets = p.assets.filter(
-    (asset) => asset.kind !== "image" || usedImages.has(asset.id),
-  );
+  p.assets = p.assets.filter((asset) => asset.kind !== "image" || used.has(asset.id));
+}
+// Panel画像だけを外し、他のPanelからも使われていない画像メタデータを整理する。
+export function clearPanelImage(p, panelId) {
+  const target = flatten(p).find((r) => r.panel.id === panelId)?.panel;
+  if (!target?.image) return false;
+  target.image = null;
+  pruneImageAssets(p);
   return true;
 }
 const isSelection = (value) =>

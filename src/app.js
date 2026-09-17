@@ -1545,7 +1545,8 @@ $("imageFile").onchange = async () => {
       },
       apply: ({ meta, bitmap }) => {
         images.set(meta.id, bitmap);
-        return act("setPanelImage", { panelId: target, asset: meta, opacity });
+        // 既に画像があれば差し替え（B5）。無ければ普通に設定するのと同じ結果になる。
+        return act("replacePanelImage", { panelIds: [target], asset: meta, opacity });
       },
       release: ({ bitmap }) => bitmap?.close?.(),
     });

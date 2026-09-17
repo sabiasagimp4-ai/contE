@@ -15,6 +15,7 @@ import {
   moveCameraKey,
   removeCameraKey,
   clearPanelImage,
+  pruneImageAssets,
   uid,
 } from "../model.js";
 import * as audio from "../audio.js";
@@ -297,6 +298,22 @@ export const commands = {
         clearPanelImage(p, panelId),
     ({ panelId }) => ({ panelIds: [panelId] }),
   ),
+  // 音声のreplaceClipAssetと同じ形：新しいAsset IDへ参照を付け替え、使われなく
+  // なった画像メタデータをclearPanelImageと同じ規則で外す（B5）。原本は
+  // 上書きせず、他のPanelが同じ素材をまだ使っていればそのメタデータは残る。
+  replacePanelImage: define(
+    ["visual", "assets"],
+    ({ panelIds, asset, opacity }) =>
+      (p) => {
+        const targets = panelIds.map((id) => panelOf(p, id)).filter(Boolean);
+        if (!targets.length) return;
+        if (!p.assets.some((a) => a.id === asset.id)) p.assets.push(asset);
+        for (const b of targets)
+          b.image = { assetId: asset.id, opacity: opacity ?? b.image?.opacity ?? 1 };
+        pruneImageAssets(p);
+      },
+    ({ panelIds, asset }) => ({ panelIds, assetIds: [asset.id] }),
+  ),
   setImageOpacity: define(
     ["visual"],
     ({ panelId, opacity }) =>
@@ -390,6 +407,7 @@ export const commandLabels = {
   addStroke: "描画",
   setPanelImage: "画像の設定",
   clearPanelImage: "画像の削除",
+  replacePanelImage: "画像の差し替え",
   setImageOpacity: "画像の不透明度の変更",
   addAudioClip: "音の配置",
   setClipField: "音クリップの変更",
