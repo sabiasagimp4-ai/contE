@@ -33,6 +33,7 @@ import { searchPanels } from "./derived/search.js";
 import * as audio from "./audio.js";
 import { AudioEngine } from "./audio.js";
 import { ProjectRepository, Autosaver } from "./repository.js";
+import { buildShareHtml } from "./share.js";
 import { IndexedDbStorage, MemoryStorage } from "./storage.js";
 import { EditorSession } from "./editor-session.js";
 import { EditorController } from "./application/editor-controller.js";
@@ -2249,7 +2250,7 @@ function progress(text, running) {
   $("paperProgress").textContent = text;
   $("cancelExport").hidden = !running;
   for (const node of document.querySelectorAll(
-    "#paperSettings input, #paperSettings select, #paperColumns input, #paperColumns button, #print, #png",
+    "#paperSettings input, #paperSettings select, #paperColumns input, #paperColumns button, #print, #png, #shareHtml",
   ))
     node.disabled = running;
 }
@@ -2330,6 +2331,12 @@ window.addEventListener("afterprint", () => {
 // PNGは1ファイルのZIPにまとめる。連番の個別ダウンロードを何十回も許可させない。
 // 全ページ分の{name,bytes}を配列で貯めてからzip()するとPNGを二重に抱えるので、
 // 1ページできるたびにZipBuilderへ足し、Blobは最後にまとめて作る（D2）。
+// ファイル名に使えない記号を落とす。空になったらcontEの既定名にする。
+const exportFileBase = () =>
+  store.p.title
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "")
+    .trim()
+    .slice(0, 40) || "conte";
 $("png").onclick = async () => {
   const builder = new ZipBuilder();
   const result = await exportPages(async (canvas, i) => {
@@ -2340,15 +2347,40 @@ $("png").onclick = async () => {
     return null;
   }, "PNGを生成");
   if (!result) return showPage();
-  // ファイル名に使えない記号を落とす。空になったらcontEの既定名にする。
-  const base =
-    store.p.title
-      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "")
-      .trim()
-      .slice(0, 40) || "conte";
-  const name = `${base}-png.zip`;
+  const name = `${exportFileBase()}-png.zip`;
   download(builder.finish(), name);
   notice(`${builder.count}枚のPNGを${name}にまとめました`);
+  showPage();
+};
+// 共有用HTML（D4）。1ファイルへdata URIで埋め込むので、ページ数×PNGサイズを
+// そのまま抱える。累計が上限を超えたら残りを生成せず断る（保存を壊さない）。
+const SHARE_HTML_LIMIT = 60 * 1024 * 1024;
+$("shareHtml").onclick = async () => {
+  const pngPages = [];
+  let total = 0,
+    overLimit = false;
+  const result = await exportPages(async (canvas) => {
+    const bytes = await canvasBytes(canvas);
+    total += bytes.length;
+    if (total > SHARE_HTML_LIMIT) {
+      overLimit = true;
+      job?.cancel();
+      return null;
+    }
+    pngPages.push(bytes);
+    return null;
+  }, "共有用HTMLを生成");
+  if (overLimit) {
+    notice(
+      `共有用HTMLの上限（${Math.round(SHARE_HTML_LIMIT / 1024 / 1024)}MB）を超えるため書き出しを中止しました`,
+    );
+    return showPage();
+  }
+  if (!result) return showPage();
+  const name = `${exportFileBase()}-share.html`;
+  const html = buildShareHtml({ title: store.p.title, pages: pngPages });
+  download(new Blob([html], { type: "text/html" }), name);
+  notice(`${pngPages.length}ページを${name}にまとめました`);
   showPage();
 };
 // Animatic出力。映像は再生と同じ評価、音は再生と同じ予約をストリームへ流す。

@@ -1066,6 +1066,19 @@ try {
   // D2：1ページずつZipBuilderへ足すので、書き出したファイル数は最終ページ数と一致する。
   const pageTotal = Number(paperDone.match(/完了（(\d+)ページ）/)[1]);
   assert.equal(await zipEntryCount(zip), pageTotal);
+  // D4：共有用HTML。埋め込んだページ画像の枚数が紙面のページ数と一致すること。
+  const shareDownload = page.waitForEvent("download");
+  await page.locator("#shareHtml").click();
+  const shareFile = await shareDownload;
+  assert.match(shareFile.suggestedFilename(), /-share\.html$/);
+  assert.match(await page.locator("#paperProgress").innerText(), /完了/);
+  const shareHtml = await readFile(await shareFile.path(), "utf8");
+  const imgCount = (shareHtml.match(/<img class="page"/g) || []).length;
+  assert.equal(
+    imgCount,
+    pageTotal,
+    "共有用HTMLに埋め込まれたページ数が紙面のページ数と一致しない",
+  );
   await page.locator("#closePaper").click();
   // P2：500 Panelでも生成するクリップは画面分だけ。全体表示と境界スクラブも確認する。
   const clipCount = await page.locator(".clip").count();
