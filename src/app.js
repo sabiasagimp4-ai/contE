@@ -2463,17 +2463,21 @@ async function animaticFrames(spec) {
   canvas.height = spec.height;
   const context = canvas.getContext("2d");
   animaticJob = new Job();
+  // 開始時点の内容に固定する（E3）。rowsの中身は編集のたびに作り直されるので
+  // 参照を控えるだけでよいが、imagesは同じMapへ後から素材が足されるためコピーする。
+  const frozenRows = rows;
+  const frozenImages = new Map(images);
   const builder = new ZipBuilder();
   await forEachPage(
     spec.frames,
     async (i) => {
       animatic.renderFrame(
         context,
-        rows,
+        frozenRows,
         spec.sourceFrame(i),
         spec.width,
         spec.height,
-        images,
+        frozenImages,
       );
       builder.add({
         name: `frame-${String(i + 1).padStart(5, "0")}.png`,
@@ -2499,12 +2503,19 @@ async function animaticRecord(spec, mime) {
   canvas.height = spec.height;
   const context = canvas.getContext("2d");
   const stream = canvas.captureStream(spec.outFps);
-  const schedule = audio.scheduleFor(resolved, 0, store.p.fps, endFrame());
+  // 開始時点の内容に固定する（E3）。録画は実時間かかるので、途中で素材取り込みが
+  // 終わっても絵と音がその時点のまま変わらないようにする。
+  const frozenRows = rows;
+  const frozenImages = new Map(images);
+  const frozenResolved = resolved;
+  const fps = store.p.fps;
+  const total = tl.total(frozenRows);
+  const schedule = audio.scheduleFor(frozenResolved, 0, fps, total);
   if (schedule.length) {
     const destination = sound.streamDestination();
     for (const track of destination.stream.getAudioTracks())
       stream.addTrack(track);
-    sound.play(schedule, 0, store.p.fps, 0.12, destination);
+    sound.play(schedule, 0, fps, 0.12, destination);
   }
   const recorder = new animatic.Recorder(stream, mime);
   animaticJob = new Job();
@@ -2512,20 +2523,18 @@ async function animaticRecord(spec, mime) {
   const started = performance.now();
   try {
     while (true) {
-      const clock = sound.frameAt(store.p.fps);
+      const clock = sound.frameAt(fps);
       const elapsed =
-        clock !== null
-          ? clock / store.p.fps
-          : (performance.now() - started) / 1000;
+        clock !== null ? clock / fps : (performance.now() - started) / 1000;
       if (elapsed >= spec.seconds) break;
       animaticJob.check();
       animatic.renderFrame(
         context,
-        rows,
-        Math.max(0, Math.min(endFrame() - 1e-6, elapsed * store.p.fps)),
+        frozenRows,
+        Math.max(0, Math.min(total - 1e-6, elapsed * fps)),
         spec.width,
         spec.height,
-        images,
+        frozenImages,
       );
       const state = animatic.recordingProgress(Math.max(0, elapsed), spec);
       animaticProgress(

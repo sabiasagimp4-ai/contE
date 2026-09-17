@@ -958,7 +958,91 @@ try {
     HTMLAnchorElement.prototype.click = window.__realClick;
   });
   await page.locator("#closeAnimatic").click();
+  // E3：Animatic出力の内容固定。録画開始時点の内容に固定するので、録画中に
+  // 完了する素材取り込みが録画へ写り込まないこと（ライブの編集画面には
+  // 反映されること）を確かめる。frame 0は先頭Panel（現在選択中）に対応する。
+  // Animatic Dialogはmodalで#imageFileを操作できないため、取込は開く前に
+  // 始め、createImageBitmapを遅らせて録画中に完了させる。
   await page.locator('[data-tab="content"]').click();
+  await page.evaluate(() => {
+    window.__realCreateImageBitmap = window.createImageBitmap;
+    window.createImageBitmap = (...args) =>
+      new Promise((resolve) =>
+        setTimeout(
+          () => resolve(window.__realCreateImageBitmap(...args)),
+          2000,
+        ),
+      );
+  });
+  const raceImport = page.locator("#imageFile").setInputFiles({
+    name: "race.png",
+    mimeType: "image/png",
+    buffer: testPng(8, 8, [10, 200, 10]),
+  });
+  await page.locator("#animatic").click();
+  await page.evaluate(() => {
+    window.__captured2 = null;
+    window.__realClick2 = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      if (this.download && this.href.startsWith("blob:")) {
+        window.__captured2 = this.href;
+        return;
+      }
+      return window.__realClick2.call(this);
+    };
+  });
+  await page.locator("#animaticStart").click();
+  await page.waitForFunction(() => window.__captured2, null, {
+    timeout: 90000,
+  });
+  await raceImport;
+  await page.evaluate(() => {
+    window.createImageBitmap = window.__realCreateImageBitmap;
+  });
+  const e3 = await page.evaluate(async () => {
+    const video = document.createElement("video");
+    video.src = window.__captured2;
+    video.muted = true;
+    await new Promise((r) => (video.onloadedmetadata = r));
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const c = canvas.getContext("2d");
+    // 取込は2秒×2回（約4秒）遅らせてあるので、それより後の時刻を見る。
+    // ここで写り込んでいれば、固定できていない証拠になる。
+    video.currentTime = Math.min(video.duration - 0.3, video.duration * 0.7, 7);
+    await new Promise((r) => (video.onseeked = r));
+    c.drawImage(video, 0, 0);
+    const [r, g, b] = c.getImageData(
+      Math.floor(canvas.width / 2),
+      Math.floor(canvas.height / 2),
+      1,
+      1,
+    ).data;
+    return { r, g, b, sampledAt: video.currentTime, duration: video.duration };
+  });
+  assert.ok(
+    !(e3.r < 60 && e3.g > 150 && e3.b < 60),
+    `取込中に完了した画像が録画へ写り込んでいる（${JSON.stringify(e3)}）`,
+  );
+  await page.evaluate(() => {
+    HTMLAnchorElement.prototype.click = window.__realClick2;
+  });
+  await page.locator("#closeAnimatic").click();
+  // 取り込み自体は普通にコミットされている（固定したのは出力だけ）。
+  await page.waitForFunction(() =>
+    document.querySelector("#assetInfo").textContent.includes("race.png"),
+  );
+  assert.deepEqual(
+    await page.evaluate(() => [
+      ...document
+        .querySelector("#drawing")
+        .getContext("2d")
+        .getImageData(640, 360, 1, 1).data,
+    ]),
+    [10, 200, 10, 255],
+    "取り込んだ画像がライブの編集画面に反映されていない",
+  );
   const { project, panel, uid, BRUSH } = await import("../src/model.js");
   const data = project();
   data.scenes = Array.from({ length: 5 }, (_, si) => ({
