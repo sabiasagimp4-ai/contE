@@ -925,6 +925,67 @@ footer label {
   clip-path: polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%);
 }
 
+/* ---- 検索（B2）。モーダルにはせず、見ながら操作を続けられる小さな窓にする。 */
+#search {
+  position: fixed;
+  top: 34px;
+  right: 12px;
+  width: 340px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid #0c0c0c;
+  border-radius: 3px;
+  box-shadow: 0 12px 40px #000000a6;
+  z-index: 10;
+}
+#search[hidden] {
+  display: none;
+}
+#search .row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-bottom: 1px solid var(--line);
+}
+#search input {
+  flex: 1;
+}
+#searchStatus {
+  font-size: 10.5px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+#searchClose {
+  padding: 0 6px;
+}
+#searchResults {
+  overflow: auto;
+}
+.searchHit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  font-size: 10.5px;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-bottom: 1px solid #262626;
+}
+.searchHit:hover {
+  background: var(--head);
+}
+.searchHit b {
+  color: var(--key-on);
+  font-weight: 600;
+}
+.searchHit .field {
+  color: var(--dim);
+}
+
 /* ---- ダイアログ -------------------------------------------------------- */
 dialog {
   width: min(1050px, 95vw);

@@ -24,6 +24,7 @@ import {
 import * as animatic from "./animatic.js";
 import * as tl from "./timeline.js";
 import * as duration from "./derived/duration.js";
+import { searchPanels } from "./derived/search.js";
 import * as audio from "./audio.js";
 import { AudioEngine } from "./audio.js";
 import { ProjectRepository, Autosaver } from "./repository.js";
@@ -1729,6 +1730,66 @@ for (const event of ["pagehide", "visibilitychange"])
     if (event === "pagehide" || document.visibilityState === "hidden")
       saver.flush();
   });
+// 台詞・注記・Scene名・Shot名の検索（B2）。Ctrl+Fはテキスト入力中でも開けるので、
+// 下の主なショートカットのハンドラとは別に持つ。開閉はProjectにもlayoutにも
+// 保存しない画面状態。
+const FIELD_LABEL = {
+  dialogue: "台詞",
+  sound: "SE/BGM",
+  notes: "演出メモ",
+  sceneName: "Scene名",
+  shotName: "Shot名",
+};
+function openSearch() {
+  $("search").hidden = false;
+  $("searchQuery").focus();
+  $("searchQuery").select();
+  runSearch();
+}
+function closeSearch() {
+  $("search").hidden = true;
+}
+function runSearch() {
+  const query = $("searchQuery").value;
+  const hits = query ? searchPanels(store.p, query) : [];
+  $("searchResults").replaceChildren(
+    ...hits.map((hit) => {
+      const b = document.createElement("button");
+      b.className = "searchHit";
+      const field = document.createElement("span");
+      field.className = "field";
+      field.textContent = `${FIELD_LABEL[hit.field]} `;
+      const match = document.createElement("b");
+      match.textContent = hit.text.slice(hit.index, hit.index + query.length);
+      b.append(
+        field,
+        document.createTextNode(hit.text.slice(0, hit.index)),
+        match,
+        document.createTextNode(hit.text.slice(hit.index + query.length)),
+      );
+      b.onclick = () =>
+        commitWith(
+          () => (frame = startOf(hit.panelId)),
+          () => editor.select({ active: hit.panelId, ids: [hit.panelId] }),
+        );
+      return b;
+    }),
+  );
+  $("searchStatus").textContent = query ? `${hits.length}件` : "";
+}
+$("searchQuery").oninput = runSearch;
+$("searchClose").onclick = closeSearch;
+document.addEventListener("keydown", (e) => {
+  const mod = e.ctrlKey || e.metaKey;
+  if ($("paperDialog").open || $("animaticDialog").open || $("recoverDialog").open)
+    return;
+  if (mod && e.key.toLowerCase() === "f") {
+    e.preventDefault();
+    openSearch();
+  } else if (e.key === "Escape" && !$("search").hidden) {
+    closeSearch();
+  }
+});
 document.addEventListener("keydown", (e) => {
   if (
     /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) ||

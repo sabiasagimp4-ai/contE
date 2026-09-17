@@ -17,6 +17,17 @@
       ></span
       ><span id="status" role="status"></span>
     </header>
+    <div id="search" hidden>
+      <div class="row">
+        <input
+          id="searchQuery"
+          type="text"
+          placeholder="台詞・注記・Scene名・Shot名を検索"
+        /><output id="searchStatus"></output
+        ><button id="searchClose" title="閉じる（Esc）">×</button>
+      </div>
+      <div id="searchResults"></div>
+    </div>
     <nav>
       <button data-act="add">＋ Panel <kbd>N</kbd></button
       ><button data-act="duplicate">複製</button

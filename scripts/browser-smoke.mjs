@@ -443,6 +443,35 @@ try {
   assert.ok(smMetrics.cameraHeight < mdMetrics.cameraHeight, "小で行が低くなっていない");
   // 以降の座標に基づくテストへ影響しないよう、既定の「中」へ戻しておく。
   await page.locator("#rowSize").selectOption("md");
+  // B2：台詞・注記の検索。Ctrl+Fはテキスト入力中でも開き、選ぶとそのPanelへ
+  // ジャンプする。Escで閉じる。
+  await page.locator("#dialogue").fill("検索テスト用の台詞ひとつめ");
+  await page.locator("#dialogue").blur();
+  await page.keyboard.press("n");
+  await page.locator("#dialogue").fill("検索テスト用の台詞ふたつめ");
+  await page.locator("#dialogue").blur();
+  assert.equal(await page.locator("#search").isHidden(), true, "検索窓が最初から開いている");
+  await page.keyboard.press("Control+f");
+  assert.equal(await page.locator("#search").isVisible(), true, "Ctrl+Fで検索窓が開かない");
+  assert.equal(await page.evaluate(() => document.activeElement.id), "searchQuery");
+  await page.locator("#searchQuery").fill("検索テスト用の台詞");
+  await page.waitForTimeout(30);
+  assert.equal(await page.locator(".searchHit").count(), 2, "2件見つかるはず");
+  assert.match(await page.locator("#searchStatus").innerText(), /2件/);
+  const searchBreadcrumbBefore = await page.locator("#breadcrumb").innerText();
+  await page.locator(".searchHit").first().click();
+  assert.notEqual(
+    await page.locator("#breadcrumb").innerText(),
+    searchBreadcrumbBefore,
+    "検索結果を選んでもジャンプしない",
+  );
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator("#search").isHidden(), true, "Escで閉じない");
+  // 台詞入力中でもCtrl+Fは効く（ブラウザ標準の検索を横取りする必要があるため）。
+  await page.locator("#dialogue").click();
+  await page.keyboard.press("Control+f");
+  assert.equal(await page.locator("#search").isVisible(), true, "台詞入力中はCtrl+Fが効かない");
+  await page.keyboard.press("Escape");
   // P2：fps目盛、選択範囲の表示、Cameraキーの追加/移動/削除とUndo。
   const ticks = await page.locator("#ruler .tick").allInnerTexts();
   assert.ok(ticks.length > 1, "ruler has no ticks");
