@@ -286,6 +286,24 @@ nav label {
   white-space: nowrap;
 }
 
+/* ---- プレゼンモード（B8）。Stageだけを見せる。表示状態でありProjectにも
+   layoutにも保存しない。 ---------------------------------------------- */
+body.presenting header,
+body.presenting nav,
+body.presenting footer,
+body.presenting #projectPanel,
+body.presenting #inspector,
+body.presenting .splitter {
+  display: none;
+}
+body.presenting main {
+  display: block;
+}
+body.presenting #stage {
+  height: 100%;
+  border: none;
+}
+
 /* ---- 3面 + スプリッタ -------------------------------------------------- */
 main {
   display: grid;

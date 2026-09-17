@@ -134,6 +134,30 @@ try {
   await page.keyboard.type("n");
   await page.locator("#notes").click();
   assert.equal(await page.locator("#strip button").count(), 2);
+  // B8：プレゼンモード。Stageだけを見せるクラスの付け外しと、プレゼン中も
+  // ←/→でPanelが進むことを確認する。
+  const presentBreadcrumbBefore = await page.locator("#breadcrumb").innerText();
+  await page.locator("#present").click();
+  assert.equal(
+    await page.evaluate(() => document.body.classList.contains("presenting")),
+    true,
+    "プレゼンモードのクラスが付いていない",
+  );
+  assert.equal(await page.locator("nav").isVisible(), false, "プレゼン中もnavが見えている");
+  assert.equal(await page.locator("#stage").isVisible(), true, "プレゼン中にStageが隠れている");
+  await page.keyboard.press("ArrowLeft");
+  assert.notEqual(
+    await page.locator("#breadcrumb").innerText(),
+    presentBreadcrumbBefore,
+    "プレゼン中に矢印キーでPanelが進まない",
+  );
+  await page.keyboard.press("Escape");
+  assert.equal(
+    await page.evaluate(() => document.body.classList.contains("presenting")),
+    false,
+    "Escでプレゼンモードから戻れない",
+  );
+  assert.equal(await page.locator("nav").isVisible(), true, "戻ってもnavが見えない");
   await page.locator("#paper").click();
   assert.equal(await page.locator("#pages canvas").count(), 1);
   assert.equal(await page.locator("#print").isDisabled(), false);

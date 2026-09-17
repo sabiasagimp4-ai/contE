@@ -1886,6 +1886,18 @@ function runSearch() {
 }
 $("searchQuery").oninput = runSearch;
 $("searchClose").onclick = closeSearch;
+// プレゼンモード（B8）。body.presentingでStageだけを見せる。Fullscreen APIは
+// 任意で、失敗してもクラスの付け外しだけで成立する。Projectにもlayoutにも
+// 保存しない画面状態。←/→でのPanel送りとSpaceでの再生は既存のキー操作を
+// そのまま使う。
+$("present").onclick = () => {
+  document.body.classList.add("presenting");
+  document.documentElement.requestFullscreen?.().catch(() => {});
+};
+function exitPresent() {
+  document.body.classList.remove("presenting");
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+}
 document.addEventListener("keydown", (e) => {
   const mod = e.ctrlKey || e.metaKey;
   if ($("paperDialog").open || $("animaticDialog").open || $("recoverDialog").open)
@@ -1895,6 +1907,8 @@ document.addEventListener("keydown", (e) => {
     openSearch();
   } else if (e.key === "Escape" && !$("search").hidden) {
     closeSearch();
+  } else if (e.key === "Escape" && document.body.classList.contains("presenting")) {
+    exitPresent();
   }
 });
 document.addEventListener("keydown", (e) => {
