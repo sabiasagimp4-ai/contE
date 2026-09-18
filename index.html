@@ -90,8 +90,10 @@
               min="5"
               max="100"
               value="100"
-          /></label>
-          <button id="onion" class="tool">前後を薄く <kbd>O</kbd></button
+          /></label
+          ><button id="imageMoveTool" class="tool" title="ドラッグで画像の位置を動かす">
+            画像移動</button
+          ><button id="onion" class="tool">前後を薄く <kbd>O</kbd></button
           ><button id="fit">表示リセット <kbd>0</kbd></button
           ><output id="viewInfo">100%</output>
         </div>
@@ -133,6 +135,21 @@
           ><label>SE / BGM（注記）<textarea id="sound"></textarea></label
           ><label>演出メモ<textarea id="notes"></textarea></label>
           <p class="hint" id="assetInfo"></p>
+          <label
+            >収め方<select id="imageFit">
+              <option value="contain">収める</option>
+              <option value="cover">切り抜く</option>
+            </select></label
+          ><label
+            >拡大<input
+              id="imageScale"
+              type="number"
+              step=".1"
+              min=".1"
+              max="10" /></label
+          ><p class="hint">
+            画像移動ツールでStage上をドラッグすると位置（offset）を動かせます。
+          </p>
           <div class="field"
             >ラベル色<div
               id="labelSwatches"

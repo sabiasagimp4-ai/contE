@@ -9,14 +9,32 @@ function surface(w, h) {
   }
   return scratch;
 }
+// fit: "contain"は全体を収め、"cover"は枠を埋めて超過分を切る（C4）。
+// offsetはPanel枠に対する比率（Camera/Strokeと同じ0〜1系）で、拡大縮小の
+// 基準点はコマ中央のまま。scaleはfitで決めた基準サイズに掛ける倍率。
 function drawImageInto(ctx, image, bitmap, w, h) {
-  const scale = Math.min(w / bitmap.width, h / bitmap.height);
-  const iw = bitmap.width * scale,
-    ih = bitmap.height * scale;
+  const { fit = "contain", offset = { x: 0, y: 0 }, scale = 1 } = image;
+  const base =
+    fit === "cover"
+      ? Math.max(w / bitmap.width, h / bitmap.height)
+      : Math.min(w / bitmap.width, h / bitmap.height);
+  const s = base * scale;
+  const iw = bitmap.width * s,
+    ih = bitmap.height * s;
   ctx.save();
   ctx.globalAlpha = image.opacity;
-  // 縦横比を保ったままコマ枠へ収める。切り取らない。
-  ctx.drawImage(bitmap, (w - iw) / 2, (h - ih) / 2, iw, ih);
+  // coverや拡大でコマ枠からはみ出した分は切り取る。containの既定表示は
+  // 枠にちょうど収まるので、この節はそこでは何もしない。
+  ctx.beginPath();
+  ctx.rect(0, 0, w, h);
+  ctx.clip();
+  ctx.drawImage(
+    bitmap,
+    (w - iw) / 2 + offset.x * w,
+    (h - ih) / 2 + offset.y * h,
+    iw,
+    ih,
+  );
   ctx.restore();
 }
 function drawStroke(ctx, s, w, h) {

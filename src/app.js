@@ -88,7 +88,7 @@ const viewport = () => $("timeline").clientWidth || 900;
 const images = new Map();
 // shapeはnullなら今まで通りのフリーハンド。line/rect/arrowのときは
 // pointerdown〜upの2点から図形のpointsを作る（B7）。
-const tool = { erase: false, size: 3 / 1280, shape: null };
+const tool = { erase: false, size: 3 / 1280, shape: null, image: false };
 // 前後のコマを薄く重ねる（オニオンスキン）。前は赤、後ろは青で区別する。
 // 画面の見せ方なのでProjectにもlayoutにも保存しない。
 const ONION = { on: false, alpha: 0.28, prev: "#d2544a", next: "#4a86d2" };
@@ -375,6 +375,9 @@ function render() {
     r.panel.image && store.p.assets.find((a) => a.id === r.panel.image.assetId);
   $("imageOpacity").value = Math.round((r.panel.image?.opacity ?? 1) * 100);
   $("imageOpacity").disabled = $("imageClear").disabled = !r.panel.image;
+  $("imageFit").value = r.panel.image?.fit ?? "contain";
+  $("imageScale").value = r.panel.image?.scale ?? 1;
+  $("imageFit").disabled = $("imageScale").disabled = !r.panel.image;
   $("assetInfo").textContent = asset
     ? `画像：${asset.name}（${asset.width}×${asset.height}${
         images.has(asset.id) ? "" : "・読み込めません"
@@ -1574,7 +1577,8 @@ function setView(zoom, x, y) {
   paint();
 }
 let panning = null,
-  shapeStart = null;
+  shapeStart = null,
+  imageDrag = null;
 // 直線・矩形・矢印のpointsを作る。ドラッグがほぼ無いクリックは何も足さない
 // （フリーハンドの1点＝点とは違い、図形は最低限の大きさが要る）。Shiftで
 // 直線/矢印は45度刻み、矩形は正方形へ吸着する（B7）。
@@ -1596,6 +1600,14 @@ $("drawing").onpointerdown = (e) => {
     return;
   }
   if (e.button !== 0) return;
+  // 画像移動（C4）。画像が無いPanelでは掴んでも何も動かさない。
+  if (tool.image) {
+    const b = current().panel;
+    $("drawing").setPointerCapture(e.pointerId);
+    if (!b.image) return;
+    imageDrag = { start: point(e, false), offset: { ...b.image.offset } };
+    return;
+  }
   if (tool.shape) {
     shapeStart = point(e);
     $("drawing").setPointerCapture(e.pointerId);
@@ -1615,6 +1627,23 @@ $("drawing").onpointermove = (e) => {
       view.zoom,
       panning.vx - (e.clientX - panning.x) / r.width / view.zoom,
       panning.vy - (e.clientY - panning.y) / r.height / view.zoom,
+    );
+    return;
+  }
+  if (imageDrag) {
+    const [x, y] = point(e, false);
+    imageDrag.preview = {
+      x: imageDrag.offset.x + (x - imageDrag.start[0]),
+      y: imageDrag.offset.y + (y - imageDrag.start[1]),
+    };
+    draw(
+      $("drawing").getContext("2d"),
+      { ...current().panel, image: { ...current().panel.image, offset: imageDrag.preview } },
+      1280,
+      720,
+      null,
+      images,
+      view,
     );
     return;
   }
@@ -1646,6 +1675,12 @@ $("drawing").onpointermove = (e) => {
 };
 $("drawing").onpointerup = (e) => {
   panning = null;
+  if (imageDrag) {
+    const offset = imageDrag.preview ?? imageDrag.offset;
+    imageDrag = null;
+    act("setImageTransform", { panelId: activeId(), offset });
+    return;
+  }
   if (shapeStart) {
     const [x1, y1] = point(e);
     const strokes = shapeStrokes(shapeStart[0], shapeStart[1], x1, y1, e.shiftKey);
@@ -1664,6 +1699,7 @@ $("drawing").onpointercancel = () => {
   panning = null;
   stroke = null;
   shapeStart = null;
+  imageDrag = null;
   paint();
 };
 // ホイールはカーソル位置を基準に拡大縮小する。
@@ -1681,7 +1717,14 @@ $("drawing").onwheel = (e) => {
   );
 };
 $("fit").onclick = () => setView(1, 0, 0);
-const TOOL_BUTTONS = ["brushTool", "eraserTool", "lineTool", "rectTool", "arrowTool"];
+const TOOL_BUTTONS = [
+  "brushTool",
+  "eraserTool",
+  "lineTool",
+  "rectTool",
+  "arrowTool",
+  "imageMoveTool",
+];
 const selectToolButton = (id) => {
   for (const t of TOOL_BUTTONS) $(t).classList.toggle("on", t === id);
 };
@@ -1692,6 +1735,7 @@ for (const [id, erase] of [
   $(id).onclick = () => {
     tool.erase = erase;
     tool.shape = null;
+    tool.image = false;
     selectToolButton(id);
   };
 for (const [id, shape] of [
@@ -1701,8 +1745,15 @@ for (const [id, shape] of [
 ])
   $(id).onclick = () => {
     tool.shape = shape;
+    tool.image = false;
     selectToolButton(id);
   };
+// 画像移動（C4）。Stage上のドラッグでoffsetを動かす専用モード。
+$("imageMoveTool").onclick = () => {
+  tool.shape = null;
+  tool.image = true;
+  selectToolButton("imageMoveTool");
+};
 $("onion").onclick = () => {
   ONION.on = !ONION.on;
   $("onion").classList.toggle("on", ONION.on);
@@ -1797,6 +1848,13 @@ $("imageOpacity").onchange = () =>
   act("setImageOpacity", {
     panelId: activeId(),
     opacity: Number($("imageOpacity").value) / 100,
+  });
+$("imageFit").onchange = () =>
+  act("setImageTransform", { panelId: activeId(), fit: $("imageFit").value });
+$("imageScale").onchange = () =>
+  act("setImageTransform", {
+    panelId: activeId(),
+    scale: Number($("imageScale").value),
   });
 // 音声取り込み：原本をAssetへ保存し、デコードしてから再生ヘッド位置へ置く。
 $("audioAdd").onclick = () => $("audioFile").click();

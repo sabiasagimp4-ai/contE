@@ -112,6 +112,57 @@ test("setPanelLabel rejects a color outside the fixed table", () => {
   assert.equal(flatten(controller.project)[0].panel.label, null);
 });
 
+// C4：画像の収め方・位置・拡大率。offsetは枠に対する比率、scaleは0.1〜10。
+test("setImageTransform updates fit, offset and scale independently", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  controller.execute("setPanelImage", {
+    panelId,
+    asset: imageAsset("bg", "背景.png"),
+    opacity: 1,
+  });
+
+  const fit = controller.execute("setImageTransform", { panelId, fit: "cover" });
+  assert.equal(fit.changed, true);
+  let image = flatten(controller.project).find((r) => r.panel.id === panelId).panel.image;
+  assert.equal(image.fit, "cover");
+  assert.equal(image.scale, 1, "変更していない値はそのまま");
+
+  controller.execute("setImageTransform", { panelId, offset: { x: 0.2, y: -0.1 } });
+  image = flatten(controller.project).find((r) => r.panel.id === panelId).panel.image;
+  assert.deepEqual(image.offset, { x: 0.2, y: -0.1 });
+  assert.equal(image.fit, "cover", "他の項目は保たれる");
+
+  controller.execute("setImageTransform", { panelId, scale: 3 });
+  image = flatten(controller.project).find((r) => r.panel.id === panelId).panel.image;
+  assert.equal(image.scale, 3);
+});
+
+test("setImageTransform clamps scale to the 0.1-10 range", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  controller.execute("setPanelImage", {
+    panelId,
+    asset: imageAsset("bg", "背景.png"),
+    opacity: 1,
+  });
+
+  controller.execute("setImageTransform", { panelId, scale: 999 });
+  let image = flatten(controller.project).find((r) => r.panel.id === panelId).panel.image;
+  assert.equal(image.scale, 10);
+
+  controller.execute("setImageTransform", { panelId, scale: 0 });
+  image = flatten(controller.project).find((r) => r.panel.id === panelId).panel.image;
+  assert.equal(image.scale, 0.1);
+});
+
+test("setImageTransform on a panel without an image is a no-op", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  const result = controller.execute("setImageTransform", { panelId, scale: 2 });
+  assert.equal(result.changed, false);
+});
+
 test("the UI and tests share the scene command", () => {
   const { controller } = controllerWith();
   const added = controller.execute("addScene", {});

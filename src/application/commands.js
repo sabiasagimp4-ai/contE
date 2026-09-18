@@ -404,6 +404,20 @@ export const commands = {
       },
     ({ panelId }) => ({ panelIds: [panelId] }),
   ),
+  // 画像の収め方・位置・拡大（C4）。渡された分だけ差し替える。
+  setImageTransform: define(
+    ["visual"],
+    ({ panelId, fit, offset, scale }) =>
+      (p) => {
+        const b = panelOf(p, panelId);
+        if (!b?.image) return;
+        if (fit !== undefined) b.image.fit = fit;
+        if (offset !== undefined) b.image.offset = offset;
+        if (scale !== undefined)
+          b.image.scale = Math.max(0.1, Math.min(10, scale));
+      },
+    ({ panelId }) => ({ panelIds: [panelId] }),
+  ),
 
   // --- 音声 ---------------------------------------------------------------
   addAudioClip: define(
@@ -520,6 +534,7 @@ export const commandLabels = {
   clearPanelImage: "画像の削除",
   replacePanelImage: "画像の差し替え",
   setImageOpacity: "画像の不透明度の変更",
+  setImageTransform: "画像の位置・拡大の変更",
   addAudioClip: "音の配置",
   setClipField: "音クリップの変更",
   placeClip: "音クリップの移動",

@@ -61,7 +61,7 @@
 | C1 | マーカー | 中 | **v6** | 実装済み |
 | C2 | コマのラベル色 | 小 | **v6** | 実装済み |
 | C3 | Cameraのイージング | 中 | **v6** | §6 |
-| C4 | 画像の位置・拡大 | 中 | **v6** | §6 |
+| C4 | 画像の位置・拡大 | 中 | **v6** | 実装済み |
 | C5 | ワークエリア（再生・出力範囲） | 中 | **v6** | 実装済み |
 | C6 | 紙面の縦書き | 中 | **v6** | §6 |
 | D1 | 素材同梱の`.conte.zip` | 大 | 不要 | R18/R19 |
@@ -512,7 +512,11 @@ C1〜C6はすべてProjectの構造を増やす。**1回の移行にまとめる
    `animatic.plan()`のfromFrame引数を追加した。ループ再生はワークエリアがあれば
    それを優先し、通常再生（ループなし）はこれまで通り現在位置から末尾までで、
    ワークエリアに奪われない。総尺が縮んだときはselectionと同じ規則で自動的に詰める。
-5. C4 画像の位置・拡大（中）— Stage上のドラッグ。`drawing.drawImageInto`を拡張。
+5. **実装済み**：C4 画像の位置・拡大（中）— `drawing.drawImageInto`を拡張し、
+   fit（contain/cover）・offset・scaleを反映するようにした。Stage上を
+   画像移動ツール（`#imageMoveTool`）でドラッグするとoffsetが動き、
+   Inspectorの`#imageFit`/`#imageScale`からも調整できる。`setImageTransform`
+   Commandで1回のドラッグ・1回の変更が1つのUndo単位になる。
 6. C3 イージング（中）— Cameraキーの右クリックメニューか、Inspectorの選択。
    `describeCamera`の表記に緩急を足すかは別途決める。
 7. C6 紙面の縦書き（中）— `paper.js`の折返しと列の向き。

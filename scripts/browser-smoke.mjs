@@ -1337,6 +1337,79 @@ try {
   await page.waitForFunction(() =>
     document.querySelector("#tree .panel.selected")?.classList.contains("labeled"),
   );
+  // C4：画像の位置・拡大。画像移動ツールでStage上をドラッグするとoffsetが動き、
+  // 収め方（contain/cover）と拡大率もInspectorから調整できることを確認する。
+  await page.locator("#imageMoveTool").click();
+  assert.ok(
+    await page.locator("#imageMoveTool").evaluate((el) => el.classList.contains("on")),
+    "画像移動ツールが選択状態にならない",
+  );
+  const pixelAt = (x, y) =>
+    page.evaluate(
+      ([px, py]) => [
+        ...document
+          .querySelector("#drawing")
+          .getContext("2d")
+          .getImageData(px, py, 1, 1).data,
+      ],
+      [x, y],
+    );
+  assert.deepEqual(
+    await pixelAt(10, 10),
+    [255, 255, 255, 255],
+    "既定（contain・等倍・offset無し）では画像の外側は白紙のまま",
+  );
+  const stageBox = await page.locator("#drawing").boundingBox();
+  const stageCenter = [
+    stageBox.x + stageBox.width / 2,
+    stageBox.y + stageBox.height / 2,
+  ];
+  await page.mouse.move(...stageCenter);
+  await page.mouse.down();
+  await page.mouse.move(stageCenter[0] - stageBox.width * 0.3, stageCenter[1], {
+    steps: 5,
+  });
+  await page.mouse.up();
+  assert.deepEqual(
+    await pixelAt(10, 10),
+    [200, 90, 60, 255],
+    "ドラッグで画像を左へ動かしたのに反映されていない",
+  );
+  await page.keyboard.press("Control+z");
+  assert.deepEqual(
+    await pixelAt(10, 10),
+    [255, 255, 255, 255],
+    "Undoでドラッグ前の位置へ戻っていない",
+  );
+  // 収め方：containは枠の内側に収め、coverは枠いっぱいに広げて超過分を切る。
+  await page.locator("#imageFit").selectOption("cover");
+  assert.deepEqual(
+    await pixelAt(10, 10),
+    [200, 90, 60, 255],
+    "coverへ切り替えても枠いっぱいに広がらない",
+  );
+  await page.locator("#imageFit").selectOption("contain");
+  assert.deepEqual(
+    await pixelAt(10, 10),
+    [255, 255, 255, 255],
+    "containへ戻していない",
+  );
+  // 拡大率：収め方が決めた基準サイズに掛かる倍率。大きくすると枠からはみ出して切られる。
+  await page.locator("#imageScale").fill("3");
+  await page.locator("#imageScale").press("Enter");
+  assert.deepEqual(
+    await pixelAt(10, 10),
+    [200, 90, 60, 255],
+    "拡大率を上げても表示に反映されていない",
+  );
+  await page.locator("#imageScale").fill("1");
+  await page.locator("#imageScale").press("Enter");
+  assert.deepEqual(
+    await pixelAt(10, 10),
+    [255, 255, 255, 255],
+    "拡大率を等倍へ戻していない",
+  );
+  await page.locator("#brushTool").click();
   // C1：マーカー。再生ヘッドの位置へ追加し、Timelineの旗・Inspectorの一覧・
   // 紙面の注記列まで反映されることを確認する。
   await page.locator('[data-tab="marker"]').click();
