@@ -1706,8 +1706,14 @@ try {
     "Bundle読み込み後にラベル色が残っていない",
   );
   // A9：行の高さはlayoutと同じ仕組み（IndexedDbのmeta）で持つので、
-  // 再起動をまたいで保たれる。
+  // 再起動をまたいで保たれる。パネルの開閉も同じlayoutの一部として持つ。
   await page.locator("#rowSize").selectOption("lg");
+  await page.locator("#windowMenuButton").click();
+  await page
+    .locator("#windowMenu button")
+    .filter({ hasText: "ショートカット" })
+    .click();
+  assert.equal(await page.locator('[data-tab="keys"]').count(), 1);
   // 自動保存と復旧：編集 → ブラウザ内保存 → 再起動 → 復旧で同じ内容へ戻る。
   const persisted = await page.evaluate(async () => {
     document.activeElement.blur();
@@ -1769,6 +1775,13 @@ try {
   // A9：再起動後も「大」のまま。以降のテストへ影響しないよう既定へ戻す。
   assert.equal(await page.locator("#rowSize").inputValue(), "lg");
   await page.locator("#rowSize").selectOption("md");
+  // 開いたパネルも再起動後に開いたまま。閉じたパネルは閉じたまま。
+  assert.equal(
+    await page.locator('[data-tab="keys"]').count(),
+    1,
+    "再起動でパネルの開閉が戻っている",
+  );
+  await page.locator("#inspector .panelTab.on .tabClose").click();
   // B9：保存履歴から選んで復元。世代Aは直前の自動復旧で戻した状態、
   // ここでもう1コマ足して世代Bを作り、履歴一覧から世代Aへ戻せることを確かめる。
   const genA = persisted.panels;
