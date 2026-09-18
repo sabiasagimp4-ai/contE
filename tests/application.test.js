@@ -758,7 +758,7 @@ test("setMarkerField edits text and color; moveMarker re-anchors it", () => {
   store.edit((p) => p.scenes[0].shots[0].panels.push(panel()));
   const { controller } = controllerWith(store);
   const [first, second] = ids(controller);
-  controller.execute("addMarker", { markerId: "m1", anchor: first, at: 0, text: "", color: "#000" });
+  controller.execute("addMarker", { markerId: "m1", anchor: first, at: 0, text: "", color: "#000000" });
 
   controller.execute("setMarkerField", { markerId: "m1", field: "text", value: "台詞タイミング注意" });
   controller.execute("setMarkerField", { markerId: "m1", field: "color", value: "#00ff00" });
@@ -776,8 +776,8 @@ test("setMarkerField edits text and color; moveMarker re-anchors it", () => {
 test("deleteMarker removes only the targeted marker", () => {
   const { controller } = controllerWith();
   const anchor = controller.activeId;
-  controller.execute("addMarker", { markerId: "m1", anchor, at: 0, text: "a", color: "#000" });
-  controller.execute("addMarker", { markerId: "m2", anchor, at: 1, text: "b", color: "#000" });
+  controller.execute("addMarker", { markerId: "m1", anchor, at: 0, text: "a", color: "#000000" });
+  controller.execute("addMarker", { markerId: "m2", anchor, at: 1, text: "b", color: "#000000" });
   controller.execute("deleteMarker", { markerId: "m1" });
   assert.deepEqual(controller.project.markers.map((m) => m.id), ["m2"]);
 });
@@ -785,7 +785,7 @@ test("deleteMarker removes only the targeted marker", () => {
 test("duplicatePanels always carries markers onto the copy, unlike audio which needs withAudio (C1)", () => {
   const { controller } = controllerWith();
   const target = controller.activeId;
-  controller.execute("addMarker", { markerId: "m1", anchor: target, at: 0, text: "note", color: "#000" });
+  controller.execute("addMarker", { markerId: "m1", anchor: target, at: 0, text: "note", color: "#000000" });
 
   controller.execute("duplicatePanels", { ids: [target] });
 
@@ -803,7 +803,7 @@ test("deletePanels prunes markers anchored to the deleted panel (C1)", () => {
   store.edit((p) => p.scenes[0].shots[0].panels.push(panel()));
   const { controller } = controllerWith(store);
   const [first, second] = ids(controller);
-  controller.execute("addMarker", { markerId: "m1", anchor: second, at: 0, text: "", color: "#000" });
+  controller.execute("addMarker", { markerId: "m1", anchor: second, at: 0, text: "", color: "#000000" });
 
   controller.execute("deletePanels", { ids: [second] });
 
@@ -816,7 +816,7 @@ test("pasting carries markers anchored to copied panels, remapped to the new ids
   const { controller } = controllerWith();
   const first = controller.activeId;
   const source = structuredClone(flatten(controller.project)[0].panel);
-  const marker = { id: "m1", anchor: source.id, at: 0, text: "note", color: "#000" };
+  const marker = { id: "m1", anchor: source.id, at: 0, text: "note", color: "#000000" };
 
   controller.execute("pastePanels", {
     afterId: first,

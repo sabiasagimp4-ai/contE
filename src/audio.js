@@ -162,6 +162,8 @@ export function pruneAudioAssets(p) {
   p.assets = p.assets.filter((a) => a.kind !== "audio" || used.has(a.id));
   return p.assets.length !== before;
 }
+// 画面に同時に出る波形よりは十分多く、際限なく増えない程度。
+const WAVE_CACHE_LIMIT = 256;
 // デコードと波形をキャッシュし、再生はいつでも1本の予約だけが生きている状態にする。
 export class AudioEngine {
   constructor(
@@ -196,6 +198,12 @@ export class AudioEngine {
     for (const key of [...this.waves.keys()])
       if (key.startsWith(`${assetId}:`)) this.waves.delete(key);
   }
+  // 別の作品を開いたら、前の作品のデコード結果は二度と使わない。AudioBufferは
+  // JSヒープの外に実体を持つので、抱えたままにすると開き直すたびに積み上がる。
+  keepOnly(keep) {
+    for (const id of [...this.buffers.keys()])
+      if (!keep.has(id)) this.forget(id);
+  }
   seconds(assetId) {
     return this.buffers.get(assetId)?.duration ?? 0;
   }
@@ -209,11 +217,13 @@ export class AudioEngine {
       : { from: 0, to: buffer.length };
     // 同じ素材でも区間と解像度が違えば別の波形。キャッシュキーに両方を含める。
     const key = `${assetId}:${columns}:${from}:${to}`;
-    if (!this.waves.has(key))
-      this.waves.set(
-        key,
-        peaks(buffer.getChannelData(0), columns, from, to),
-      );
+    if (!this.waves.has(key)) {
+      // トリムやズームのドラッグ中は動かすたびに別のキーになるので、上限を決めて
+      // 古いものから捨てる。Mapは挿入順なので先頭が最も古い。
+      if (this.waves.size >= WAVE_CACHE_LIMIT)
+        this.waves.delete(this.waves.keys().next().value);
+      this.waves.set(key, peaks(buffer.getChannelData(0), columns, from, to));
+    }
     return this.waves.get(key);
   }
   // 書き出し用の出力先。録画では同じ予約をこのストリームへ流す。

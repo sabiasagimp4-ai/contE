@@ -32,7 +32,7 @@ test("markers resolve to absolute frames through their anchor panel", () => {
 test("a marker follows its panel when earlier durations change", () => {
   const s = new Store(withPanels());
   const anchor = flatten(s.p)[1].panel.id;
-  s.edit((p) => addMarker(p, { anchor, at: 0, text: "note", color: "#00f" }));
+  s.edit((p) => addMarker(p, { anchor, at: 0, text: "note", color: "#0000ff" }));
   assert.equal(resolveMarkers(s.p)[0].start, 48);
   s.edit((p) => (flatten(p)[0].panel.frames = 72));
   assert.equal(resolveMarkers(s.p)[0].start, 72);
@@ -46,7 +46,7 @@ test("a marker follows its panel when earlier durations change", () => {
 test("moving a marker re-anchors it to the panel it lands on", () => {
   const p = withPanels();
   const rows = flatten(p);
-  const marker = addMarker(p, { anchor: rows[0].panel.id, at: 0, text: "x", color: "#0f0" });
+  const marker = addMarker(p, { anchor: rows[0].panel.id, at: 0, text: "x", color: "#00ff00" });
   assert.equal(moveMarker(p, rows, marker.id, 100), true);
   assert.equal(marker.anchor, rows[2].panel.id);
   assert.equal(marker.at, 4);
@@ -58,8 +58,8 @@ test("moving a marker re-anchors it to the panel it lands on", () => {
 test("markersInRange finds only markers landing inside [from, to)", () => {
   const p = withPanels();
   const rows = flatten(p);
-  addMarker(p, { anchor: rows[0].panel.id, at: 0, text: "a", color: "#000" });
-  addMarker(p, { anchor: rows[1].panel.id, at: 0, text: "b", color: "#000" });
+  addMarker(p, { anchor: rows[0].panel.id, at: 0, text: "a", color: "#000000" });
+  addMarker(p, { anchor: rows[1].panel.id, at: 0, text: "b", color: "#000000" });
   const resolved = resolveMarkers(p, rows);
   assert.equal(markersInRange(resolved, 0, 48).length, 1);
   assert.equal(markersInRange(resolved, 48, 96).length, 1);
@@ -69,8 +69,8 @@ test("markersInRange finds only markers landing inside [from, to)", () => {
 test("removeMarkers drops only the requested ids", () => {
   const p = withPanels();
   const rows = flatten(p);
-  const a = addMarker(p, { anchor: rows[0].panel.id, at: 0, text: "a", color: "#000" });
-  const b = addMarker(p, { anchor: rows[0].panel.id, at: 1, text: "b", color: "#000" });
+  const a = addMarker(p, { anchor: rows[0].panel.id, at: 0, text: "a", color: "#000000" });
+  const b = addMarker(p, { anchor: rows[0].panel.id, at: 1, text: "b", color: "#000000" });
   assert.equal(removeMarkers(p, [a.id]), true);
   assert.deepEqual(p.markers.map((m) => m.id), [b.id]);
   assert.equal(removeMarkers(p, [a.id]), false, "既に無いidでは変化しない");
@@ -79,8 +79,8 @@ test("removeMarkers drops only the requested ids", () => {
 test("duplicateMarkersFor copies only markers anchored to duplicated panels", () => {
   const p = withPanels();
   const rows = flatten(p);
-  addMarker(p, { anchor: rows[0].panel.id, at: 0, text: "kept", color: "#000" });
-  addMarker(p, { anchor: rows[1].panel.id, at: 0, text: "also", color: "#000" });
+  addMarker(p, { anchor: rows[0].panel.id, at: 0, text: "kept", color: "#000000" });
+  addMarker(p, { anchor: rows[1].panel.id, at: 0, text: "also", color: "#000000" });
   const idMap = new Map([[rows[0].panel.id, "new-panel"]]);
   const added = duplicateMarkersFor(p, idMap);
   assert.equal(added.length, 1);
@@ -92,7 +92,7 @@ test("duplicateMarkersFor copies only markers anchored to duplicated panels", ()
 test("pruneMarkers removes markers whose anchor panel no longer exists", () => {
   const p = withPanels();
   const rows = flatten(p);
-  addMarker(p, { anchor: rows[0].panel.id, at: 0, text: "gone", color: "#000" });
+  addMarker(p, { anchor: rows[0].panel.id, at: 0, text: "gone", color: "#000000" });
   p.scenes[0].shots[0].panels = p.scenes[0].shots[0].panels.slice(1);
   assert.equal(pruneMarkers(p), true);
   assert.deepEqual(p.markers, []);
@@ -102,9 +102,22 @@ test("pruneMarkers removes markers whose anchor panel no longer exists", () => {
 test("markerNotes and markerText build the paper annotation for a row", () => {
   const p = withPanels();
   const rows = flatten(p);
-  addMarker(p, { anchor: rows[0].panel.id, at: 0, text: "作画注意", color: "#000" });
+  addMarker(p, { anchor: rows[0].panel.id, at: 0, text: "作画注意", color: "#000000" });
   const notes = markerNotes(p, rows, rows[0]);
   assert.equal(notes.length, 1);
   assert.equal(markerText(notes), "▶ 作画注意");
   assert.equal(markerNotes(p, rows, rows[1]).length, 0);
+});
+
+// マーカーの色はInspectorの<input type="color">が出す#rrggbbだけを受ける。
+// 3桁短縮や色名を通すと、開き直したときに色欄が黙って黒へ倒れる。
+test("validate accepts only 6-digit hex marker colors", () => {
+  const p = withPanels(1);
+  const anchor = flatten(p)[0].panel.id;
+  addMarker(p, { anchor, at: 0, text: "ok", color: "#ffcc00" });
+  assert.equal(validate(p), p);
+  for (const color of ["#fc0", "red", "rgb(255,0,0)", "#ffcc0", ""]) {
+    p.markers[0].color = color;
+    assert.throws(() => validate(p), /不正なマーカー/, `${color}が通ってしまう`);
+  }
 });

@@ -202,8 +202,8 @@ test("column text reports numbers, duration, sound and camera consistently", () 
 test("column text reports markers landing on the row (C1)", () => {
   const p = project();
   const rows = flatten(p);
-  addMarker(p, { anchor: rows[0].panel.id, at: 3, text: "作画注意", color: "#f00" });
-  addMarker(p, { anchor: rows[0].panel.id, at: 5, text: "背景差し替え", color: "#0f0" });
+  addMarker(p, { anchor: rows[0].panel.id, at: 3, text: "作画注意", color: "#ff0000" });
+  addMarker(p, { anchor: rows[0].panel.id, at: 5, text: "背景差し替え", color: "#00ff00" });
   validate(p);
   assert.equal(
     columnText(p, rows, undefined, rows[0], settings(), "marker"),

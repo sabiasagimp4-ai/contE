@@ -302,3 +302,49 @@ test("sample ranges convert project frames through the source rate", () => {
     to: 22050,
   });
 });
+
+// 別の作品を開いたら前の作品のデコード結果は用がない。抱えたままにすると
+// AudioBufferはJSヒープの外に実体を持つぶん、開き直すたびに積み上がる。
+test("keepOnly drops the decoded assets a newly opened document does not use", () => {
+  const engine = new AudioEngine(() => ({}));
+  const samples = new Float32Array(100);
+  const buffer = {
+    duration: 1,
+    length: samples.length,
+    sampleRate: 100,
+    getChannelData: () => samples,
+  };
+  engine.buffers.set("keep-me", buffer);
+  engine.buffers.set("drop-me", buffer);
+  for (const id of ["keep-me", "drop-me"])
+    engine.waveform(id, 4, { offset: 0, frames: 24, fps: 24 });
+
+  engine.keepOnly(new Set(["keep-me"]));
+  assert.deepEqual([...engine.buffers.keys()], ["keep-me"]);
+  assert.ok(
+    [...engine.waves.keys()].every((key) => key.startsWith("keep-me:")),
+    "捨てた素材の波形が残っている",
+  );
+});
+
+// トリムやズームのドラッグは動かすたびに別のキーになる。上限がないと
+// 編集を続けるだけでキャッシュが単調に増える。
+test("the waveform cache stops growing once it reaches its limit", () => {
+  const samples = new Float32Array(200);
+  const engine = new AudioEngine(() => ({}));
+  engine.buffers.set("sound-1", {
+    duration: 2,
+    length: samples.length,
+    sampleRate: 100,
+    getChannelData: () => samples,
+  });
+  const ask = (columns) =>
+    engine.waveform("sound-1", columns, { offset: 0, frames: 24, fps: 24 });
+  for (let columns = 2; columns < 600; columns++) ask(columns);
+  assert.ok(
+    engine.waves.size <= 256,
+    `波形キャッシュが上限を超えている：${engine.waves.size}`,
+  );
+  // 捨てるのは古いものから。直近の要求は同じ配列を返す。
+  assert.equal(ask(599), ask(599));
+});

@@ -65,7 +65,11 @@ let store = editor.store,
   scaleIndex = tl.DEFAULT_SCALE,
   rows = [],
   stroke = null,
-  fileDirty = false;
+  fileDirty = false,
+  // 文書の置き換えは一度に1つだけ。読み取りの待ち時間中にもう1つ始められると、
+  // 「置き換えますか」を尋ねた時点と実際に置き換える時点で状態がずれ、
+  // 確認なしに未保存の作業が消える。
+  replacing = false;
 // 選択中のCameraキー（アクティブなPanel内のindexの集合）。表示状態なので
 // Projectにもlayoutにも保存しない。常に1つ以上を持つ。
 let cameraKeys = new Set([0]);
@@ -108,6 +112,15 @@ function replaceStore(project, selection) {
   editor.replace(project, selection);
   store = editor.store;
   openScenes.clear();
+  // 別の文書へ入れ替わったら、前の文書のためにデコードした素材は用がない。
+  // ImageBitmapもAudioBufferもJSヒープの外に実体を持つので、このMapが抱えたまま
+  // だと開き直すたびに積み上がってタブごと落ちる。同じIDが残る分（同じ素材を使う
+  // Bundleの読み直しなど）はそのまま使い回す。
+  // closeはしない。書き出し・録画は開始時点のimagesをコピーして持つ（E3）ので、
+  // ここで閉じると進行中の出力の絵が抜ける。参照を手放せばGCが引き取る。
+  const keep = new Set(store.p.assets.map((a) => a.id));
+  for (const id of [...images.keys()]) if (!keep.has(id)) images.delete(id);
+  sound.keepOnly(keep);
 }
 const panelById = (id) =>
   flatten(store.p).find((r) => r.panel.id === id)?.panel ?? null;
@@ -2066,6 +2079,11 @@ $("open").onclick = () => $("file").click();
 $("file").onchange = async () => {
   const f = $("file").files[0];
   if (!f) return;
+  if (replacing) {
+    $("file").value = "";
+    return notice("別の読み込みが進行中です");
+  }
+  replacing = true;
   try {
     if (f.size > 50e6) throw Error("50MBを超えるファイルは未対応です");
     // 読み込みに失敗しても現在のプロジェクトへは触れない。
@@ -2086,6 +2104,7 @@ $("file").onchange = async () => {
   } catch (e) {
     notice(e.message);
   } finally {
+    replacing = false;
     $("file").value = "";
   }
 };
@@ -2107,6 +2126,11 @@ $("importBundle").onclick = () => $("bundleFile").click();
 $("bundleFile").onchange = async () => {
   const f = $("bundleFile").files[0];
   if (!f) return;
+  if (replacing) {
+    $("bundleFile").value = "";
+    return notice("別の読み込みが進行中です");
+  }
+  replacing = true;
   try {
     if (f.size > 200e6) throw Error("200MBを超えるファイルは未対応です");
     // 検証をすべて終えるまでRepositoryへは何も書かない。
@@ -2152,6 +2176,7 @@ $("bundleFile").onchange = async () => {
   } catch (e) {
     notice(`読み込みに失敗：${e.message}`);
   } finally {
+    replacing = false;
     $("bundleFile").value = "";
   }
 };
@@ -3057,15 +3082,21 @@ async function loadImages() {
 }
 // 複数の入口（起動時の自動候補／履歴ボタン）で共有する復元の実処理。
 async function restoreFrom(meta, project) {
-  $("recoverDialog").close();
-  stop();
-  replaceStore(project);
-  frame = 0;
-  fileDirty = true;
-  render();
-  saver.resolved(meta);
-  notice(`${clock(meta.savedAt)}の保存を復元しました。ファイルへの保存は別に行ってください。`);
-  await loadImages();
+  if (replacing) return notice("別の読み込みが進行中です");
+  replacing = true;
+  try {
+    $("recoverDialog").close();
+    stop();
+    replaceStore(project);
+    frame = 0;
+    fileDirty = true;
+    render();
+    saver.resolved(meta);
+    notice(`${clock(meta.savedAt)}の保存を復元しました。ファイルへの保存は別に行ってください。`);
+    await loadImages();
+  } finally {
+    replacing = false;
+  }
 }
 // 保存履歴から選んで復元する一覧（B9）。読めない世代は理由つきで灰色にし、
 // 選べないだけで削除はしない。SNAPSHOT_LIMIT件までなので毎回読み直しても軽い。

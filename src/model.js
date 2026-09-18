@@ -2,6 +2,10 @@ export const uid = () => crypto.randomUUID();
 export const VERSION = 6;
 // ブラシ幅は画面幅に対する割合で持つ。出力サイズが変わっても線の太さが崩れない。
 export const BRUSH = { min: 0.0005, max: 0.05, default: 3 / 1280 };
+// マーカーの色（C1）はInspectorの<input type="color">が出す形式だけを受ける。
+// ラベル色を表で縛っているのに任意の文字列を通すと、開き直したときにCSSへ
+// そのまま渡り、色欄も黙って黒へ倒れる。
+export const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 // Panelのラベル色（C2）。固定の色表から選ぶ。増減はいつでもできるが、
 // 保存済みのキー文字列は変えない（既存ファイルのラベルが変わってしまう）。
 export const LABEL_COLORS = ["red", "orange", "yellow", "green", "blue", "purple"];
@@ -282,7 +286,7 @@ export function validate(p) {
       !Number.isInteger(m.at) ||
       typeof m.text !== "string" ||
       typeof m.color !== "string" ||
-      !m.color
+      !HEX_COLOR.test(m.color)
     )
       throw Error("不正なマーカー");
   }
