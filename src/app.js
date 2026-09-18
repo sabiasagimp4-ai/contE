@@ -37,6 +37,7 @@ import * as audio from "./audio.js";
 import { AudioEngine } from "./audio.js";
 import * as markers from "./markers.js";
 import { ProjectRepository, Autosaver } from "./repository.js";
+import { buildBundle, parseBundle, remapAssetId, planImport } from "./project-bundle.js";
 import { buildShareHtml } from "./share.js";
 import { IndexedDbStorage, MemoryStorage } from "./storage.js";
 import { EditorSession } from "./editor-session.js";
@@ -2086,6 +2087,63 @@ $("file").onchange = async () => {
     notice(e.message);
   } finally {
     $("file").value = "";
+  }
+};
+// 素材同梱の.conte.zip（D1）。書き出しは今のProjectが参照する原本をRepositoryから
+// 集めてZIPへ詰めるだけ。読み込みはparseBundleで検証を終えたものだけを受け取り、
+// 実際に書くのはID衝突の解決（同じ内容なら使い回し、違えば新しいIDへ付け替え）を
+// 決めた後にする。
+$("exportBundle").onclick = async () => {
+  try {
+    const project = store.p;
+    const blob = await buildBundle(project, (id) => repo.getAsset(id));
+    download(blob, `${exportFileBase()}.conte.zip`);
+    notice(`素材ごと書き出しました（素材${project.assets.length}件）`);
+  } catch (e) {
+    notice(`書き出しに失敗：${e.message}`);
+  }
+};
+$("importBundle").onclick = () => $("bundleFile").click();
+$("bundleFile").onchange = async () => {
+  const f = $("bundleFile").files[0];
+  if (!f) return;
+  try {
+    if (f.size > 200e6) throw Error("200MBを超えるファイルは未対応です");
+    // 検証をすべて終えるまでRepositoryへは何も書かない。
+    const { project, assets } = await parseBundle(new Uint8Array(await f.arrayBuffer()));
+    if (
+      (fileDirty || saver.pending) &&
+      !confirm("編集中の内容を置き換えて開きますか？")
+    )
+      return;
+    const plan = await planImport(assets, async (id) => {
+      const existing = await repo.getAsset(id);
+      if (!existing) return undefined;
+      return existing instanceof Uint8Array
+        ? existing
+        : new Uint8Array(await existing.arrayBuffer());
+    });
+    for (const { asset, finalId } of plan)
+      if (finalId !== asset.id) remapAssetId(project, asset.id, finalId);
+    await repo.withProtectionAll(
+      plan.map((entry) => entry.finalId),
+      async () => {
+        for (const { asset, finalId, write } of plan)
+          if (write) await repo.putAsset(finalId, asset.blob);
+        stop();
+        replaceStore(project);
+        frame = 0;
+        fileDirty = false;
+        render();
+        notice(`Bundleを読み込みました（素材${assets.length}件）`);
+        markDirty();
+        await loadImages();
+      },
+    );
+  } catch (e) {
+    notice(`読み込みに失敗：${e.message}`);
+  } finally {
+    $("bundleFile").value = "";
   }
 };
 window.addEventListener("beforeunload", (e) => {

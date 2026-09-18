@@ -1532,6 +1532,56 @@ try {
   await page.locator("#workAreaClear").click();
   await page.waitForFunction(() => document.querySelector("#workAreaBand").hidden);
   assert.equal(await page.locator("#workAreaInfo").innerText(), "ワークエリア未設定");
+  // D1：素材同梱の.conte.zip。書き出したBundleをそのまま同じセッションへ読み込み
+  // 直しても、画像などの素材が壊れず・失われず・重複もせずに戻ることを確認する
+  // （既存の同じ内容の素材はIDを保ったまま再利用される＝R19の衝突解決）。
+  // この時点のPanelにはP1/B5で取り込んだ画像（bg.png）が乗っている。
+  const panelsBeforeBundle = await page.locator("#tree .panel").count();
+  const bundleDownload = page.waitForEvent("download");
+  await page.locator("#exportBundle").click();
+  const bundleFile = await bundleDownload;
+  assert.match(bundleFile.suggestedFilename(), /\.conte\.zip$/);
+  const bundleBytes = await readFile(await bundleFile.path());
+  await page.locator("#bundleFile").setInputFiles({
+    name: "roundtrip.conte.zip",
+    mimeType: "application/zip",
+    buffer: bundleBytes,
+  });
+  await page.waitForFunction(
+    (n) => document.querySelectorAll("#tree .panel").length === n,
+    panelsBeforeBundle,
+  );
+  assert.equal(await page.locator("#title").inputValue(), "conte-paper");
+  await page.locator("#tree .panel").first().click();
+  await page.waitForFunction(
+    () => document.querySelector("#assetInfo").textContent.includes("bg.png"),
+  );
+  assert.doesNotMatch(
+    await page.locator("#assetInfo").innerText(),
+    /読み込めません/,
+    "Bundle読み込み後に画像が読み込めなくなっている",
+  );
+  assert.deepEqual(
+    await page.evaluate(() => [
+      ...document
+        .querySelector("#drawing")
+        .getContext("2d")
+        .getImageData(900, 200, 1, 1).data,
+    ]),
+    [200, 90, 60, 255],
+    "Bundle読み込み後に画像の内容が変わっている",
+  );
+  assert.doesNotMatch(
+    await page.locator("#status").innerText(),
+    /見つかりません/,
+    "Bundleから読み込んだのに素材が見つからないと出ている",
+  );
+  assert.ok(
+    await page.evaluate(() =>
+      document.querySelector("#tree .panel.selected")?.classList.contains("labeled"),
+    ),
+    "Bundle読み込み後にラベル色が残っていない",
+  );
   // A9：行の高さはlayoutと同じ仕組み（IndexedDbのmeta）で持つので、
   // 再起動をまたいで保たれる。
   await page.locator("#rowSize").selectOption("lg");

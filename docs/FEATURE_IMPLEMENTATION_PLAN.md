@@ -64,7 +64,7 @@
 | C4 | 画像の位置・拡大 | 中 | **v6** | 実装済み |
 | C5 | ワークエリア（再生・出力範囲） | 中 | **v6** | 実装済み |
 | C6 | 紙面の縦書き | 中 | **v6** | 実装済み |
-| D1 | 素材同梱の`.conte.zip` | 大 | 不要 | R18/R19 |
+| D1 | 素材同梱の`.conte.zip` | 大 | 不要 | 実装済み |
 | D2 | 紙面PNGの逐次ZIP | 小 | 不要 | 実装済み |
 | D3 | 紙面のプリセット | 小 | 不要 | 実装済み |
 | D4 | 共有用のHTML書き出し | 中 | 不要 | 実装済み |
@@ -410,6 +410,24 @@ browser smoke: 2世代作って古い方を復元できること。
 
 構造改善計画のR18（writer）／R19（reader）をそのまま使う。仕様・検証・失敗時の
 境界はあちらに書いてある。この計画では順序（§7）だけを決める。
+
+**実装済み**：新規`src/project-bundle.js`（Repository/Storeへは触れない純粋な
+フォーマット層）に、`buildBundle(project, getAsset)`（manifest.json・
+project.contp・assets/NNNNNN.binを`exporter.js`の`ZipBuilder`で書く。素材ごとに
+SHA-256を計算し、原本が1件でも欠ければ書かずに例外にする）、`parseBundle(zipBytes)`
+（`exporter.js`に新設した`readZip`でZIPを読み、形式識別子・Version・件数・
+パス・宣言サイズ・実サイズ・ハッシュ・Projectとの参照整合をすべて検証してから
+返す。1つでもおかしければ何も書き込ませない）、`planImport(assets, getExisting)`
+（ID衝突の解決だけを決める純粋関数：既存が無ければそのまま書き、同じ内容なら
+再利用、内容が違えば新しいIDを発行する＝既存Snapshotが指す原本を上書きしない）、
+`remapAssetId(project, oldId, newId)`（Project.assets・Panel.image・AudioClipの
+参照をまとめて付け替える）を実装した。`ProjectRepository`には`withProtectionAll`
+（複数IDをまとめて保護する`withProtection`の糖衣）を追加した。app.jsの取込は
+「検証（parseBundle）→ 衝突解決の計画（planImport）→ 新しいIDへの付け替え
+（remapAssetId）→ 保護しながら書く（withProtectionAll）→ Projectを一括で
+差し替える（replaceStore）」の順で、途中失敗では何も書かず既存Projectを保つ。
+ヘッダーに「素材ごと書き出す」「Bundleを開く」ボタンを追加した。
+Node test多数・browser-smoke検証（同一セッションへの往復読み込み）を追加。
 
 ### D2 紙面PNGの逐次ZIP
 

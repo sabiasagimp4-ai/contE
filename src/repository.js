@@ -121,6 +121,13 @@ export class ProjectRepository {
       else this.#protected.set(id, count);
     }
   }
+  // 複数IDをまとめて保護する（D1）。withProtectionを入れ子にするだけの薄い糖衣。
+  // Bundle取込のように、Projectへ公開する前に何件も書く場合に使う。
+  async withProtectionAll(ids, fn) {
+    if (!ids.length) return fn();
+    const [id, ...rest] = ids;
+    return this.withProtection(id, () => this.withProtectionAll(rest, fn));
+  }
   async open() {
     await this.storage.open?.();
     return this;

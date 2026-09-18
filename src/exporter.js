@@ -115,6 +115,59 @@ export function zip(files) {
   for (const file of files) builder.add(file);
   return builder.finish();
 }
+// ZipBuilderが書いた形式だけを読む（無圧縮・ZIP64無し・UTF-8名）。任意の外部ZIPへの
+// 対応は目的にしない（D1）。各エントリはCRC32とサイズを照合してから返す。
+const EOCD_SIGNATURE = 0x06054b50;
+const CENTRAL_SIGNATURE = 0x02014b50;
+const LOCAL_SIGNATURE = 0x04034b50;
+export function readZip(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const searchFrom = Math.max(0, bytes.length - 22 - 65535);
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= searchFrom; i--) {
+    if (view.getUint32(i, true) === EOCD_SIGNATURE) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) throw new Error("ZIPの終端レコードが見つかりません");
+  const count = view.getUint16(eocd + 10, true);
+  const directorySize = view.getUint32(eocd + 12, true);
+  const directoryOffset = view.getUint32(eocd + 16, true);
+  if (directoryOffset + directorySize > eocd)
+    throw new Error("ZIPの中央ディレクトリの範囲が不正です");
+  const decoder = new TextDecoder();
+  const entries = [];
+  let pos = directoryOffset;
+  for (let i = 0; i < count; i++) {
+    if (view.getUint32(pos, true) !== CENTRAL_SIGNATURE)
+      throw new Error("ZIPの中央ディレクトリが読み取れません");
+    const method = view.getUint16(pos + 10, true);
+    const crc = view.getUint32(pos + 16, true);
+    const compressedSize = view.getUint32(pos + 20, true);
+    const size = view.getUint32(pos + 24, true);
+    const nameLength = view.getUint16(pos + 28, true);
+    const extraLength = view.getUint16(pos + 30, true);
+    const commentLength = view.getUint16(pos + 32, true);
+    const localOffset = view.getUint32(pos + 42, true);
+    const name = decoder.decode(bytes.subarray(pos + 46, pos + 46 + nameLength));
+    if (method !== 0) throw new Error(`未対応の圧縮方式です：${name}`);
+    if (view.getUint32(localOffset, true) !== LOCAL_SIGNATURE)
+      throw new Error(`ローカルヘッダが読み取れません：${name}`);
+    const localNameLength = view.getUint16(localOffset + 26, true);
+    const localExtraLength = view.getUint16(localOffset + 28, true);
+    const bodyStart = localOffset + 30 + localNameLength + localExtraLength;
+    const bodyEnd = bodyStart + compressedSize;
+    if (bodyEnd > bytes.length)
+      throw new Error(`データの範囲が不正です：${name}`);
+    const body = bytes.slice(bodyStart, bodyEnd);
+    if (body.length !== size) throw new Error(`サイズが一致しません：${name}`);
+    if (crc32(body) !== crc) throw new Error(`CRCが一致しません：${name}`);
+    entries.push({ name, bytes: body });
+    pos += 46 + nameLength + extraLength + commentLength;
+  }
+  return entries;
+}
 export const canvasBytes = async (canvas) => {
   const blob = await new Promise((resolve) =>
     canvas.toBlob(resolve, "image/png"),

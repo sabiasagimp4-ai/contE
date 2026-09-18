@@ -11,9 +11,21 @@
       ><input id="title" aria-label="プロジェクト名" /><button id="save">
         保存</button
       ><button id="open">開く</button
+      ><button
+        id="exportBundle"
+        title="使っている画像・音声を同梱した.conte.zipへ書き出す"
+      >
+        素材ごと書き出す</button
+      ><button id="importBundle" title=".conte.zipを素材ごと読み込む">
+        Bundleを開く</button
       ><button id="history" title="ブラウザ内保存の履歴から選んで復元">
         履歴</button
-      ><input id="file" type="file" accept=".contp" hidden /><span
+      ><input id="file" type="file" accept=".contp" hidden /><input
+        id="bundleFile"
+        type="file"
+        accept=".zip,.conte.zip"
+        hidden
+      /><span
         id="savestate"
         role="status"
       ></span

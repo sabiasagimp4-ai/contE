@@ -282,6 +282,33 @@ test("withProtection keeps an in-flight import's asset out of pruneAssets (E2/R0
   assert.equal(await repo.pruneAssets(p, []), 1);
   assert.equal(await repo.getAsset("new-asset"), undefined);
 });
+// D1：Bundle取込は複数の素材を同時に書くので、withProtectionを1件ずつではなく
+// まとめて保護できる必要がある。
+test("withProtectionAll protects every id for the duration of fn (D1)", async () => {
+  const { repo } = repository();
+  const p = project(); // どのPanelからも参照していない新規素材ばかりを想定する。
+  const ids = ["a1", "a2", "a3"];
+  const duringPrune = await repo.withProtectionAll(ids, async () => {
+    for (const id of ids) await repo.putAsset(id, new Uint8Array([1]));
+    return repo.pruneAssets(p, []);
+  });
+  assert.equal(duringPrune, 0, "取込中の素材が削除されている");
+  for (const id of ids)
+    assert.deepEqual([...(await repo.getAsset(id))], [1]);
+  // 保護が外れれば、参照されていない素材としてまとめて消える。
+  assert.equal(await repo.pruneAssets(p, []), 3);
+  for (const id of ids) assert.equal(await repo.getAsset(id), undefined);
+});
+test("withProtectionAll with an empty list still runs fn once", async () => {
+  const { repo } = repository();
+  let calls = 0;
+  const result = await repo.withProtectionAll([], async () => {
+    calls++;
+    return "done";
+  });
+  assert.equal(calls, 1);
+  assert.equal(result, "done");
+});
 test("save() and pruneAssets() never overlap their storage access (E2/R05)", async () => {
   const { repo, storage } = repository();
   await repo.save(project(), { kind: "manual" });
