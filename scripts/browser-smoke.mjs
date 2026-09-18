@@ -1547,9 +1547,17 @@ try {
     mimeType: "application/zip",
     buffer: bundleBytes,
   });
-  await page.waitForFunction(
-    (n) => document.querySelectorAll("#tree .panel").length === n,
+  // 取り込みが本当に終わってから確かめる。コマ数のように取り込み前から成立して
+  // いる条件で待つと、取り込みが起きなくても以降の検証が通ってしまう。
+  await page.waitForFunction(() =>
+    document
+      .querySelector("#status")
+      .textContent.startsWith("Bundleを読み込みました"),
+  );
+  assert.equal(
+    await page.locator("#tree .panel").count(),
     panelsBeforeBundle,
+    "Bundle読み込みでコマの数が変わっている",
   );
   assert.equal(await page.locator("#title").inputValue(), "conte-paper");
   await page.locator("#tree .panel").first().click();
@@ -1560,6 +1568,19 @@ try {
     await page.locator("#assetInfo").innerText(),
     /読み込めません/,
     "Bundle読み込み後に画像が読み込めなくなっている",
+  );
+  // 白以外が出る＝原本を読み終えて描き直している。素材不足の通知はこの描画と
+  // 同じまとまりで出るので、これを待ってからなら#statusをそのまま確かめられる。
+  // 待つ条件と内容の検証を分けておくと、読み込めていないのか中身が違うのかが
+  // 失敗の形で見分けられる。
+  await page.waitForFunction(
+    () =>
+      [
+        ...document
+          .querySelector("#drawing")
+          .getContext("2d")
+          .getImageData(900, 200, 1, 1).data,
+      ].join(",") !== "255,255,255,255",
   );
   assert.deepEqual(
     await page.evaluate(() => [

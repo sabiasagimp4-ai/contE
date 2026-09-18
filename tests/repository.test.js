@@ -309,6 +309,19 @@ test("withProtectionAll with an empty list still runs fn once", async () => {
   assert.equal(calls, 1);
   assert.equal(result, "done");
 });
+// 素材が数千件あるBundleでも取り込めること。IDごとに保護を入れ子の再帰で積むと
+// スタックを使い切り、「読み込みに失敗：Maximum call stack size exceeded」になる。
+test("withProtectionAll protects a long list of ids without exhausting the stack", async () => {
+  const { repo } = repository();
+  const p = project();
+  const ids = Array.from({ length: 20000 }, (_, i) => `a${i}`);
+  const duringPrune = await repo.withProtectionAll(ids, async () => {
+    await repo.putAsset(ids[0], new Uint8Array([1]));
+    return repo.pruneAssets(p, []);
+  });
+  assert.equal(duringPrune, 0, "取込中の素材が削除されている");
+  assert.equal(await repo.pruneAssets(p, []), 1, "保護が外れても消えていない");
+});
 test("save() and pruneAssets() never overlap their storage access (E2/R05)", async () => {
   const { repo, storage } = repository();
   await repo.save(project(), { kind: "manual" });

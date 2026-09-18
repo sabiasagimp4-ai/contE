@@ -2116,28 +2116,37 @@ $("bundleFile").onchange = async () => {
       !confirm("編集中の内容を置き換えて開きますか？")
     )
       return;
-    const plan = await planImport(assets, async (id) => {
-      const existing = await repo.getAsset(id);
-      if (!existing) return undefined;
-      return existing instanceof Uint8Array
-        ? existing
-        : new Uint8Array(await existing.arrayBuffer());
-    });
-    for (const { asset, finalId } of plan)
-      if (finalId !== asset.id) remapAssetId(project, asset.id, finalId);
+    // 内容が同じIDは書き直さずに再利用するので、既存を調べ始める時点から
+    // 保護する。計画を立てている間にGCへ消されると、書かないと決めた原本を
+    // 参照したままProjectを公開してしまう。
     await repo.withProtectionAll(
-      plan.map((entry) => entry.finalId),
+      assets.map((asset) => asset.id),
       async () => {
-        for (const { asset, finalId, write } of plan)
-          if (write) await repo.putAsset(finalId, asset.blob);
-        stop();
-        replaceStore(project);
-        frame = 0;
-        fileDirty = false;
-        render();
-        notice(`Bundleを読み込みました（素材${assets.length}件）`);
-        markDirty();
-        await loadImages();
+        const plan = await planImport(assets, async (id) => {
+          const existing = await repo.getAsset(id);
+          if (!existing) return undefined;
+          return existing instanceof Uint8Array
+            ? existing
+            : new Uint8Array(await existing.arrayBuffer());
+        });
+        for (const { asset, finalId } of plan)
+          if (finalId !== asset.id) remapAssetId(project, asset.id, finalId);
+        // 衝突して発行し直したIDは、書いてからProjectへ公開するまでの間も守る。
+        await repo.withProtectionAll(
+          plan.map((entry) => entry.finalId),
+          async () => {
+            for (const { asset, finalId, write } of plan)
+              if (write) await repo.putAsset(finalId, asset.blob);
+            stop();
+            replaceStore(project);
+            frame = 0;
+            fileDirty = false;
+            render();
+            notice(`Bundleを読み込みました（素材${assets.length}件）`);
+            markDirty();
+            await loadImages();
+          },
+        );
       },
     );
   } catch (e) {

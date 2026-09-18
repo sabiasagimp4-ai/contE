@@ -109,24 +109,29 @@ export class ProjectRepository {
     this.channel.addEventListener("message", handler);
     return () => this.channel.removeEventListener("message", handler);
   }
+  #retain(id) {
+    this.#protected.set(id, (this.#protected.get(id) ?? 0) + 1);
+  }
+  #release(id) {
+    const count = this.#protected.get(id) - 1;
+    if (count <= 0) this.#protected.delete(id);
+    else this.#protected.set(id, count);
+  }
   // 呼び出し中は該当IDをpruneAssetsの削除対象から外す。取込のload〜apply全体を
   // 包むことで、Projectへ参照される前の新規素材をGCから守る。
   async withProtection(id, fn) {
-    this.#protected.set(id, (this.#protected.get(id) ?? 0) + 1);
+    return this.withProtectionAll([id], fn);
+  }
+  // 複数IDをまとめて保護する（D1）。Bundle取込のように、Projectへ公開する前に
+  // 何件も書く場合に使う。入れ子の再帰にすると素材の件数だけスタックを積むので、
+  // 参照カウントをまとめて上げ下げする。
+  async withProtectionAll(ids, fn) {
+    for (const id of ids) this.#retain(id);
     try {
       return await fn();
     } finally {
-      const count = this.#protected.get(id) - 1;
-      if (count <= 0) this.#protected.delete(id);
-      else this.#protected.set(id, count);
+      for (const id of ids) this.#release(id);
     }
-  }
-  // 複数IDをまとめて保護する（D1）。withProtectionを入れ子にするだけの薄い糖衣。
-  // Bundle取込のように、Projectへ公開する前に何件も書く場合に使う。
-  async withProtectionAll(ids, fn) {
-    if (!ids.length) return fn();
-    const [id, ...rest] = ids;
-    return this.withProtection(id, () => this.withProtectionAll(rest, fn));
   }
   async open() {
     await this.storage.open?.();
