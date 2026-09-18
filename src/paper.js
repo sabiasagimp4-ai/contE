@@ -68,6 +68,8 @@ export const COLUMN_LABEL = {
 const font = (size, bold = false) =>
   `${bold ? "bold " : ""}${size}px "Noto Sans JP", sans-serif`;
 // 用紙の実寸から、行と列の位置をすべて決めてから描く。描画中に配置を決めない。
+// 縦書き（C6）は列を右から左へ並べる。columns配列の順（読む順）はそのままに、
+// 向きだけ反転させる。
 export function pageGeometry(o) {
   const size = PAPER_SIZES[o.size] ?? PAPER_SIZES.A4;
   const [w, h] =
@@ -77,11 +79,12 @@ export function pageGeometry(o) {
   const rowH = (bottom - top) / o.rows;
   const width = w - o.margin * 2;
   const total = o.columns.reduce((sum, c) => sum + c.width, 0) || 1;
-  let x = o.margin;
+  let x = o.vertical ? w - o.margin : o.margin;
   const columns = o.columns.map((c) => {
     const cw = (width * c.width) / total;
+    if (o.vertical) x -= cw;
     const column = { ...c, x, width: cw };
-    x += cw;
+    if (!o.vertical) x += cw;
     return column;
   });
   return { width: w, height: h, top, bottom, rowH, columns, inner: width };
@@ -100,6 +103,22 @@ export function wrapLines(text, width, measure) {
     lines.push(line);
   }
   return lines;
+}
+// 縦書き用の折返し（C6）。幅ではなく高さで折り、折り返した「行」は上から下へ
+// 並ぶ1本の文字列の列になる。wrapLinesと対にした軸違いの版。
+export function wrapLinesVertical(text, height, measure) {
+  const columns = [];
+  for (const paragraph of String(text).split("\n")) {
+    let column = "";
+    for (const ch of paragraph) {
+      if (column && measure(column + ch) > height) {
+        columns.push(column);
+        column = ch;
+      } else column += ch;
+    }
+    columns.push(column);
+  }
+  return columns;
 }
 export function columnText(p, all, clips, r, o, key, markersResolved) {
   switch (key) {
@@ -140,12 +159,25 @@ export function columnText(p, all, clips, r, o, key, markersResolved) {
       return "";
   }
 }
-// 1行に入る行数で切り、残りは次のページの「続き」へ回す。文字を捨てない。
+// 1行（縦書きなら1列）に入る量で切り、残りは次のページの「続き」へ回す。
+// 文字を捨てない。横書きは幅で折り返して行数（rowH基準）で頁を割り、
+// 縦書きは高さで折り返して列数（列幅基準）で頁を割る（C6：軸を入れ替えた対）。
 export function layoutPages(p, o, measure, rows = flatten(p)) {
   const geometry = pageGeometry(o);
   const clips = resolveClips(p, rows);
   const markersResolved = resolveMarkers(p, rows);
   const lineHeight = o.font * 1.45;
+  const charPitch = o.font * 1.15;
+  const widthOf = new Map(geometry.columns.map((c) => [c.key, c.width]));
+  const wrap = (text, columnWidth) =>
+    o.vertical
+      ? wrapLinesVertical(text, geometry.rowH - 16, (s) => s.length * charPitch)
+      : wrapLines(text, columnWidth - 16, (t) => measure(t, o.font));
+  // 横書きは行の高さ（全列共通）、縦書きはその列自身の幅で収まる本数が決まる。
+  const capacity = (columnWidth, first) =>
+    o.vertical
+      ? Math.max(1, Math.floor((columnWidth - 16) / charPitch))
+      : Math.max(1, Math.floor((geometry.rowH - (first ? 26 : 30)) / lineHeight));
   const pages = [];
   let page = [];
   const push = (entry) => {
@@ -162,22 +194,15 @@ export function layoutPages(p, o, measure, rows = flatten(p)) {
         .filter((c) => c.key !== "image")
         .map((c) => [
           c.key,
-          wrapLines(
-            columnText(p, rows, clips, r, o, c.key, markersResolved),
-            c.width - 16,
-            (text) => measure(text, o.font),
-          ),
+          wrap(columnText(p, rows, clips, r, o, c.key, markersResolved), c.width),
         ]),
     );
     let first = true;
     while (true) {
-      const available = Math.max(
-        1,
-        Math.floor((geometry.rowH - (first ? 26 : 30)) / lineHeight),
-      );
       const cells = new Map();
       const rest = new Map();
       for (const [key, lines] of pending) {
+        const available = capacity(widthOf.get(key), first);
         cells.set(key, lines.slice(0, available));
         const remaining = lines.slice(available);
         if (remaining.some((line) => line.trim())) rest.set(key, remaining);
@@ -266,6 +291,18 @@ export function renderPage(p, page, o, index, total, images, canvas) {
   if (o.footer)
     c.fillText(o.footer.slice(0, 80), o.margin, geometry.height - o.margin / 2);
   const lineHeight = o.font * 1.45;
+  const charPitch = o.font * 1.15;
+  // 縦書き（C6）：1文字ずつ下へ送って1列を描き、列は右から左へ進める。
+  const drawVerticalColumn = (text, tx, startTy) => {
+    c.save();
+    c.textAlign = "center";
+    let ty = startTy;
+    for (const ch of text) {
+      c.fillText(ch, tx, ty);
+      ty += charPitch;
+    }
+    c.restore();
+  };
   page.forEach((entry, i) => {
     const y = geometry.top + i * geometry.rowH;
     c.strokeStyle = "#999";
@@ -300,6 +337,26 @@ export function renderPage(p, page, o, index, total, images, canvas) {
           c.restore();
           c.strokeStyle = "#bbb";
           c.strokeRect(ix, iy, iw, ih);
+        }
+      } else if (o.vertical) {
+        c.font = font(o.font);
+        c.fillStyle = "#111";
+        let tx = column.x + column.width - 8 - charPitch / 2;
+        const startTy = y + o.font + 8;
+        // CUT列が無いときだけ、先頭の列に続きの印を置く。
+        if (
+          entry.continuation &&
+          !entry.cells.has("cut") &&
+          column === geometry.columns.find((v) => v.key !== "image")
+        ) {
+          c.fillStyle = "#777";
+          drawVerticalColumn(`${entry.label}（続き）`, tx, startTy);
+          c.fillStyle = "#111";
+          tx -= charPitch;
+        }
+        for (const col of entry.cells.get(column.key) ?? []) {
+          drawVerticalColumn(col, tx, startTy);
+          tx -= charPitch;
         }
       } else {
         c.font = font(o.font);

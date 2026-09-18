@@ -2303,6 +2303,7 @@ function paperSettings() {
     ["duration", "尺"],
     ["numbers", "階層番号"],
     ["cameraMarks", "画像にCamera作画"],
+    ["vertical", "縦書き"],
   ]) {
     const input = document.createElement("input");
     input.type = "checkbox";

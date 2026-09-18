@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   pageGeometry,
   wrapLines,
+  wrapLinesVertical,
   columnText,
   layoutPages,
   COLUMN_LABEL,
@@ -56,6 +57,29 @@ test("page geometry follows the paper size, orientation and column widths", () =
   );
   assert.equal(COLUMN_LABEL.cut, "CUT");
 });
+// C6：縦書きは列を右から左へ並べる。columns配列の順（読む順）はそのまま。
+test("vertical mode lays columns out right to left", () => {
+  const o = settings({
+    vertical: true,
+    columns: [
+      { key: "cut", width: 50 },
+      { key: "dialogue", width: 50 },
+    ],
+  });
+  const geometry = pageGeometry(o);
+  assert.equal(geometry.columns[0].key, "cut");
+  assert.ok(
+    geometry.columns[0].x > geometry.columns[1].x,
+    "先頭の列（読む順の最初）が右側に来ていない",
+  );
+  assert.equal(geometry.columns[0].width, geometry.columns[1].width);
+  // 横書きと同じ幅の合計・同じ用紙サイズになる（向きだけの違い）。
+  const horizontal = pageGeometry({ ...o, vertical: false });
+  assert.equal(
+    Math.round(geometry.columns.reduce((s, c) => s + c.width, 0)),
+    Math.round(horizontal.columns.reduce((s, c) => s + c.width, 0)),
+  );
+});
 test("wrapping keeps every character and respects explicit newlines", () => {
   const lines = wrapLines(
     "あいうえおかきくけこ\nさしすせそ",
@@ -66,11 +90,48 @@ test("wrapping keeps every character and respects explicit newlines", () => {
   assert.equal(lines.join("").length, "あいうえおかきくけこさしすせそ".length);
   assert.deepEqual(wrapLines("", 100, measure), [""]);
 });
+// C6：縦書きの折返しはwrapLinesの軸違いの対。幅ではなく高さで折る。
+test("vertical wrapping keeps every character and respects explicit newlines", () => {
+  const charHeight = (s) => s.length * 18 * 1.15;
+  const columns = wrapLinesVertical(
+    "あいうえおかきくけこ\nさしすせそ",
+    6 * 18 * 1.15,
+    charHeight,
+  );
+  assert.deepEqual(columns, ["あいうえおか", "きくけこ", "さしすせそ"]);
+  assert.equal(
+    columns.join("").length,
+    "あいうえおかきくけこさしすせそ".length,
+  );
+  assert.deepEqual(wrapLinesVertical("", 100, charHeight), [""]);
+});
 test("long text continues onto the next row instead of being cut", () => {
   const p = project();
   const rows = flatten(p);
   rows[0].panel.dialogue = "あ".repeat(600);
   const pages = layoutPages(p, settings({ rows: 2 }), measure, rows);
+  const entries = pages
+    .flat()
+    .filter((e) => e.row.panel.id === rows[0].panel.id);
+  assert.ok(entries.length > 1, "long dialogue did not continue");
+  assert.equal(entries[0].continuation, false);
+  assert.ok(entries.at(-1).continuation);
+  const kept = entries
+    .flatMap((e) => e.cells.get("dialogue") ?? [])
+    .join("").length;
+  assert.equal(kept, 600, `kept ${kept} of 600 characters`);
+});
+// C6：縦書きは列の「幅」が収まる本数を決める。横書きと同じく文字を捨てない。
+test("vertical layout continues long text onto the next page without losing characters", () => {
+  const p = project();
+  const rows = flatten(p);
+  rows[0].panel.dialogue = "あ".repeat(600);
+  const pages = layoutPages(
+    p,
+    settings({ rows: 2, vertical: true }),
+    measure,
+    rows,
+  );
   const entries = pages
     .flat()
     .filter((e) => e.row.panel.id === rows[0].panel.id);

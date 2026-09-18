@@ -1187,6 +1187,44 @@ try {
     pageTotal,
     "共有用HTMLに埋め込まれたページ数が紙面のページ数と一致しない",
   );
+  // C6：紙面の縦書き。列を右から左へ並べ替え、折返しも高さ基準になる。
+  // ページ寸法は変わらず、長文の続き行も引き続き送られることを確認する。
+  const paperSnapshot = () =>
+    page.evaluate(() => document.querySelector("#pages canvas").toDataURL());
+  const beforeVertical = await paperSnapshot();
+  const verticalCheckbox = page
+    .locator("#paperSettings label.check", { hasText: "縦書き" })
+    .locator("input");
+  assert.equal(
+    await verticalCheckbox.isChecked(),
+    false,
+    "縦書きの既定はオフのはず",
+  );
+  await verticalCheckbox.click();
+  await page.waitForFunction(
+    (before) =>
+      document.querySelector("#pages canvas").toDataURL() !== before,
+    beforeVertical,
+  );
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const c = document.querySelector("#pages canvas");
+      return [c.width, c.height];
+    }),
+    [1240, 1754],
+    "縦書きに切り替えてもページ寸法は変わらないはず",
+  );
+  assert.match(
+    await page.locator("#status").innerText(),
+    /続き行 [1-9]/,
+    "縦書きでも長文が続き行として送られていない",
+  );
+  await verticalCheckbox.click();
+  await page.waitForFunction(
+    (before) =>
+      document.querySelector("#pages canvas").toDataURL() === before,
+    beforeVertical,
+  );
   await page.locator("#closePaper").click();
   // P2：500 Panelでも生成するクリップは画面分だけ。全体表示と境界スクラブも確認する。
   const clipCount = await page.locator(".clip").count();
