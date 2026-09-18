@@ -740,6 +740,30 @@ try {
   // 後始末：矩形選択した2・3本目をそのまま消してkeysBeforeへ戻す。
   await page.locator("#keyDelete").click();
   assert.equal(await page.locator(".camkey").count(), keysBefore);
+  // C3：Cameraのイージング。既定は等速で、選んだキーに緩急を設定でき、
+  // Undoで戻り、別のPanelを見てから戻っても値が保たれる（Projectに残る）。
+  assert.equal(
+    await page.locator("#keyEase").inputValue(),
+    "linear",
+    "既定のキーは等速のはず",
+  );
+  await page.locator("#keyEase").selectOption("easeInOut");
+  assert.equal(await page.locator("#keyEase").inputValue(), "easeInOut");
+  await page.keyboard.press("Control+z");
+  assert.equal(
+    await page.locator("#keyEase").inputValue(),
+    "linear",
+    "Undoで等速へ戻っていない",
+  );
+  await page.locator("#keyEase").selectOption("easeIn");
+  await page.locator('[data-tab="content"]').click();
+  await page.locator('[data-tab="camera"]').click();
+  assert.equal(
+    await page.locator("#keyEase").inputValue(),
+    "easeIn",
+    "タブを切り替えても緩急の設定がProjectに残っていない",
+  );
+  await page.locator("#keyEase").selectOption("linear");
   // P3：音声を置き、波形・移動・再生・二重再生防止・同期のずれを確認する。
   await page.locator('[data-tab="sound"]').click();
   await page.locator("#audioFile").setInputFiles({

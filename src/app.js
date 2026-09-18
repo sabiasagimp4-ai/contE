@@ -464,6 +464,7 @@ function cameraInspector(r) {
   ["cx", "cy", "cz", "cr"].forEach(
     (id, i) => ($(id).value = key[CAMERA_FIELDS[i]]),
   );
+  $("keyEase").value = key.ease;
   // 選んだキーが全部消えると0本になってしまう組み合わせは押せなくする。
   $("keyDelete").disabled = keys.length <= cameraKeys.size;
   $("cameraPasteReplace").disabled = $("cameraPasteMerge").disabled =
@@ -1396,6 +1397,14 @@ for (const id of ["cx", "cy", "cz", "cr"])
       values: values(),
     });
   };
+// 緩急（C3）はそのキーから次のキーまでの区間に効く。他の値と同じく
+// 選択中の全キーへまとめて適用する。
+$("keyEase").onchange = () =>
+  act("setCameraValues", {
+    panelId: activeId(),
+    indexes: [...cameraKeys],
+    values: { ease: $("keyEase").value },
+  });
 // ドラッグ中はProjectを変えず、Stageだけ一時的な値で描く。離すと上のonchangeが
 // 一度だけ確定する。中止（PointerCancel）では掴む前の値へ戻り、履歴も動かさない。
 for (const id of ["cx", "cy", "cz", "cr"])

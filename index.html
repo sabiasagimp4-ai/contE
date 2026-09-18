@@ -179,13 +179,20 @@
               step="5"
               min="-360"
               max="360" /></label
+          ><label
+            >緩急<select id="keyEase">
+              <option value="linear">等速</option>
+              <option value="easeIn">加速（イーズイン）</option>
+              <option value="easeOut">減速（イーズアウト）</option>
+              <option value="easeInOut">緩急（イーズインアウト）</option>
+            </select></label
           ><button id="key">再生ヘッドにキー <kbd>K</kbd></button
           ><button id="keyDelete">選択キーを削除</button
           ><button id="cameraCopy">選択キーをコピー</button
           ><button id="cameraPasteReplace" disabled>貼り付け（置換）</button
           ><button id="cameraPasteMerge" disabled>貼り付け（重ねる）</button>
           <p class="hint">
-            キーは尺に対する比率で保持します。尺を変えるとCameraの動きも同じ比率で伸縮します。Timeline下段のキーはドラッグで移動、レーンのダブルクリックで追加できます。コピーしたキーは尺が違うPanelへも同じ比率で貼り付けられます。
+            キーは尺に対する比率で保持します。尺を変えるとCameraの動きも同じ比率で伸縮します。Timeline下段のキーはドラッグで移動、レーンのダブルクリックで追加できます。コピーしたキーは尺が違うPanelへも同じ比率で貼り付けられます。緩急はそのキーから次のキーまでの区間に効きます。
           </p>
         </div>
         <div class="pane" data-pane="sound" hidden>

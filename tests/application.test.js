@@ -940,6 +940,25 @@ test("setCameraValues applies the same values to every selected key (A10)", () =
   );
 });
 
+// C3：Cameraキーの緩急。setCameraValuesと同じ経路でeaseだけを差し替えられる。
+test("setCameraValues can change a key's ease independently of its other fields (C3)", () => {
+  const { controller } = controllerWith();
+  const panelId = controller.activeId;
+  assert.equal(cameraKeysOf(controller, panelId)[0].ease, "linear");
+
+  const result = controller.execute("setCameraValues", {
+    panelId,
+    indexes: [0],
+    values: { ease: "easeInOut" },
+  });
+  assert.equal(result.changed, true);
+  assert.equal(cameraKeysOf(controller, panelId)[0].ease, "easeInOut");
+  assert.equal(cameraKeysOf(controller, panelId)[0].x, 0, "他の値は変わらない");
+
+  controller.undo();
+  assert.equal(cameraKeysOf(controller, panelId)[0].ease, "linear");
+});
+
 test("deleteCameraKey removes several keys at once but never the last one (A10)", () => {
   const { controller } = controllerWith();
   const panelId = controller.activeId;
