@@ -25,12 +25,16 @@
         type="file"
         accept=".zip,.conte.zip"
         hidden
-      /><span
+      /><span class="barSep"></span
+      ><button id="windowMenuButton" aria-haspopup="true" aria-expanded="false">
+        ウィンドウ ▾</button
+      ><span
         id="savestate"
         role="status"
       ></span
       ><span id="status" role="status"></span>
     </header>
+    <div id="windowMenu" hidden></div>
     <div id="search" hidden>
       <div class="row">
         <input
@@ -48,7 +52,8 @@
       ><label class="inline"
         ><input id="dupAudio" type="checkbox" checked />音も複製</label
       ><button data-act="undo">元に戻す</button
-      ><button data-act="redo">やり直す</button><button id="play">▶ 再生</button
+      ><button data-act="redo">やり直す</button
+      ><span class="barSep"></span><button id="play">▶ 再生</button
       ><label
         >ループ<input
           id="loop"
@@ -62,6 +67,7 @@
       ><button id="workAreaClear" title="ワークエリアを外す">
         ワークエリア解除</button
       ><output id="workAreaInfo" class="hint"></output
+      ><span class="barSep"></span
       ><button id="paper">紙コンテ出力</button
       ><button id="animatic">Animatic出力</button
       ><button id="present" title="Stageだけを表示する（Escで戻る）">
@@ -69,19 +75,22 @@
       >
     </nav>
     <main>
-      <section class="panel" id="projectPanel">
-        <div class="panelBar">
-          <span class="panelTab on">プロジェクト</span>
-        </div>
-        <div id="tree" class="panelBody"></div>
+      <section class="dock" id="projectPanel" data-dock="left">
+        <div class="panelBar"><div class="tabs" data-tabs="left"></div></div>
+        <div id="tree" class="panelBody" data-body="project"></div>
       </section>
-      <div class="splitter" id="splitTree" title="幅を変更"></div>
-      <section class="panel" id="stage">
+      <div
+        class="splitter"
+        id="splitTree"
+        data-splitter="left"
+        title="幅を変更"
+      ></div>
+      <section class="dock" id="stage" data-dock="center">
         <div class="panelBar">
-          <span class="panelTab on">コンポジション</span>
+          <span class="panelTab on"><span class="tabName">コンポジション</span></span>
           <div id="breadcrumb"></div>
         </div>
-        <div id="tools">
+        <div id="tools" data-body="tools">
           <button id="brushTool" class="tool on">ブラシ</button
           ><button id="eraserTool" class="tool">消しゴム <kbd>E</kbd></button
           ><button id="lineTool" class="tool">直線</button
@@ -109,7 +118,7 @@
           ><button id="fit">表示リセット <kbd>0</kbd></button
           ><output id="viewInfo">100%</output>
         </div>
-        <div id="viewer">
+        <div id="viewer" data-body="viewer">
           <canvas
             id="drawing"
             width="1280"
@@ -117,26 +126,17 @@
             aria-label="描画キャンバス"
           ></canvas>
         </div>
-        <div class="hint">
-          描画 · N 新規 · ← → Panel · Shift+← → 範囲選択 · Ctrl+← →
-          Shot移動 · Home/End 先頭/末尾 · Space 再生 · [ ] 尺 ±1f · Ctrl Z /
-          Shift Z 履歴 · Ctrl C/X/V コピー · O 前後を薄く · 数値もコマも横ドラッグ ·
-          数値はフォーカス中にホイールでも刻める · ホイールでズーム ·
-          Alt/中ボタンドラッグで移動 · Shiftクリックで範囲選択 ·
-          Stripをドラッグで並べ替え
-        </div>
-        <div id="strip"></div>
+        <div id="strip" data-body="strip"></div>
       </section>
-      <div class="splitter" id="splitInspector" title="幅を変更"></div>
-      <section id="inspector">
-        <div id="tabs">
-          <button class="tab on" data-tab="content">内容</button
-          ><button class="tab" data-tab="camera">Camera</button
-          ><button class="tab" data-tab="sound">音</button
-          ><button class="tab" data-tab="marker">マーカー</button
-          ><button class="tab" data-tab="structure">構成</button>
-        </div>
-        <div class="pane" data-pane="content">
+      <div
+        class="splitter"
+        id="splitInspector"
+        data-splitter="right"
+        title="幅を変更"
+      ></div>
+      <section id="inspector" class="dock" data-dock="right">
+        <div class="panelBar"><div class="tabs" data-tabs="right"></div></div>
+        <div class="pane" data-pane="content" data-body="content">
           <label
             >尺（フレーム）<input
               id="frames"
@@ -170,7 +170,7 @@
             ></div
           ></div>
         </div>
-        <div class="pane" data-pane="camera" hidden>
+        <div class="pane" data-pane="camera" data-body="camera" hidden>
           <p id="cameraSummary" class="hint"></p>
           <label>キー<select id="keyList" size="4"></select></label>
           <label
@@ -207,7 +207,7 @@
             キーは尺に対する比率で保持します。尺を変えるとCameraの動きも同じ比率で伸縮します。Timeline下段のキーはドラッグで移動、レーンのダブルクリックで追加できます。コピーしたキーは尺が違うPanelへも同じ比率で貼り付けられます。緩急はそのキーから次のキーまでの区間に効きます。
           </p>
         </div>
-        <div class="pane" data-pane="sound" hidden>
+        <div class="pane" data-pane="sound" data-body="sound" hidden>
           <button id="audioAdd">音声を読み込む</button
           ><input id="audioFile" type="file" accept="audio/*" hidden /><label
             >トラック<select id="audioKind">
@@ -245,7 +245,7 @@
             クリップは開始位置のPanelに属します。前のPanelの尺が変わると一緒に動き、Panelを削除すると音も消えます（Undoで戻ります）。
           </p>
         </div>
-        <div class="pane" data-pane="marker" hidden>
+        <div class="pane" data-pane="marker" data-body="marker" hidden>
           <button id="markerAdd">再生ヘッドにマーカー追加</button>
           <label
             >このPanelに立つマーカー<select id="markerList" size="4"></select
@@ -257,7 +257,7 @@
             マーカーは開始位置のPanelに属します。前のPanelの尺が変わると一緒に動き、Panelを削除すると消えます（Undoで戻ります）。紙面書き出しにも注記として載ります。
           </p>
         </div>
-        <div class="pane" data-pane="structure" hidden>
+        <div class="pane" data-pane="structure" data-body="structure" hidden>
           <label>Scene名<input id="sceneName" /></label
           ><label>Shot名<input id="shotName" placeholder="未設定" /></label>
           <button data-act="split">ここでShot分割</button
@@ -276,18 +276,23 @@
           >
           <div id="shotBreakdown" class="hint"></div>
         </div>
+        <div class="pane" data-pane="keys" data-body="keys" hidden>
+          <div id="shortcutList"></div>
+        </div>
       </section>
     </main>
     <div
       class="splitter horizontal"
       id="splitTimeline"
+      data-splitter="bottom"
       title="高さを変更"
     ></div>
-    <footer>
+    <footer class="dock" data-dock="bottom">
       <div class="panelBar">
-        <span class="panelTab on">タイムライン</span
+        <div class="tabs" data-tabs="bottom"></div
         ><output id="time"></output><output id="range"></output>
       </div>
+      <div class="dockBody" data-body="timeline">
       <div id="timebar">
         <label class="inline"
           >Zoom <input id="zoom" type="range" min="0" max="15" value="9"
@@ -338,6 +343,7 @@
             <div id="head"></div>
           </div>
         </div>
+      </div>
       </div>
     </footer>
     <dialog id="paperDialog">

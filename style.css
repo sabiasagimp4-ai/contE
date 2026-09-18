@@ -31,6 +31,11 @@
 * {
   box-sizing: border-box;
 }
+/* パネルの出し入れはhidden属性1つで行う。ドックもパネルもdisplay:flexを持つので、
+   ここで強く消しておかないと隠したはずの枠が残る。 */
+[hidden] {
+  display: none !important;
+}
 body {
   margin: 0;
   height: 100vh;
@@ -176,7 +181,7 @@ kbd {
 }
 
 /* ---- パネルの枠組み ---------------------------------------------------- */
-.panel {
+.dock {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -194,14 +199,51 @@ kbd {
   border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
 }
+/* タブは中身の幅で並べ、入り切らないときだけ横へスクロールする。等分にすると
+   増えた分だけ名前が削れて、どれがどれだか読めなくなる。 */
+.tabs {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar {
+  display: none;
+}
 .panelTab {
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  flex: 0 0 auto;
   font-size: 11px;
   color: var(--dim);
   border-right: 1px solid var(--line);
   background: var(--head);
+}
+.panelTab .tabName {
+  padding: 0 12px;
+  height: 100%;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  font-size: 11px;
+}
+.panelTab .tabName:hover {
+  background: #323232;
+}
+.panelTab .tabClose {
+  padding: 0 6px 0 0;
+  color: var(--dim);
+  background: none;
+  border: 0;
+  border-radius: 0;
+  font-size: 12px;
+  line-height: 1;
+}
+.panelTab .tabClose:hover {
+  color: #f0f0f0;
+  background: none;
 }
 /* アクティブなタブはパネル面と同じ色になり、上に細いアクセントが入る。 */
 .panelTab.on {
@@ -209,9 +251,17 @@ kbd {
   color: #e2e2e2;
   box-shadow: inset 0 2px 0 var(--accent-hi);
 }
-.panel:focus-within,
-#inspector:focus-within,
-footer:focus-within {
+.panelTab.on .tabName:hover {
+  background: none;
+}
+/* ドックの中身。タイムラインのように中で更に縦へ積む場合の受け皿。 */
+.dockBody {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.dock:focus-within {
   border-color: #3f3f3f;
 }
 .panelBody {
@@ -231,6 +281,14 @@ header {
   background: #1e1e1e;
   border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
+}
+/* まとまりの切れ目。ボタンが横一列に並ぶだけだと、どこまでが同じ用途か読めない。 */
+.barSep {
+  width: 1px;
+  align-self: center;
+  height: 16px;
+  background: #3d3d3d;
+  margin: 0 3px;
 }
 header strong {
   font-size: 13px;
@@ -281,7 +339,8 @@ nav label {
 #status {
   color: var(--dim);
   font-size: 11px;
-  max-width: 36ch;
+  min-width: 0;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -305,18 +364,30 @@ body.presenting #stage {
   border: none;
 }
 
-/* ---- 3面 + スプリッタ -------------------------------------------------- */
+/* ---- ドックとスプリッタ -------------------------------------------------
+   横並びはgridではなくflexにする。gridだと閉じたドックの列が残って隙間になる。
+   幅はカスタムプロパティ1か所（applyLayoutが書く）から出す。 */
 main {
-  display: grid;
-  grid-template-columns: var(--tree, 220px) 6px minmax(260px, 1fr) 6px var(
-      --inspector,
-      260px
-    );
+  display: flex;
   min-height: 0;
   flex: 1;
   background: var(--gutter);
 }
+main > .dock {
+  min-width: 0;
+}
+#projectPanel {
+  flex: 0 0 var(--tree, 220px);
+}
+#stage {
+  flex: 1 1 0;
+  min-width: 240px;
+}
+#inspector {
+  flex: 0 0 var(--inspector, 300px);
+}
 .splitter {
+  flex: 0 0 6px;
   background: var(--gutter);
   cursor: col-resize;
   touch-action: none;
@@ -328,6 +399,78 @@ main {
   cursor: row-resize;
   height: 6px;
   flex: 0 0 auto;
+}
+
+/* ---- パネルの最大化。AEの~と同じく、そのパネルだけを画面いっぱいに広げる。
+   表示状態なのでProjectには入れず、layoutと一緒に覚える。 ----------------- */
+body[data-max] nav {
+  display: none;
+}
+body[data-max] main > :not(.maxed) {
+  display: none;
+}
+body[data-max] main > .maxed {
+  flex: 1 1 auto;
+}
+body[data-max]:not([data-max="bottom"]) #splitTimeline,
+body[data-max]:not([data-max="bottom"]) footer {
+  display: none;
+}
+body[data-max="bottom"] main,
+body[data-max="bottom"] #splitTimeline {
+  display: none;
+}
+body[data-max="bottom"] footer {
+  height: auto;
+  flex: 1 1 auto;
+}
+
+/* ---- ウィンドウメニュー。閉じたパネルを呼び戻す入口。常時並べず、押したときだけ
+   出す。 ----------------------------------------------------------------- */
+#windowMenu {
+  position: fixed;
+  z-index: 20;
+  min-width: 210px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid #0c0c0c;
+  border-radius: 3px;
+  box-shadow: 0 12px 40px #000000a6;
+}
+#windowMenu .menuGroup {
+  padding: 5px 8px 2px;
+  font-size: 10px;
+  color: var(--dim);
+  border-top: 1px solid var(--line-soft);
+  margin-top: 3px;
+}
+#windowMenu .menuGroup:first-child {
+  border-top: 0;
+  margin-top: 0;
+}
+#windowMenu button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 4px 8px;
+  background: none;
+  border: 0;
+  border-radius: 2px;
+  color: var(--text);
+  font-size: 11px;
+}
+#windowMenu button:hover {
+  background: var(--accent);
+  color: #eaf2fb;
+}
+#windowMenu .check {
+  width: 1em;
+  color: var(--accent-hi);
+}
+#windowMenu button:hover .check {
+  color: #eaf2fb;
 }
 
 /* ---- プロジェクト（Tree） ---------------------------------------------- */
@@ -394,11 +537,6 @@ input.rename {
 }
 
 /* ---- コンポジション（Stage） ------------------------------------------- */
-#stage {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
 #breadcrumb {
   display: flex;
   align-items: center;
@@ -463,16 +601,6 @@ input.rename {
   background: #fff;
   box-shadow: 0 0 0 1px #000;
 }
-#stage > .hint {
-  padding: 3px 10px;
-  background: var(--head);
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 0 0 auto;
-}
 #strip {
   display: flex;
   gap: 6px;
@@ -518,41 +646,38 @@ input.rename {
   box-shadow: inset -3px 0 0 var(--accent-hi);
 }
 
-/* ---- インスペクタ（エフェクトコントロール相当） ------------------------ */
-#inspector {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  overflow: hidden;
-}
-#tabs {
-  display: flex;
-  min-height: 23px;
-  background: var(--head);
-  border-bottom: 1px solid var(--line);
-  flex: 0 0 auto;
-}
-#tabs .tab {
-  flex: 1;
-  padding: 0 6px;
-  height: 22px;
-  font-size: 11px;
+/* ---- ショートカット一覧。以前はStageの下へ1行で常時出していたが、幅に入り
+   切らず途中で切れていた。読みたいときだけ開くパネルにする。 ------------- */
+#shortcutList h3 {
+  margin: 10px 0 4px;
+  font-size: 10.5px;
+  font-weight: normal;
   color: var(--dim);
-  background: var(--head);
-  border: 0;
-  border-right: 1px solid var(--line);
-  border-radius: 0;
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 2px;
 }
-#tabs .tab:hover {
-  background: #323232;
+#shortcutList h3:first-child {
+  margin-top: 0;
 }
-#tabs .tab.on {
-  background: var(--panel);
-  color: #e2e2e2;
-  box-shadow: inset 0 2px 0 var(--accent-hi);
+#shortcutList .row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0;
+  font-size: 10.5px;
 }
+#shortcutList .combo {
+  flex: 0 0 auto;
+  min-width: 82px;
+  color: var(--hot);
+  font-variant-numeric: tabular-nums;
+}
+#shortcutList .what {
+  color: var(--text);
+}
+
+/* ---- インスペクタ（エフェクトコントロール相当） ------------------------ */
+
 #inspector .pane {
   flex: 1;
   min-height: 0;
@@ -605,11 +730,6 @@ input.rename {
 /* ---- タイムライン ------------------------------------------------------ */
 footer {
   height: var(--timeline, 270px);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--panel);
-  border: 1px solid var(--line);
   flex: 0 0 auto;
 }
 #timebar {

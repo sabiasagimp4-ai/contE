@@ -165,6 +165,90 @@ try {
     "Escでプレゼンモードから戻れない",
   );
   assert.equal(await page.locator("nav").isVisible(), true, "戻ってもnavが見えない");
+  // パネル式UI：使わないパネルは閉じて画面から消し、ウィンドウメニューから
+  // 呼び戻せること。常時表示だったショートカット一覧はパネルへ移した。
+  assert.equal(
+    await page.locator("#stage .hint").count(),
+    0,
+    "ショートカットの行がStageに残っている",
+  );
+  assert.equal(
+    await page.locator('[data-tab="keys"]').count(),
+    0,
+    "ショートカットのタブが最初から開いている",
+  );
+  const windowItem = (name) =>
+    page.locator("#windowMenu button").filter({ hasText: name });
+  await page.locator("#windowMenuButton").click();
+  await windowItem("ショートカット").click();
+  assert.equal(
+    await page.locator("#windowMenu").isHidden(),
+    true,
+    "選んだあともメニューが開いたまま",
+  );
+  assert.ok(
+    (await page.locator("#shortcutList .row").count()) > 10,
+    "ショートカットの一覧が出ていない",
+  );
+  assert.equal(
+    await page.locator('[data-body="keys"]').isVisible(),
+    true,
+    "開いたパネルが前面に出ていない",
+  );
+  assert.equal(
+    await page.locator('[data-body="content"]').isVisible(),
+    false,
+    "タブなのに前のパネルも見えている",
+  );
+  // タブの×で閉じると、残っているタブが前面に出る。
+  await page.locator("#inspector .panelTab.on .tabClose").click();
+  assert.equal(await page.locator('[data-tab="keys"]').count(), 0, "×で閉じられない");
+  assert.equal(
+    await page.locator("#inspector .pane:not([hidden])").count(),
+    1,
+    "閉じたあとに前面のパネルが決まっていない",
+  );
+  // ドックを空にすると枠も仕切りも消える。空の枠が残ると場所だけ取る。
+  await page.locator("#windowMenuButton").click();
+  await windowItem("プロジェクト").click();
+  assert.equal(await page.locator("#projectPanel").isHidden(), true, "空の枠が残っている");
+  assert.equal(await page.locator("#splitTree").isHidden(), true, "仕切りだけ残っている");
+  const stageWithoutTree = (await page.locator("#stage").boundingBox()).width;
+  await page.locator("#windowMenuButton").click();
+  await windowItem("プロジェクト").click();
+  assert.equal(await page.locator("#projectPanel").isVisible(), true, "呼び戻せない");
+  assert.ok(
+    (await page.locator("#stage").boundingBox()).width < stageWithoutTree,
+    "パネルを閉じてもStageが広がっていない",
+  );
+  // ~でそのパネルだけを広げ、Escで戻す。
+  await page.locator("#viewer").click({ position: { x: 10, y: 10 } });
+  await page.keyboard.press("`");
+  assert.equal(
+    await page.evaluate(() => document.body.dataset.max),
+    "center",
+    "~でStageが最大化しない",
+  );
+  assert.equal(await page.locator("footer").isVisible(), false, "最大化中もTimelineが見えている");
+  await page.keyboard.press("Escape");
+  assert.equal(
+    await page.evaluate(() => document.body.dataset.max),
+    undefined,
+    "Escで最大化から戻れない",
+  );
+  assert.equal(await page.locator("footer").isVisible(), true, "戻ってもTimelineが出てこない");
+  // 閉じすぎて戻せなくなったときの逃げ道。
+  await page.locator("#windowMenuButton").click();
+  await windowItem("コマ（サムネイル）").click();
+  assert.equal(await page.locator("#strip").isHidden(), true);
+  await page.locator("#windowMenuButton").click();
+  await windowItem("配置を初期値に戻す").click();
+  assert.equal(await page.locator("#strip").isVisible(), true, "初期値に戻してもコマが出ない");
+  assert.equal(
+    await page.locator('[data-tab="keys"]').count(),
+    0,
+    "初期値にショートカットのタブが混ざっている",
+  );
   await page.locator("#paper").click();
   assert.equal(await page.locator("#pages canvas").count(), 1);
   // D3：紙面プリセット。組み込みを選ぶと即座に用紙設定へ反映され、保存した分は
@@ -561,8 +645,15 @@ try {
   await page.locator("#dialogue").fill("検索テスト用の台詞ふたつめ");
   await page.locator("#dialogue").blur();
   assert.equal(await page.locator("#search").isHidden(), true, "検索窓が最初から開いている");
+  // Ctrl+FはFの割り当て（Timelineの全体表示）まで一緒に起こしてはいけない。
+  const zoomBeforeSearch = await page.locator("#zoom").inputValue();
   await page.keyboard.press("Control+f");
   assert.equal(await page.locator("#search").isVisible(), true, "Ctrl+Fで検索窓が開かない");
+  assert.equal(
+    await page.locator("#zoom").inputValue(),
+    zoomBeforeSearch,
+    "Ctrl+FでTimelineのズームまで動いている",
+  );
   assert.equal(await page.evaluate(() => document.activeElement.id), "searchQuery");
   await page.locator("#searchQuery").fill("検索テスト用の台詞");
   await page.waitForTimeout(30);

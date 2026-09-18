@@ -37,7 +37,7 @@ IndexedDBが利用できない場合、UI編集は継続し、保存層だけが
 
 | パス | 現在の責務 |
 |---|---|
-| `index.html` | UIのDOM骨格。Toolbar、Canvas、Panel strip、Inspector、Timeline、紙コンテDialog、Animatic Dialog、復旧Dialogを定義 |
+| `index.html` | UIのDOM骨格。Toolbar、Canvas、Panel strip、Inspector、Timeline、紙コンテDialog、Animatic Dialog、復旧Dialogを定義。各領域は`data-dock`/`data-body`でパネルとして印を付ける |
 | `style.css` | After Effects風のパネルUI。色のカスタムプロパティ、パネルとタブ、Timelineの行、Dialog、印刷用スタイル、レスポンシブ境界 |
 | `src/app.js` | UIイベント、表示更新、ファイル選択、再生、Dialog、保存の接続。現在のアプリケーション統合層 |
 | `src/editor-session.js` | 現在の`Store`の寿命、編集/選択/Undo/Redoの結果、変更範囲、実行時Session IDとrevision、Project差し替え後の古い非同期処理の識別 |
@@ -45,6 +45,8 @@ IndexedDBが利用できない場合、UI編集は継続し、保存層だけが
 | `src/application/editor-controller.js` | コマンド実行、選択、Undo/Redo、Project差し替えの入口と、確定編集ごとの通知 |
 | `src/application/import-controller.js` | 素材取り込みの非同期規約。開始時の対象固定、追い越し、作品切替時の破棄と解放 |
 | `src/ui/number-scrub.js` | 数値入力の横ドラッグ（AEのホットテキスト）。値の計算はDOMを持たない純粋関数 |
+| `src/ui/docks.js` | パネルの出し入れ。どのパネルを開き、どれを前面にするかだけを持つ |
+| `src/ui/shortcuts.js` | キー操作の表。効くキーと画面に出る説明の唯一の出どころ |
 | `src/model.js` | Projectの生成・検証・Migration・履歴・選択・Panel移動・Cameraキー・紙面設定検証 |
 | `src/playback.js` | 時刻からPanelを引く純粋関数。再生時計と二分探索 |
 | `src/timeline.js` | Timelineのフレーム/px変換、可視Panel、目盛、スナップ、Zoom、追従、選択範囲 |
@@ -259,28 +261,29 @@ DOM / Pointer / Keyboard
 
 ### 5.1 画面のDOM構造
 
-画面はAfter Effects風のパネル構成にしている。各領域は`.panel`として枠を持ち、
-先頭に`.panelBar`（タブ列）が付く。タブの`.on`が現在の面を示す。
+画面はAfter Effects風のパネル構成にしている。各領域は`.dock`として枠を持ち、
+先頭に`.panelBar`（タブ列）が付く。タブの`.on`が現在の面を示す。パネルは
+`src/ui/docks.js`が出し入れし、閉じたものは「ウィンドウ」メニューから戻す。
 
 ```text
 body
-├─ header                           アプリ名 / #title / #save / #open / #savestate / #status
+├─ header                           アプリ名 / #title / ファイル操作 / #windowMenuButton / #savestate / #status
+├─ #windowMenu                      パネルの開閉メニュー（押したときだけ出る）
 ├─ nav                              Panel追加 / 複製 / Undo / Redo / 再生 / 紙コンテ / Animatic
 ├─ main
-│  ├─ #projectPanel .panel
-│  │  ├─ .panelBar                  「プロジェクト」タブ
+│  ├─ #projectPanel .dock           dock=left（tabs）
+│  │  ├─ .panelBar > .tabs          「プロジェクト」タブ
 │  │  └─ #tree                      Scene・Shot・Panelツリー（JSが中身を差し替える）
-│  ├─ #stage .panel
-│  │  ├─ .panelBar                  「コンポジション」タブ / #breadcrumb
+│  ├─ #stage .dock                  dock=center（stack：開いている分を上から積む）
+│  │  ├─ .panelBar                  「コンポジション」/ #breadcrumb
 │  │  ├─ #tools                     描画、消しゴム、画像、表示、#viewInfo
 │  │  ├─ #viewer                    暗いビューア。中央に#drawing（1280×720 Canvas）
-│  │  ├─ .hint                      操作の要約（1行）
 │  │  └─ #strip                     現ShotのPanel strip
-│  └─ #inspector
-│     ├─ #tabs                      内容 / Camera / 音 / 構成（パネルのタブ列）
-│     └─ .pane × 4                  尺・台詞・注記 / Cameraキー / 音声Clip / Scene・Shot操作
-└─ footer
-   ├─ .panelBar                     「タイムライン」タブ / #time / #range
+│  └─ #inspector .dock              dock=right（tabs）
+│     ├─ .panelBar > .tabs          内容 / Camera / 音 / マーカー / 構成 / ショートカット
+│     └─ .pane × 6                  尺・台詞・注記 / Cameraキー / 音声Clip / マーカー / Scene・Shot操作 / キー一覧
+└─ footer .dock                     dock=bottom（tabs）
+   ├─ .panelBar > .tabs             「タイムライン」タブ / #time / #range
    ├─ #timebar                      Zoom、Fit、Snap、追従
    └─ #timeBody
       ├─ #rowNames                  行名の列（コマ / Camera / #audioNames）。横スクロールしない
@@ -304,6 +307,27 @@ body
 書かない。
 
 紙コンテとAnimaticは`dialog`として開き、復旧候補も別Dialogで表示する。低頻度設定はInspectorまたはDialogへ置き、高頻度操作はToolbar、ショートカット、Timeline上に置く構成になっている。
+
+### 5.1.1 パネルの出し入れ（`src/ui/docks.js`）
+
+ドックは4つ（left / center / right / bottom）。`tabs`のドックは開いているパネルを
+1枚ずつ切り替えて見せ、`stack`のドックは開いている分を上から順に全部見せる。DOMとの
+約束は`[data-dock]`・`[data-tabs]`・`[data-body]`・`[data-splitter]`の4つだけで、
+`Docks`はどのパネルを開くかという状態だけを持つ。中身が1つも無いドックは仕切りごと
+消え、`fixed`のパネル（`#viewer`）は閉じられない。最大化は`body[data-max]`と
+`.maxed`で表す。
+
+開閉・前面・最大化は画面の状態なのでProjectには入れず、幅や高さと同じ`layout`として
+metaストアへ1件で保存する（`saveLayout()`）。読み戻しは知っているキーだけを範囲に
+収めて取り込み、知らないIDは捨てる。壊れた保存で画面が開けなくなるのがいちばん困る
+ので、ウィンドウメニューの「配置を初期値に戻す」も逃げ道として用意している。
+
+### 5.1.2 キー操作（`src/ui/shortcuts.js`）
+
+効くキーと画面に出る説明は`SHORTCUTS`という1つの表から配る。`app.js`は表のidへ
+実装を結び、`comboOf()`が押されたキーを表と同じ書き方へ直して引く。ショートカットの
+パネルも同じ表から作るので、実装と説明が離れて食い違うことがない。キーの要らない
+操作（ドラッグやホイール）は`GESTURES`に置く。
 
 ### 5.2 `render()`
 

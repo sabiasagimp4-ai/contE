@@ -47,6 +47,14 @@ import { labelOf } from "./application/commands.js";
 import { scrubAll, scrubNumber } from "./ui/number-scrub.js";
 import { autoScroll } from "./ui/auto-scroll.js";
 import * as shapeTools from "./ui/shape-tools.js";
+import { Docks } from "./ui/docks.js";
+import {
+  SHORTCUTS,
+  GESTURES,
+  comboOf,
+  shortcutIndex,
+  displayFor,
+} from "./ui/shortcuts.js";
 const $ = (id) => document.getElementById(id);
 const session = new EditorSession(new Store());
 // 確定編集の入口はEditorControllerひとつ。副作用は下の購読で一度だけ行う。
@@ -107,7 +115,12 @@ const view = { zoom: 1, x: 0, y: 0 };
 const activeId = () => store.selection.active;
 const isSelected = (id) => store.selection.ids.includes(id);
 const current = () => rows.find((r) => r.panel.id === activeId()) || rows[0];
-const notice = (t) => ($("status").textContent = t);
+// 通知は1行で出すが、幅に入り切らない分はtitleで読めるようにする。読み落とすと
+// 困るのは失敗の知らせなので、省略した末尾を消さない。
+const notice = (t) => {
+  $("status").title = t;
+  return ($("status").textContent = t);
+};
 function replaceStore(project, selection) {
   editor.replace(project, selection);
   store = editor.store;
@@ -2059,13 +2072,6 @@ for (const [id, key] of [
       name: $(id).value.slice(0, 60),
     });
   };
-for (const tab of document.querySelectorAll(".tab"))
-  tab.onclick = () => {
-    for (const t of document.querySelectorAll(".tab"))
-      t.classList.toggle("on", t === tab);
-    for (const pane of document.querySelectorAll("#inspector .pane"))
-      pane.hidden = pane.dataset.pane !== tab.dataset.tab;
-  };
 $("save").onclick = async () => {
   download(
     new Blob([JSON.stringify(store.p)], { type: "application/json" }),
@@ -2253,72 +2259,217 @@ function exitPresent() {
   document.body.classList.remove("presenting");
   if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
 }
-document.addEventListener("keydown", (e) => {
-  const mod = e.ctrlKey || e.metaKey;
-  if ($("paperDialog").open || $("animaticDialog").open || $("recoverDialog").open)
-    return;
-  if (mod && e.key.toLowerCase() === "f") {
-    e.preventDefault();
-    openSearch();
-  } else if (e.key === "Escape" && !$("search").hidden) {
-    closeSearch();
-  } else if (e.key === "Escape" && document.body.classList.contains("presenting")) {
-    exitPresent();
-  }
+// ---- パネル式のUI（AEのワークスペース）--------------------------------------
+// 画面は4つのドックに分かれ、パネルはそのどれかへ入る。使わないパネルは閉じて
+// 消し、ウィンドウメニューから呼び戻す。全部を常に出しておく必要はない。
+// 表示状態なのでProjectには入れず、layoutと同じmetaへ保存する。
+const PANELS = [
+  { id: "project", title: "プロジェクト", dock: "left", openByDefault: true },
+  { id: "tools", title: "描画ツール", dock: "center", openByDefault: true },
+  { id: "viewer", title: "ビュー", dock: "center", fixed: true },
+  { id: "strip", title: "コマ（サムネイル）", dock: "center", openByDefault: true },
+  { id: "content", title: "内容", dock: "right", openByDefault: true },
+  { id: "camera", title: "Camera", dock: "right", openByDefault: true },
+  { id: "sound", title: "音", dock: "right", openByDefault: true },
+  { id: "marker", title: "マーカー", dock: "right", openByDefault: true },
+  { id: "structure", title: "構成", dock: "right", openByDefault: true },
+  { id: "keys", title: "ショートカット", dock: "right" },
+  { id: "timeline", title: "タイムライン", dock: "bottom", openByDefault: true },
+];
+// 右と下と左はタブで1枚ずつ。中央はツール列・ビュー・コマを縦に積む。
+const docks = new Docks({
+  panels: PANELS,
+  modes: { left: "tabs", center: "stack", right: "tabs", bottom: "tabs" },
+  onChange: () => {
+    // 幅も高さも変わるので、Timelineは描き直さないと目盛と帯がずれる。
+    timeline();
+    saveLayout();
+  },
 });
-document.addEventListener("keydown", (e) => {
-  if (
-    /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) ||
-    $("paperDialog").open ||
-    $("animaticDialog").open ||
-    $("recoverDialog").open
-  )
-    return;
-  const mod = e.ctrlKey || e.metaKey,
-    k = e.key.toLowerCase();
-  let fn;
-  if (mod && k === "z") fn = e.shiftKey ? acts.redo : acts.undo;
-  else if (mod && k === "d") fn = acts.duplicate;
-  else if (mod && k === "c") fn = acts.copy;
-  else if (mod && k === "x") fn = acts.cut;
-  else if (mod && k === "v") fn = acts.paste;
-  else if (mod && k === "s") fn = () => $("save").click();
-  else if (mod && e.shiftKey && k === "k") fn = acts.merge;
-  else if (mod && k === "k") fn = acts.split;
-  else if (k === "n") fn = acts.add;
-  else if (k === "k") fn = () => $("key").click();
-  else if (k === "e")
-    fn = () => $(tool.erase ? "brushTool" : "eraserTool").click();
-  else if (k === "o") fn = () => $("onion").click();
-  else if (k === "0") fn = () => $("fit").click();
-  else if (k === "f") fn = () => $("fitTime").click();
-  else if (k === "delete" || k === "backspace")
-    fn = () => !$("keyDelete").disabled && $("keyDelete").click();
-  else if (k === "+" || k === "=" || k === "-")
-    fn = () => {
-      zoomTo(scaleIndex + (k === "-" ? -1 : 1));
-    };
-  else if (k === " ") fn = () => $("play").click();
-  else if (k === "arrowright" || k === "arrowleft")
-    fn = () => {
-      const delta = k === "arrowright" ? 1 : -1;
-      const i = rows.findIndex((r) => r.panel.id === activeId());
-      const targetIndex = mod ? shotBoundaryIndex(delta) : i + delta;
-      moveSelection(targetIndex, e.shiftKey);
-    };
-  else if (k === "home") fn = () => moveSelection(0, e.shiftKey);
-  else if (k === "end") fn = () => moveSelection(rows.length - 1, e.shiftKey);
-  else if (k === "[" || k === "]")
-    fn = () =>
+const DEFAULT_PANELS = docks.state();
+docks.render();
+// ~で広げるのは、いま触っているパネルのドック。手がかりが無ければStage。
+function maximizeTarget() {
+  return document.activeElement?.closest?.("[data-dock]")?.dataset.dock ?? "center";
+}
+function toggleMaximize() {
+  docks.maximized() ? docks.maximize(null) : docks.maximize(maximizeTarget());
+}
+// Escで閉じるものの順番。手前にあるものから1つだけ閉じる。
+function closeTopmost() {
+  if (!$("windowMenu").hidden) return closeWindowMenu();
+  if (!$("search").hidden) return closeSearch();
+  if (docks.maximized()) return docks.maximize(null);
+  if (document.body.classList.contains("presenting")) return exitPresent();
+  return false;
+}
+// ウィンドウメニュー。閉じたパネルを呼び戻す唯一の入口なので、並びは画面の
+// 位置と同じ順にする。常に画面へ並べず、押したときだけ出す。
+const MENU_GROUPS = [
+  { title: "左", dock: "left" },
+  { title: "Stage", dock: "center" },
+  { title: "インスペクタ", dock: "right" },
+  { title: "下", dock: "bottom" },
+];
+function menuItem(checked, title, run) {
+  const b = document.createElement("button");
+  const mark = document.createElement("span");
+  mark.className = "check";
+  mark.textContent = checked ? "✓" : "";
+  b.append(mark, document.createTextNode(title));
+  b.onclick = () => {
+    closeWindowMenu();
+    run();
+  };
+  return b;
+}
+function renderWindowMenu() {
+  const items = [];
+  const head = (title) => {
+    const d = document.createElement("div");
+    d.className = "menuGroup";
+    d.textContent = title;
+    return d;
+  };
+  for (const group of MENU_GROUPS) {
+    // 常設のパネル（ビュー）は閉じられないので並べない。
+    const members = PANELS.filter((p) => p.dock === group.dock && !p.fixed);
+    if (!members.length) continue;
+    items.push(head(group.title));
+    for (const panel of members)
+      items.push(
+        menuItem(docks.isOpen(panel.id), panel.title, () =>
+          docks.isOpen(panel.id) ? docks.close(panel.id) : docks.reveal(panel.id),
+        ),
+      );
+  }
+  items.push(
+    head("その他"),
+    menuItem(!$("search").hidden, "検索", () =>
+      $("search").hidden ? openSearch() : closeSearch(),
+    ),
+    menuItem(false, "配置を初期値に戻す", resetLayout),
+  );
+  $("windowMenu").replaceChildren(...items);
+}
+function openWindowMenu() {
+  const menu = $("windowMenu");
+  renderWindowMenu();
+  menu.hidden = false;
+  const r = $("windowMenuButton").getBoundingClientRect();
+  menu.style.left = `${Math.round(Math.max(4, Math.min(r.left, innerWidth - menu.offsetWidth - 8)))}px`;
+  menu.style.top = `${Math.round(r.bottom + 2)}px`;
+  $("windowMenuButton").setAttribute("aria-expanded", "true");
+}
+function closeWindowMenu() {
+  $("windowMenu").hidden = true;
+  $("windowMenuButton").setAttribute("aria-expanded", "false");
+}
+$("windowMenuButton").onclick = () =>
+  $("windowMenu").hidden ? openWindowMenu() : closeWindowMenu();
+document.addEventListener("pointerdown", (e) => {
+  if (!$("windowMenu").hidden && !e.target.closest("#windowMenu, #windowMenuButton"))
+    closeWindowMenu();
+});
+
+// キー操作はSHORTCUTSの表1つから配る。効くキーと画面に出る説明が別々の場所に
+// あると、片方だけ直したときに説明のほうが嘘になる。eを渡すのは、←/→や
+// Home/EndがShiftやCtrlの有無で行き先を変えるため。
+const shortcutActions = new Map([
+  ["add", acts.add],
+  ["duplicate", acts.duplicate],
+  ["undo", acts.undo],
+  ["redo", acts.redo],
+  ["copy", acts.copy],
+  ["cut", acts.cut],
+  ["paste", acts.paste],
+  ["save", () => $("save").click()],
+  ["split", acts.split],
+  ["merge", acts.merge],
+  [
+    "nudgeFrames",
+    (e) =>
       act("nudgePanelFrames", {
         ids: editor.selectedIds,
-        delta: k === "]" ? 1 : -1,
-      });
-  if (fn) {
-    e.preventDefault();
-    fn();
-  }
+        delta: e.key === "]" ? 1 : -1,
+      }),
+  ],
+  [
+    "panelStep",
+    (e) => {
+      const delta = e.key.toLowerCase() === "arrowright" ? 1 : -1;
+      const i = rows.findIndex((r) => r.panel.id === activeId());
+      const target =
+        e.ctrlKey || e.metaKey ? shotBoundaryIndex(delta) : i + delta;
+      moveSelection(target, e.shiftKey);
+    },
+  ],
+  [
+    "edgeStep",
+    (e) =>
+      moveSelection(
+        e.key.toLowerCase() === "home" ? 0 : rows.length - 1,
+        e.shiftKey,
+      ),
+  ],
+  ["play", () => $("play").click()],
+  ["fitTime", () => $("fitTime").click()],
+  ["zoomTimeline", (e) => zoomTo(scaleIndex + (e.key === "-" ? -1 : 1))],
+  ["toggleEraser", () => $(tool.erase ? "brushTool" : "eraserTool").click()],
+  ["onion", () => $("onion").click()],
+  ["resetView", () => $("fit").click()],
+  ["cameraKey", () => $("key").click()],
+  ["deleteKey", () => !$("keyDelete").disabled && $("keyDelete").click()],
+  ["search", openSearch],
+  ["maximize", toggleMaximize],
+  ["escape", closeTopmost],
+]);
+const SHORTCUT_BY_COMBO = shortcutIndex();
+document.addEventListener("keydown", (e) => {
+  // ダイアログを開いている間は、その中の操作を邪魔しない。
+  if ($("paperDialog").open || $("animaticDialog").open || $("recoverDialog").open)
+    return;
+  const entry = SHORTCUT_BY_COMBO.get(comboOf(e));
+  if (!entry) return;
+  // 文字を打っている最中のnや[は編集コマンドにしない。検索とEscだけは通す。
+  if (!entry.anywhere && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+  const fn = shortcutActions.get(entry.id);
+  if (!fn) return;
+  // 何も起きなかったとき（Escで閉じるものが無いなど）はブラウザの既定を残す。
+  if (fn(e) !== false) e.preventDefault();
 });
+// ショートカットのパネル。実装の無い行は出さない。説明だけが残ると嘘になる。
+function renderShortcuts() {
+  const mac = /mac/i.test(navigator.platform || "");
+  const nodes = [];
+  const head = (title) => {
+    const h = document.createElement("h3");
+    h.textContent = title;
+    return h;
+  };
+  const row = (combo, what) => {
+    const line = document.createElement("div");
+    line.className = "row";
+    const left = document.createElement("span");
+    left.className = "combo";
+    left.textContent = combo;
+    const right = document.createElement("span");
+    right.className = "what";
+    right.textContent = what;
+    line.append(left, right);
+    return line;
+  };
+  let group = null;
+  for (const entry of SHORTCUTS) {
+    if (!shortcutActions.has(entry.id)) continue;
+    if (entry.group !== group) nodes.push(head((group = entry.group)));
+    nodes.push(row(displayFor(entry, mac), entry.label));
+  }
+  nodes.push(head("マウス操作"));
+  for (const g of GESTURES) nodes.push(row(g.group, g.label));
+  $("shortcutList").replaceChildren(...nodes);
+}
+renderShortcuts();
 // 紙面設定はプロジェクトの一部。変更は履歴と自動保存に乗る。
 const paper = () => store.p.paper;
 const paperEdit = (change) => {
@@ -2937,16 +3088,36 @@ $("animaticStart").onclick = async () => {
 // ペインの幅/高さ。ドラッグで変え、次回の起動でも同じ配置で開く。
 // Timelineの初期高さは目盛・Panel・Camera・音声の4段が全部見える値にする。
 // rowSizeはProjectではなくlayoutの一部（表示状態）として持つ（A9）。
-const layout = { tree: 220, inspector: 260, timeline: 270, rowSize: "md" };
+const DEFAULT_LAYOUT = Object.freeze({
+  tree: 220,
+  inspector: 300,
+  timeline: 270,
+  rowSize: "md",
+});
+const layout = { ...DEFAULT_LAYOUT };
 const limits = {
   tree: [140, 480],
   inspector: [180, 520],
   timeline: [150, 560],
 };
+const ROW_SIZES = ["sm", "md", "lg"];
+// 幅・高さとパネルの開閉は同じ「画面の状態」なので、まとめて1件として保存する。
+function saveLayout() {
+  if (persistence)
+    repo.setLayout({ ...layout, panels: docks.state() }).catch(() => {});
+}
+// パネルを閉じすぎて戻せなくなったときの逃げ道。ウィンドウメニューから呼ぶ。
+function resetLayout() {
+  Object.assign(layout, DEFAULT_LAYOUT);
+  docks.restore(DEFAULT_PANELS);
+  applyLayout();
+  timeline();
+  saveLayout();
+  notice("パネルの配置を初期値に戻しました");
+}
 function applyLayout() {
-  for (const [key, value] of Object.entries(layout))
-    if (key !== "rowSize")
-      document.documentElement.style.setProperty(`--${key}`, `${value}px`);
+  for (const key of ["tree", "inspector", "timeline"])
+    document.documentElement.style.setProperty(`--${key}`, `${layout[key]}px`);
   $("timeBody").dataset.rowSize = layout.rowSize;
   $("rowSize").value = layout.rowSize;
 }
@@ -2954,7 +3125,7 @@ $("rowSize").onchange = () => {
   layout.rowSize = $("rowSize").value;
   applyLayout();
   timeline();
-  if (persistence) repo.setLayout({ ...layout }).catch(() => {});
+  saveLayout();
 };
 // 目標尺は表示だけの値。Projectにもlayoutにも保存しない（B1）。
 $("targetSeconds").onchange = () => {
@@ -2982,7 +3153,7 @@ for (const [id, key, axis, sign] of [
     };
     node.onpointerup = node.onpointercancel = () => {
       node.onpointermove = null;
-      if (persistence) repo.setLayout({ ...layout }).catch(() => {});
+      saveLayout();
     };
   };
 applyLayout();
@@ -3195,7 +3366,16 @@ repo.onRemoteSave(({ savedAt }) => {
   }
   const saved = await repo.getLayout().catch(() => null);
   if (saved) {
-    Object.assign(layout, saved);
+    // 保存の中身は古い版や壊れた値でもあり得る。知っているキーだけを、
+    // つまみで動かせる範囲に収めて取り込む。画面が開けなくなるのがいちばん困る。
+    for (const key of ["tree", "inspector", "timeline"]) {
+      const value = Number(saved[key]);
+      if (!Number.isFinite(value)) continue;
+      const [min, max] = limits[key];
+      layout[key] = Math.round(Math.max(min, Math.min(max, value)));
+    }
+    if (ROW_SIZES.includes(saved.rowSize)) layout.rowSize = saved.rowSize;
+    docks.restore(saved.panels);
     applyLayout();
     timeline();
   }
