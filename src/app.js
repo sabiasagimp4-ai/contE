@@ -400,6 +400,9 @@ function render() {
   $("shotName").value = r.shot.name;
   const asset =
     r.panel.image && store.p.assets.find((a) => a.id === r.panel.image.assetId);
+  // 画像を入れていないPanelでは、濃さも収め方も触れない設定でしかない。
+  // 触れないものを出しておくと、下にあるラベル色まで押し下げてしまう。
+  $("imageProps").hidden = !r.panel.image;
   $("imageOpacity").value = Math.round((r.panel.image?.opacity ?? 1) * 100);
   $("imageOpacity").disabled = $("imageClear").disabled = !r.panel.image;
   $("imageFit").value = r.panel.image?.fit ?? "contain";

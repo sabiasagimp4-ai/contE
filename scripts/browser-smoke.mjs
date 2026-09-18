@@ -1406,6 +1406,12 @@ try {
   // なく直接openを立てて開く。既に開いていてもここでは閉じてはいけない。
   await page.locator("#tree details").first().evaluate((d) => (d.open = true));
   await page.locator("#tree .panel").first().click();
+  // 画像を入れていないうちは、触れない設定（濃さ・収め方・拡大）を出さない。
+  assert.equal(
+    await page.locator("#imageProps").isHidden(),
+    true,
+    "画像が無いのに画像の設定が出ている",
+  );
   await page.locator("#imageFile").setInputFiles({
     name: "bg.png",
     mimeType: "image/png",
@@ -1413,6 +1419,11 @@ try {
   });
   await page.waitForFunction(() =>
     document.querySelector("#assetInfo").textContent.includes("bg.png"),
+  );
+  assert.equal(
+    await page.locator("#imageProps").isVisible(),
+    true,
+    "画像を入れても設定が出てこない",
   );
   assert.deepEqual(
     await page.evaluate(() => [

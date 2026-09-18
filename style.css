@@ -170,14 +170,38 @@ textarea {
   resize: vertical;
   min-height: 46px;
 }
-kbd {
-  font-size: 10px;
-  color: #7d7d7d;
-}
 .hint {
   color: var(--dim);
   font-size: 10.5px;
   line-height: 1.5;
+}
+details.hint {
+  margin: 8px 0;
+}
+details.hint > summary {
+  cursor: pointer;
+  color: var(--dim);
+}
+details.hint > p {
+  margin: 4px 0 0;
+  padding-left: 12px;
+}
+/* Inspectorの中のまとまり。どこからどこまでが同じ話かを見出しで示す。 */
+.groupTitle {
+  margin: 14px 0 2px;
+  padding-bottom: 2px;
+  font-size: 10.5px;
+  color: var(--dim);
+  border-bottom: 1px solid var(--line-soft);
+}
+.buttonRow {
+  display: flex;
+  gap: 4px;
+  margin: 6px 0;
+}
+.buttonRow button {
+  flex: 1;
+  margin: 0;
 }
 
 /* ---- パネルの枠組み ---------------------------------------------------- */

@@ -47,7 +47,7 @@
       <div id="searchResults"></div>
     </div>
     <nav>
-      <button data-act="add">＋ Panel <kbd>N</kbd></button
+      <button data-act="add" title="Panelを追加（N）">＋ Panel</button
       ><button data-act="duplicate">複製</button
       ><label class="inline"
         ><input id="dupAudio" type="checkbox" checked />音も複製</label
@@ -60,13 +60,6 @@
           type="checkbox"
           title="複数Panel選択中はその範囲、ワークエリアがあればそこを、無ければ現在のShotをループする"
       /></label
-      ><button id="workAreaIn" title="再生ヘッドの位置をワークエリアの始点にする">
-        IN</button
-      ><button id="workAreaOut" title="再生ヘッドの位置をワークエリアの終点にする">
-        OUT</button
-      ><button id="workAreaClear" title="ワークエリアを外す">
-        ワークエリア解除</button
-      ><output id="workAreaInfo" class="hint"></output
       ><span class="barSep"></span
       ><button id="paper">紙コンテ出力</button
       ><button id="animatic">Animatic出力</button
@@ -92,30 +85,19 @@
         </div>
         <div id="tools" data-body="tools">
           <button id="brushTool" class="tool on">ブラシ</button
-          ><button id="eraserTool" class="tool">消しゴム <kbd>E</kbd></button
+          ><button id="eraserTool" class="tool" title="消しゴム（E）">消しゴム</button
           ><button id="lineTool" class="tool">直線</button
           ><button id="rectTool" class="tool">矩形</button
           ><button id="arrowTool" class="tool">矢印</button
           ><label class="inline"
             >太さ<input id="brush" type="range" min="1" max="40" value="3"
           /></label>
-          <button id="image">画像</button
-          ><input id="imageFile" type="file" accept="image/*" hidden /><button
-            id="imageClear"
-          >
-            画像を外す</button
-          ><label class="inline"
-            >濃さ<input
-              id="imageOpacity"
-              type="range"
-              min="5"
-              max="100"
-              value="100"
-          /></label
-          ><button id="imageMoveTool" class="tool" title="ドラッグで画像の位置を動かす">
+          <button id="imageMoveTool" class="tool" title="ドラッグで画像の位置を動かす">
             画像移動</button
-          ><button id="onion" class="tool">前後を薄く <kbd>O</kbd></button
-          ><button id="fit">表示リセット <kbd>0</kbd></button
+          ><span class="barSep"></span
+          ><button id="onion" class="tool" title="前後のコマを薄く重ねる（O）">
+            前後を薄く</button
+          ><button id="fit" title="ズームと位置をリセット（0）">表示リセット</button
           ><output id="viewInfo">100%</output>
         </div>
         <div id="viewer" data-body="viewer">
@@ -146,22 +128,38 @@
           ><label>台詞<textarea id="dialogue"></textarea></label
           ><label>SE / BGM（注記）<textarea id="sound"></textarea></label
           ><label>演出メモ<textarea id="notes"></textarea></label>
+          <div class="groupTitle">画像</div>
           <p class="hint" id="assetInfo"></p>
-          <label
-            >収め方<select id="imageFit">
-              <option value="contain">収める</option>
-              <option value="cover">切り抜く</option>
-            </select></label
-          ><label
-            >拡大<input
-              id="imageScale"
-              type="number"
-              step=".1"
-              min=".1"
-              max="10" /></label
-          ><p class="hint">
-            画像移動ツールでStage上をドラッグすると位置（offset）を動かせます。
-          </p>
+          <div class="buttonRow">
+            <button id="image">読み込む</button
+            ><input id="imageFile" type="file" accept="image/*" hidden /><button
+              id="imageClear"
+            >
+              外す</button
+            >
+          </div>
+          <div id="imageProps" hidden>
+            <label
+              >濃さ<input
+                id="imageOpacity"
+                type="range"
+                min="5"
+                max="100"
+                value="100" /></label
+            ><label
+              >収め方<select id="imageFit">
+                <option value="contain">収める</option>
+                <option value="cover">切り抜く</option>
+              </select></label
+            ><label
+              >拡大<input
+                id="imageScale"
+                type="number"
+                step=".1"
+                min=".1"
+                max="10" /></label
+            ><p class="hint">位置は「画像移動」ツールでStageをドラッグして決めます。</p>
+          </div>
           <div class="field"
             >ラベル色<div
               id="labelSwatches"
@@ -198,14 +196,17 @@
               <option value="easeOut">減速（イーズアウト）</option>
               <option value="easeInOut">緩急（イーズインアウト）</option>
             </select></label
-          ><button id="key">再生ヘッドにキー <kbd>K</kbd></button
+          ><button id="key" title="再生ヘッドにキーを打つ（K）">再生ヘッドにキー</button
           ><button id="keyDelete">選択キーを削除</button
           ><button id="cameraCopy">選択キーをコピー</button
           ><button id="cameraPasteReplace" disabled>貼り付け（置換）</button
           ><button id="cameraPasteMerge" disabled>貼り付け（重ねる）</button>
-          <p class="hint">
-            キーは尺に対する比率で保持します。尺を変えるとCameraの動きも同じ比率で伸縮します。Timeline下段のキーはドラッグで移動、レーンのダブルクリックで追加できます。コピーしたキーは尺が違うPanelへも同じ比率で貼り付けられます。緩急はそのキーから次のキーまでの区間に効きます。
-          </p>
+          <details class="hint">
+            <summary>尺を変えるとCameraの動きも同じ比率で伸縮します</summary>
+            <p>
+              キーは尺に対する比率で持ちます。Timeline下段のキーはドラッグで移動、レーンのダブルクリックで追加できます。コピーしたキーは尺が違うPanelへも同じ比率で貼り付けられます。緩急はそのキーから次のキーまでの区間に効きます。
+            </p>
+          </details>
         </div>
         <div class="pane" data-pane="sound" data-body="sound" hidden>
           <button id="audioAdd">音声を読み込む</button
@@ -241,9 +242,12 @@
           ><button id="clipDelete">選択クリップを削除</button
           ><button id="clipRepair">素材を差し替える</button>
           <p id="clipInfo" class="hint"></p>
-          <p class="hint">
-            クリップは開始位置のPanelに属します。前のPanelの尺が変わると一緒に動き、Panelを削除すると音も消えます（Undoで戻ります）。
-          </p>
+          <details class="hint">
+            <summary>クリップは開始位置のPanelに属します</summary>
+            <p>
+              前のPanelの尺が変わるとクリップも一緒に動き、そのPanelを削除すると音も消えます（Undoで戻ります）。
+            </p>
+          </details>
         </div>
         <div class="pane" data-pane="marker" data-body="marker" hidden>
           <button id="markerAdd">再生ヘッドにマーカー追加</button>
@@ -253,9 +257,12 @@
           <label>本文<textarea id="markerText"></textarea></label
           ><label>色<input id="markerColor" type="color" value="#ffcc00" /></label>
           <button id="markerDelete">選択マーカーを削除</button>
-          <p class="hint">
-            マーカーは開始位置のPanelに属します。前のPanelの尺が変わると一緒に動き、Panelを削除すると消えます（Undoで戻ります）。紙面書き出しにも注記として載ります。
-          </p>
+          <details class="hint">
+            <summary>マーカーは開始位置のPanelに属します</summary>
+            <p>
+              前のPanelの尺が変わるとマーカーも一緒に動き、そのPanelを削除すると消えます（Undoで戻ります）。紙面の書き出しにも注記として載ります。
+            </p>
+          </details>
         </div>
         <div class="pane" data-pane="structure" data-body="structure" hidden>
           <label>Scene名<input id="sceneName" /></label
@@ -297,9 +304,17 @@
         <label class="inline"
           >Zoom <input id="zoom" type="range" min="0" max="15" value="9"
         /></label>
-        <button id="fitTime">全体 <kbd>F</kbd></button
+        <button id="fitTime" title="Timelineを全体表示（F）">全体</button
         ><label class="inline"
           ><input id="snap" type="checkbox" checked />スナップ</label
+        ><span class="barSep"></span
+        ><button id="workAreaIn" title="再生ヘッドの位置をワークエリアの始点にする">
+          IN</button
+        ><button id="workAreaOut" title="再生ヘッドの位置をワークエリアの終点にする">
+          OUT</button
+        ><button id="workAreaClear" title="ワークエリアを外す">解除</button
+        ><output id="workAreaInfo" class="hint"></output
+        ><span class="barSep"></span
         ><label class="inline"
           ><input
             id="followHead"
