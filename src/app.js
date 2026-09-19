@@ -39,6 +39,7 @@ import { EditorSession } from "./editor-session.js";
 import { EditorController } from "./editor-controller.js";
 import { buildProjectIndex } from "./project-index.js";
 import { RenderScheduler } from "./render-scheduler.js";
+import { createBundle, readBundle, bytesOf, sha256Hex } from "./bundle.js";
 import { AssetOperationCoordinator } from "./asset-flow.js";
 const $ = (id) => document.getElementById(id);
 const editor = new EditorController(new EditorSession(new Store()));
@@ -1258,13 +1259,18 @@ for (const tab of document.querySelectorAll(".tab"))
       pane.hidden = pane.dataset.pane !== tab.dataset.tab;
   };
 $("save").onclick = async () => {
-  download(
-    new Blob([JSON.stringify(store.p)], { type: "application/json" }),
-    "project.contp",
-  );
-  fileDirty = false;
-  notice("プロジェクトをダウンロードしました");
-  await persist("manual");
+  try {
+    const blob = await createBundle(
+      store.p,
+      await bundleAssetEntries(store.p),
+    );
+    download(blob, "project.contb");
+    fileDirty = false;
+    notice("素材込みのProject Bundleをダウンロードしました");
+    await persist("manual");
+  } catch (e) {
+    notice(`プロジェクトを保存できません：${e.message}`);
+  }
 };
 $("open").onclick = () => $("file").click();
 $("file").onchange = async () => {
@@ -1272,19 +1278,26 @@ $("file").onchange = async () => {
   if (!f) return;
   try {
     if (f.size > 50e6) throw Error("50MBを超えるファイルは未対応です");
-    // 読み込みに失敗しても現在のプロジェクトへは触れない。
-    const p = load(await f.text());
+    // BundleはProjectと素材を検証してから、現在の編集内容へ触れる。
+    let bundle = null;
+    const p = f.name.toLowerCase().endsWith(".contb")
+      ? (bundle = await readBundle(f)).project
+      : load(await f.text());
     if (
       (fileDirty || saver.pending) &&
       !confirm("編集中の内容を置き換えて開きますか？")
     )
       return;
+    const token = editor.capture();
+    if (bundle) await importBundleAssets(bundle);
+    if (!editor.isCurrent(token))
+      throw Error("読み込み中に編集内容が変わったため開くのを中止しました");
     stop();
     replaceStore(p);
     frame = 0;
     fileDirty = false;
     render();
-    notice("読み込み完了");
+    notice(bundle ? "Project Bundleを読み込みました" : "読み込み完了");
     markDirty();
     await loadImages();
   } catch (e) {
@@ -1905,6 +1918,32 @@ async function discardImportedAsset(operation, id, kind) {
     sound.forget(id);
   }
   await repo.removeAsset(id).catch(() => {});
+}
+
+async function bundleAssetEntries(project) {
+  const entries = [];
+  for (const asset of project.assets) {
+    const blob = await repo.getAsset(asset.id);
+    if (!blob) throw Error(`素材が見つかりません：${asset.name}`);
+    entries.push({ id: asset.id, bytes: blob });
+  }
+  return entries;
+}
+
+async function importBundleAssets(bundle) {
+  for (const asset of bundle.assets) {
+    const existing = await repo.getAsset(asset.id);
+    if (existing) {
+      const digest = await sha256Hex(await bytesOf(existing));
+      if (digest !== asset.sha256)
+        throw Error(`既存AssetとBundleの内容が違います：${asset.id}`);
+      continue;
+    }
+    await repo.putAsset(
+      asset.id,
+      new Blob([asset.bytes], { type: asset.mime }),
+    );
+  }
 }
 let persistence = false;
 const clock = (t) =>
