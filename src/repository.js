@@ -14,6 +14,9 @@ export class ProjectRepository {
     this.storage = storage;
     this.now = now;
     this.limit = limit;
+    // Import中のAssetをGCから保護する。値は参照数で管理し、releaseは冪等にする。
+    this.assetLeases = new Map();
+    this.assetQueue = Promise.resolve();
   }
   async open() {
     await this.storage.open?.();
@@ -115,41 +118,72 @@ export class ProjectRepository {
   async setLayout(layout) {
     await this.storage.put("meta", "layout", layout);
   }
+  // 同一Asset IDの書き換えを禁止する。差し替えは新しいIDを発行する。
   async putAsset(id, blob) {
-    await this.storage.put("assets", id, blob);
+    if (typeof id !== "string" || !id || blob === undefined || blob === null)
+      throw Error("Asset保存引数が不正です");
+    return this.#enqueueAsset(async () => {
+      const existing = await this.storage.get("assets", id);
+      if (existing !== undefined)
+        throw Error("Assetは上書きできません。差し替えには新しいIDを使ってください");
+      await this.storage.put("assets", id, blob);
+    });
   }
   async getAsset(id) {
     return this.storage.get("assets", id);
   }
+  async removeAsset(id) {
+    return this.#enqueueAsset(() => this.storage.delete("assets", id));
+  }
+  retainAsset(id) {
+    if (typeof id !== "string" || !id) throw Error("Asset IDが不正です");
+    this.assetLeases.set(id, (this.assetLeases.get(id) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return false;
+      released = true;
+      const count = this.assetLeases.get(id) ?? 0;
+      if (count <= 1) this.assetLeases.delete(id);
+      else this.assetLeases.set(id, count - 1);
+      return true;
+    };
+  }
   async assetIds() {
     return this.storage.keys("assets");
   }
-  // 現在値、保持中の保存世代、Undo/Redoのどこからも参照されない素材だけを捨てる。
-  async pruneAssets(p, history = []) {
-    const used = new Set();
-    const collect = (project) => {
-      for (const asset of project?.assets ?? []) used.add(asset.id);
-    };
-    collect(p);
-    for (const project of history) collect(project);
-    for (const meta of await this.list()) {
-      if (Array.isArray(meta.assetIds)) {
-        for (const id of meta.assetIds) used.add(id);
-        continue;
+  #enqueueAsset(work) {
+    const run = this.assetQueue.then(work, work);
+    this.assetQueue = run.catch(() => {});
+    return run;
+  }
+  // 現在値、保持中の保存世代、Undo/Redo、Import中のLeaseから参照されない素材だけを捨てる。
+  pruneAssets(p, history = []) {
+    return this.#enqueueAsset(async () => {
+      const used = new Set(this.assetLeases.keys());
+      const collect = (project) => {
+        for (const asset of project?.assets ?? []) used.add(asset.id);
+      };
+      collect(p);
+      for (const project of history) collect(project);
+      for (const meta of await this.list()) {
+        if (Array.isArray(meta.assetIds)) {
+          for (const id of meta.assetIds) used.add(id);
+          continue;
+        }
+        try {
+          collect(await this.load(meta.id));
+        } catch {
+          // 旧形式または読めない保存は、正常な世代のGCを妨げない。
+        }
       }
-      try {
-        collect(await this.load(meta.id));
-      } catch {
-        // 旧形式または読めない保存は、正常な世代のGCを妨げない。
-      }
-    }
-    let removed = 0;
-    for (const id of await this.assetIds())
-      if (!used.has(id)) {
-        await this.storage.delete("assets", id);
-        removed++;
-      }
-    return removed;
+      let removed = 0;
+      for (const id of await this.storage.keys("assets"))
+        if (!used.has(id)) {
+          await this.storage.delete("assets", id);
+          removed++;
+        }
+      return removed;
+    });
   }
 }
 // 変更から少し待って保存し、待ち続けないように上限も設ける。
