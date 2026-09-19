@@ -38,6 +38,7 @@ import { IndexedDbStorage, MemoryStorage } from "./storage.js";
 import { EditorSession } from "./editor-session.js";
 import { EditorController } from "./editor-controller.js";
 import { buildProjectIndex } from "./project-index.js";
+import { RenderScheduler } from "./render-scheduler.js";
 import { AssetOperationCoordinator } from "./asset-flow.js";
 const $ = (id) => document.getElementById(id);
 const editor = new EditorController(new EditorSession(new Store()));
@@ -57,6 +58,8 @@ let clipId = null,
 const scale = () => tl.scaleAt(scaleIndex);
 const endFrame = () => index?.totalFrames ?? tl.total(rows);
 const viewport = () => $("timeline").clientWidth || 900;
+const timelineScheduler = new RenderScheduler(() => timeline());
+const scheduleTimeline = (reason) => timelineScheduler.request(reason);
 // 画像素材の表示用ビットマップ。プロジェクトにはIDだけが入る。
 const images = new Map();
 const tool = { erase: false, size: 3 / 1280 };
@@ -154,6 +157,7 @@ const thumbnailObserver = new IntersectionObserver(
   { root: $("strip") },
 );
 function render() {
+  timelineScheduler.cancel();
   thumbnailObserver.disconnect();
   reindex();
   editor.select(store.selection);
@@ -835,7 +839,7 @@ function zoomTo(index, anchorFrame = frame) {
     anchorFrame,
     viewport(),
   );
-  timeline();
+  scheduleTimeline("zoom");
 }
 $("zoom").oninput = () => zoomTo(Number($("zoom").value));
 $("fitTime").onclick = () =>
@@ -858,7 +862,7 @@ $("timeline").onwheel = (e) => {
     view.scrollLeft += e.deltaY;
   }
 };
-$("timeline").onscroll = () => timeline();
+$("timeline").onscroll = () => scheduleTimeline("scroll");
 // 目盛と空き領域はスクラブ。整数フレームでPanel境界をまたぐ。
 $("track").onpointerdown = (e) => {
   if (
@@ -1875,7 +1879,7 @@ for (const [id, key, axis, sign] of [
       const [min, max] = limits[key];
       layout[key] = Math.round(Math.max(min, Math.min(max, base + delta)));
       applyLayout();
-      timeline();
+      scheduleTimeline("layout");
     };
     node.onpointerup = node.onpointercancel = () => {
       node.onpointermove = null;
