@@ -77,3 +77,67 @@ test("concurrent IndexedDB opens share one request", async () => {
   assert.equal(second, storage);
   assert.equal(third, storage);
 });
+
+
+test("IndexedDB can reopen after a completed connection is closed", async () => {
+  let opens = 0;
+  const factory = {
+    open() {
+      opens++;
+      const request = {
+        result: {
+          objectStoreNames: { contains: () => false },
+          createObjectStore() {},
+          close() {},
+        },
+        onupgradeneeded: null,
+        onsuccess: null,
+        onerror: null,
+        onblocked: null,
+      };
+      setTimeout(() => {
+        request.onupgradeneeded?.();
+        request.onsuccess?.();
+      }, 0);
+      return request;
+    },
+  };
+  const storage = new IndexedDbStorage("reopen", factory);
+  await storage.open();
+  storage.close();
+  await storage.open();
+  assert.equal(opens, 2);
+});
+
+test("IndexedDB retries after an opening request fails", async () => {
+  let opens = 0;
+  const factory = {
+    open() {
+      opens++;
+      const request = {
+        result: {
+          objectStoreNames: { contains: () => false },
+          createObjectStore() {},
+          close() {},
+        },
+        onupgradeneeded: null,
+        onsuccess: null,
+        onerror: null,
+        onblocked: null,
+        error: Error("一時的なIndexedDBエラー"),
+      };
+      setTimeout(() => {
+        if (opens === 1) request.onerror?.();
+        else {
+          request.onupgradeneeded?.();
+          request.onsuccess?.();
+        }
+      }, 0);
+      return request;
+    },
+  };
+  const storage = new IndexedDbStorage("retry", factory);
+  await assert.rejects(() => storage.open(), /IndexedDB/);
+  await storage.open();
+  assert.equal(opens, 2);
+});
