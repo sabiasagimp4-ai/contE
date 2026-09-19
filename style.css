@@ -400,15 +400,19 @@ main {
 main > .dock {
   min-width: 0;
 }
+/* 両脇は指定の幅で開くが、入り切らないときは縮む（0 1）。縮まない指定にすると
+   狭い画面で横にはみ出す。Stageは最後まで240pxを譲らない。 */
 #projectPanel {
-  flex: 0 0 var(--tree, 220px);
+  flex: 0 1 var(--tree, 220px);
+  min-width: 96px;
 }
 #stage {
   flex: 1 1 0;
   min-width: 240px;
 }
 #inspector {
-  flex: 0 0 var(--inspector, 300px);
+  flex: 0 1 var(--inspector, 300px);
+  min-width: 96px;
 }
 .splitter {
   flex: 0 0 6px;
@@ -1402,15 +1406,6 @@ summary {
   margin-right: 8px;
 }
 
-@media (max-width: 900px) {
-  main {
-    grid-template-columns: 150px 6px minmax(250px, 1fr);
-  }
-  #inspector,
-  #splitInspector {
-    display: none;
-  }
-}
 @media print {
   body > * {
     display: none !important;

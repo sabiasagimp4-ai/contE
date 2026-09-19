@@ -237,6 +237,24 @@ try {
     "Escで最大化から戻れない",
   );
   assert.equal(await page.locator("footer").isVisible(), true, "戻ってもTimelineが出てこない");
+  // 狭い画面でも、開いているパネルは開いたまま見える。以前はCSSが幅900px以下で
+  // 右のドックを問答無用で消しており、ウィンドウメニューの表示と食い違っていた。
+  await page.setViewportSize({ width: 880, height: 900 });
+  assert.equal(
+    await page.locator("#inspector").isVisible(),
+    true,
+    "狭い画面でインスペクタが勝手に消えている",
+  );
+  assert.equal(
+    await page.locator("#splitInspector").isVisible(),
+    true,
+    "狭い画面で仕切りが掴めない",
+  );
+  assert.ok(
+    (await page.evaluate(() => document.documentElement.scrollWidth)) <= 880,
+    "狭い画面で横にはみ出している",
+  );
+  await page.setViewportSize({ width: 1536, height: 960 });
   // 閉じすぎて戻せなくなったときの逃げ道。
   await page.locator("#windowMenuButton").click();
   await windowItem("コマ（サムネイル）").click();
