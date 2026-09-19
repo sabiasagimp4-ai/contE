@@ -1,6 +1,6 @@
 # contE — 絵コンテ制作の基礎実装
 
-描く・Panelを増やす・尺を決める・Cameraを確認する・音を置く・再生する・紙コンテとAnimaticへ出す、を一画面で完結できます。**完成したデスクトップアプリではありません。** ブラウザ上でローカル動作します（レイヤー、ファイルへの直接上書き、素材の同梱は未実装）。編集内容はブラウザ内へ自動保存され、次回起動時に復旧できます。配布可能なファイルは保存ボタンで別途書き出してください。
+描く・Panelを増やす・尺を決める・Cameraを確認する・音を置く・再生する・紙コンテとAnimaticへ出す、を一画面で完結できます。**完成したデスクトップアプリではありません。** ブラウザ上でローカル動作します（レイヤー、ファイルへの直接上書きは未実装）。保存ボタンは素材込みの`.contb` Bundleを出力し、旧`.contp` JSONも読み込めます。編集内容はブラウザ内へ自動保存され、次回起動時に復旧できます。
 
 ## 起動
 
@@ -17,7 +17,7 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 - Scene → Shot → Panel。Panel追加、複製、同Shot内移動、複数選択と一括尺/注記変更、削除、Shot分割/前Shotへの統合。
 - Canvasで線を描画。描画と尺調整を同じ画面で実施。サムネイルは表示範囲で描画。
 - ブラシの太さ、消しゴム、ペンの筆圧（対応デバイスのみ）、Canvasのズーム（ホイール）とパン（Alt/中ボタンドラッグ）。消しゴムは紙に穴を開けず、紙コンテ出力やPNGでも白のままになります。
-- 画像の取り込み。Panelごとに1枚、縦横比を保って収め、濃さを調整できます。原本はブラウザ内のAssetストアへ保存し、表示用は長辺2048pxまで縮小します。プロジェクトJSONにはIDとメタデータだけが入ります（`.contp`に画像は同梱されません）。
+- 画像の取り込み。Panelごとに1枚、縦横比を保って収め、濃さを調整できます。原本はブラウザ内のAssetストアへ保存し、表示用は長辺2048pxまで縮小します。プロジェクトJSONにはIDとメタデータだけが入ります。`.contp`に画像は同梱されず、素材込みで持ち運ぶ場合は`.contb`を使います。
 - Shiftクリックで範囲選択、Stripのドラッグで並べ替え（Shot/Sceneをまたいで移動可）、Scene/Shot名の編集（ツリーをダブルクリック、またはInspectorの「構成」タブ）、選択Panelへの自動スクロール。
 - 左ツリー・中央・右Inspector・下Timelineの境界をドラッグして幅/高さを変更でき、配置は次回の起動でも保たれます。Inspectorは内容 / Camera / 構成のタブに分かれています。
 - 整数フレームのTimeline。fps基準の目盛、選択範囲の表示、端をドラッグしてリップル尺変更、Panel境界と秒へのスナップ（Altで一時解除）、目盛/空白でのスクラブ、カーソル基準のZoom、全体表示、再生ヘッド追従。
@@ -27,9 +27,9 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 - 再生は音声時計に同期します。再生・停止を繰り返しても二重に鳴りません。素材が見つからないクリップは「音」タブから差し替えて直せます。
 - CameraキーはPanel内の任意の時刻に何本でも置けます（X/Y/Zoom/Rotation、キー間は線形補間）。キーは尺に対する比率で保持するため、**尺を変えるとCameraの動きも同じ比率で伸縮します**。再生・紙コンテ・Inspectorは同じ補間関数と同じ要約（PAN / TILT / ZOOM / ROLL / HOLD）を共有します。
 - 80段階のUndo/Redo。無効な編集は原子的に拒否。描画データは不変共有して履歴コストを削減。変更のない操作は履歴段数を消費せず、Undo/Redoで選択Panelと再生位置も戻ります。
-- `.contp` JSON v5の保存/読み込み。v1〜v4のファイルは読み込み時に順番へMigrationします。破損データ・重複ID・未知Versionを拒否します。保存はブラウザのダウンロードで、既存ファイルへの直接上書きではありません。
+- 旧`.contp` JSON v5の保存/読み込み。v1〜v4のファイルは読み込み時に順番へMigrationします。破損データ・重複ID・未知Versionを拒否します。保存ボタンはProject JSONと素材を含む`.contb` Bundleを出力し、読み込みは`.contb`と旧`.contp`に対応します。既存ファイルへの直接上書きではありません。
 - 変更の0.6秒後（連続編集中は最長4秒）にIndexedDBへ自動保存し、ヘッダーに保存状態を表示します。最大8世代を保持し、起動時に前回の作業を日時・タイトル・Panel数つきで提示して復旧/破棄を選べます。読めない保存データは削除せず読み飛ばし、直前の正常な世代を提示します。容量不足のときは古い世代を減らして一度だけ再試行し、それでも失敗した場合は失敗として表示します（成功表示にしません）。
-- 素材（画像/音声）はIDとメタデータのみをプロジェクトに持ち、バイナリは別ストアへ保存します。`.contp`に素材は同梱されないため、別環境では素材の差し替えが必要です。
+- 素材（画像/音声）はIDとメタデータのみをProjectに持ち、バイナリは別ストアへ保存します。旧`.contp`はメタデータのみですが、`.contb`はProjectと素材を一つにまとめた自己完結Bundleです。
 - 紙コンテ：**用紙（A4/A3/B4/Letter）と向き、列の順番・個別幅・表示/非表示、コマ数、余白、文字サイズ、ヘッダー/フッター**を調整でき、設定はプロジェクトに保存されます（Undo対象・自動保存対象）。
 - 列はCUT（番号・階層・尺）/ コンテ画像 / 台詞 / SE・BGM / 演出 / Camera。**長文は切り捨てず**、入り切らない分は次の行・次のページへ「（続き）」として送ります。
 - Cameraは全キーを通る軌道、開始枠（実線）/終了枠（破線）、矢印（PANは横・TILTは縦）、中間キーの点、HOLDとキー位置（フレーム）を描画。
@@ -62,9 +62,9 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 
 ## 構成と次の段階
 
-`src/model.js`：階層・検証・Migration・履歴・Panel移動・Cameraキー、`src/timeline.js`：Timeline Engine（範囲・目盛・スナップ・Zoom・追従）、`src/audio.js`：Audio Engine（クリップ解決・予約・波形・音注記）、`src/exporter.js`：Exporter（進捗・中止・ZIP）、`src/animatic.js`：Animatic（フレーム計画・評価・録画）、`src/repository.js`：保存/復旧/素材と自動保存、`src/storage.js`：IndexedDB/メモリのStorage Adapter、`src/playback.js`：時刻計算・Panel検索、`src/drawing.js`：描画Adapter、`src/paper.js`：ページ生成・Camera表記、`src/app.js`：UI/Timeline操作。
+`src/model.js`：階層・検証・Migration・履歴・Panel移動・Cameraキー、`src/timeline.js`：Timeline Engine、`src/audio.js`：Audio Engine、`src/exporter.js`：進捗・中止・ZIP、`src/animatic.js`：Animatic、`src/repository.js`：保存/復旧/素材と自動保存、`src/storage.js`：IndexedDB/メモリのStorage Adapter、`src/bundle.js`：自己完結Bundleの作成/検証、`src/export-snapshot.js`：出力用スナップショット、`src/project-index.js`：Projectの索引、`src/render-scheduler.js`：描画予約の集約、`src/editor-controller.js`：編集境界、`src/asset-flow.js`：Asset入出力、`src/playback.js`：時刻計算・Panel検索、`src/drawing.js`：描画Adapter、`src/paper.js`：ページ生成・Camera表記、`src/app.js`：UI統合。
 
-[現行アーキテクチャ](docs/ARCHITECTURE.md) / [次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md) / [デスクトップ化と動画書き出しの調査](docs/DESKTOP.md)。ロードマップのP0〜P5まで実装済みです。残るはデスクトップ化（[調査と判断基準](docs/DESKTOP.md)）とオフライン動画書き出しで、Windows実機での計測が必要です。
+[現行アーキテクチャ](docs/ARCHITECTURE.md) / [次期計画](docs/NEXT_PLAN.md) / [次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md) / [デスクトップ化と動画書き出しの調査](docs/DESKTOP.md)。P0〜P5に加え、Asset安全性、編集境界、Timeline性能、ExportSnapshot、素材込みBundleまで実装済みです。次はBundle読み込みの原子性、大規模実測、ストリーミング出力、制作フロー、Windows実機計測を`docs/NEXT_PLAN.md`の順で進めます。
 
 ```sh
 npm test
