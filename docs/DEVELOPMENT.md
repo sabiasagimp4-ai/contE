@@ -112,6 +112,62 @@
 - Remaining: browser rendering still runs on the UI thread; PNG ZIP output still retains encoded bytes until download because the browser Blob must be finalised, and large paper/Animatic jobs need an OPFS/File System Access streaming path to remove that upper memory bound. Windows pen latency and native file I/O remain unmeasured.
 - Next highest value: add a worker-backed render/export path and a browser stress test that edits paper settings during a multi-page export, then measure 1,000–5,000 Panel projects with real image/audio assets.
 
+## Cycle 11: a panel workspace instead of one fixed screen
+
+Feature work between cycle 10 and this entry (the A/B/C/D/E series: timeline handling,
+search, work area, markers, label colours, camera easing, vertical paper, asset-bundled
+`.conte.zip`, split serialisation, multi-tab exclusion) is tracked item by item in
+`docs/FEATURE_IMPLEMENTATION_PLAN.md` rather than here.
+
+- Problem: the screen showed everything all the time. Roughly forty controls sat in the
+  top bars, the tree / inspector / timeline could be resized but never closed, and a
+  one-line shortcut list was glued under the stage with `white-space: nowrap`, so most of
+  it was clipped and unreadable while still taking vertical space away from drawing.
+  Paper and animatic output were modal dialogs, so a page could not be watched while the
+  dialogue that fills it was edited — and the preview only rebuilt when paper settings
+  changed, never when the project did.
+- Change: the screen is now docks and panels (`src/ui/docks.js`), which hold only the
+  state of which panel is open and which is in front; the DOM contract is four data
+  attributes. Panels close from a tab's × or the window menu, an empty dock disappears
+  along with its splitter, and `~` maximises the panel under the cursor. Keys and their
+  on-screen descriptions come from one table (`src/ui/shortcuts.js`), so the help panel
+  cannot drift from what actually fires. File operations fold into a File menu
+  (`src/ui/menu.js`), presentation mode rides on top of maximise instead of repeating it,
+  three workspaces (draw / time / finish) switch panels and sizes together, and paper and
+  animatic became tabs in the centre dock. The paper page follows edits while its panel is
+  open and is never laid out while it is closed. Printing goes through a `#printArea`
+  under `body` with `@page` generated from the paper size, which removes the manual
+  "match the paper size in the print dialog" step.
+- Effect: closing the tree and the thumbnail strip roughly doubles the drawing area
+  without leaving the editor. The shortcut list is complete (it previously omitted Ctrl+F,
+  Ctrl+K and the zoom keys) and lives in a panel instead of a clipped line.
+- Defects found and fixed by the rework: Ctrl+F also triggered F (fit timeline) because a
+  second handler matched on the key alone; `.panel` styled both dock frames and tree rows,
+  so frame rules leaked into the tree; a saved layout was applied without validation, so a
+  corrupt record could leave the app unopenable; status messages were clipped at 36
+  characters with no way to read the rest; and `@media (max-width: 900px)` still carried
+  grid rules plus a `display: none` that fought the dock state.
+- Behaviour deliberately kept: an animatic recording still locks the rest of the UI,
+  because recording runs in real time — but it locks *human input only*. Asynchronous
+  imports started before the recording still commit, which is what E3 (output content
+  frozen at start) already guarantees is safe.
+- Validation: unit tests grew from 253 to 277, with new suites for the shortcut table,
+  the dock state machine and the panel/workspace data (including "every closable panel is
+  reachable from the window menu"). The browser smoke test gained the panel UI, the file
+  menu, workspaces, presentation-on-maximise, the narrow viewport, paper following edits,
+  paper *not* rebuilding while closed, the generated `@page` rule and the recording lock.
+  `npm test`, `npm run build` and the full Chromium smoke pass with no page errors.
+  501-panel smoke on this environment: duration 27.6ms, Scene navigation 26.1ms, Timeline
+  scroll 33.3ms, zoom 33.4ms, playback start 36.5ms, longest task during E1 editing 74ms
+  (156ms and 159ms in two runs before and after the paper panel — unchanged within noise).
+  Autosave for 501 panels ranged 128–775ms across runs on both the old and new code and is
+  not a usable comparison.
+- Remaining: panels cannot be dragged between docks and there is no second window; the
+  same panel list still appears in three places (tree, thumbnails, timeline row) by
+  default, which is now a user choice rather than a constraint; printing was exercised
+  through headless Chromium only, so the generated `@page` size has not been checked
+  against a physical printer.
+
 ## UX evaluation
 
 Counts describe editor commands (a shortcut chord counts as one); typing values and operating OS dialogs are separate.
@@ -122,7 +178,7 @@ Counts describe editor commands (a shortcut chord counts as one); typing values 
 | Panel reorder | 1 drag in the strip (multi-selection moves together) |
 | Range select | 1 Shift-click |
 | Brush / eraser switch | 1 shortcut (E) |
-| Image import | 1 click plus the OS file dialog |
+| Image import | 1 click plus the OS file dialog (inspector, 内容 tab) |
 | Scene / Shot rename | 1 double click, or the structure tab |
 | Frame duration ±1 | 1 shortcut; multiple selected panels share edit |
 | Exact duration | Focus, value, commit |
@@ -131,8 +187,11 @@ Counts describe editor commands (a shortcut chord counts as one); typing values 
 | Camera key at the playhead | 1 shortcut (K); 1 double click on the lane; drag to move |
 | Place a sound | 1 click plus the OS file dialog; drag to move, edge to trim |
 | Timeline fit / zoom | 1 shortcut (F) / 1 shortcut or wheel |
-| Paper output | 2 clicks to print dialog / PNG initiation; OS save extra; settings persist with the project |
-| Animatic export | 2 clicks (dialog, 書き出す); WebM runs in real time, PNG sequence is frame-exact |
+| Paper output | 1 click opens the paper tab, 1 more starts print / PNG; OS save extra; the page follows edits while the tab is open; settings persist with the project |
+| Animatic export | 1 click opens the animatic tab, 1 more starts the export; WebM runs in real time, PNG sequence is frame-exact |
+| Save / open a file | 2 clicks (File menu, the entry) plus the OS file dialog |
+| Show or hide a panel | 1 click on a tab's ×, or 2 through the window menu; 1 shortcut (~) to maximise |
+| Switch workspace | 2 clicks (window menu, the workspace) |
 | Paper settings | changed in place, undoable, saved with the project |
 | Recovery | 1 undo chord restoring selection; last Panel deletion blocked; crash recovery offered on startup (1 click) |
 | 100–500 Panel model | benchmark in `scripts/bench.mjs`, synthetic strokes |
@@ -141,6 +200,9 @@ Counts describe editor commands (a shortcut chord counts as one); typing values 
 | Timeline scroll / zoom | 33.3 / 33.3ms and 30.8 / 33.2ms |
 | Playback initiation | 33.5 / 33.4ms |
 | Save | automatic, 1.2s after the last edit; 500 Panel in-memory save median 72.45ms, load 116.72ms; IndexedDB and OS disk completion not separately measured |
+
+Counts above were re-checked against the panel UI in cycle 11; rows not listed in that
+entry date from earlier cycles and were not re-measured.
 
 Browser timings include waiting for two animation frames after dispatch, so are coarse response checks, not pure engine timings, distributions, GPU profiling or Windows pen measurements. Fixture: five Scenes × 100 Panels, 500 points per Panel. UI sample is not a performance guarantee. Browser QA tools are external to the app; no runtime libraries were added.
 

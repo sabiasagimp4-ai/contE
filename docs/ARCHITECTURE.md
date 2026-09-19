@@ -37,9 +37,9 @@ IndexedDBが利用できない場合、UI編集は継続し、保存層だけが
 
 | パス | 現在の責務 |
 |---|---|
-| `index.html` | UIのDOM骨格。Toolbar、Canvas、Panel strip、Inspector、Timeline、紙コンテDialog、Animatic Dialog、復旧Dialogを定義。各領域は`data-dock`/`data-body`でパネルとして印を付ける |
-| `style.css` | After Effects風のパネルUI。色のカスタムプロパティ、パネルとタブ、Timelineの行、Dialog、印刷用スタイル、レスポンシブ境界 |
-| `src/app.js` | UIイベント、表示更新、ファイル選択、再生、Dialog、保存の接続。現在のアプリケーション統合層 |
+| `index.html` | UIのDOM骨格。Toolbar、Canvas、Panel strip、Inspector、Timeline、紙コンテ・Animaticのパネル、印刷用の`#printArea`、復旧Dialogを定義。各領域は`data-dock`/`data-body`でパネルとして印を付ける |
+| `style.css` | After Effects風のパネルUI。色のカスタムプロパティ、ドックとタブ、メニュー、Timelineの行、Dialog、印刷用スタイル |
+| `src/app.js` | UIイベント、表示更新、ファイル選択、再生、パネルと出力、保存の接続。現在のアプリケーション統合層 |
 | `src/editor-session.js` | 現在の`Store`の寿命、編集/選択/Undo/Redoの結果、変更範囲、実行時Session IDとrevision、Project差し替え後の古い非同期処理の識別 |
 | `src/application/commands.js` | UI操作をStoreの一回の編集として表すコマンド集。DOM・Storage・awaitを持たない |
 | `src/application/editor-controller.js` | コマンド実行、選択、Undo/Redo、Project差し替えの入口と、確定編集ごとの通知 |
@@ -66,7 +66,7 @@ IndexedDBが利用できない場合、UI編集は継続し、保存層だけが
 | `tests/*.test.js` | Node標準Test Runnerによる純粋関数・モデル・保存・出力のテスト |
 | `docs/` | ロードマップ、開発サイクル、デスクトップ調査、現行構造資料 |
 
-`app.js` は描画エンジンや保存エンジンそのものを実装するのではなく、DOMイベントと各モジュールを接続する統合層である。編集の計算は`src/application/commands.js`へ移したが、UIの状態管理、表示再構築、出力Dialogは同じファイルにあるため、現時点でも最も責務が集まっているファイルである。
+`app.js` は描画エンジンや保存エンジンそのものを実装するのではなく、DOMイベントと各モジュールを接続する統合層である。編集の計算は`src/application/commands.js`へ、パネルの出し入れ・メニュー・キー操作の表は`src/ui/`へ移したが、UIの状態管理、表示再構築、出力の進行は同じファイルにあるため、現時点でも最も責務が集まっているファイルである。
 
 `editor-session.js` と `src/application/` はDOM、IndexedDB、Web Audioを知らない。`EditorSession`は`Store`を保持し、編集結果に`kind`、変更有無、選択変更有無、確定した変更範囲、Session ID、revisionを付けて返す。`EditorController`がその結果を購読者へ一度だけ通知し、`app.js`がdirty化・自動保存予約・頭出し・DOM再構築を行う。Projectの差し替えではSession IDを更新し、素材取り込みは`ImportController`が開始時の対象とSessionを照合してから適用する。
 
