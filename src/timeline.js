@@ -12,10 +12,35 @@ export const total = (rows) => (rows.length ? rows.at(-1).end : 0);
 export const xOf = (frame, scale) => frame * scale;
 export const frameAt = (x, scale, end) => clamp(Math.round(x / scale), 0, end);
 // 画面に入っているPanelだけを返す。500 Panelでも生成するDOMは一定に保つ。
+function firstEndAtLeast(rows, frame) {
+  let lo = 0,
+    hi = rows.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (rows[mid].end < frame) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+function firstStartAfter(rows, frame) {
+  let lo = 0,
+    hi = rows.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (rows[mid].start <= frame) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 export function visible(rows, scale, scrollLeft, width, pad = 120) {
   const from = (scrollLeft - pad) / scale,
     to = (scrollLeft + width + pad) / scale;
-  return rows.filter((r) => r.end >= from && r.start <= to);
+  if (!rows.length) return [];
+  const start = firstEndAtLeast(rows, from);
+  const end = firstStartAfter(rows, to);
+  return rows.slice(start, end);
 }
 // 目盛の間隔はfps基準の候補から選ぶ。ラベルが重なる間隔は使わない。
 export function tickStep(fps, scale, minPx = 70) {
@@ -103,7 +128,8 @@ export function follow(frame, scale, scrollLeft, width, margin = 80) {
   return scrollLeft;
 }
 export function selectionRange(rows, ids) {
-  const chosen = rows.filter((r) => ids.includes(r.panel.id));
+  const selected = new Set(ids);
+  const chosen = rows.filter((r) => selected.has(r.panel.id));
   if (!chosen.length) return null;
   const start = Math.min(...chosen.map((r) => r.start)),
     end = Math.max(...chosen.map((r) => r.end));
