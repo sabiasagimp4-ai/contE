@@ -36,15 +36,18 @@ import { AudioEngine } from "./audio.js";
 import { ProjectRepository, Autosaver } from "./repository.js";
 import { IndexedDbStorage, MemoryStorage } from "./storage.js";
 import { EditorSession } from "./editor-session.js";
+import { EditorController } from "./editor-controller.js";
+import { buildProjectIndex } from "./project-index.js";
 import { AssetOperationCoordinator } from "./asset-flow.js";
 const $ = (id) => document.getElementById(id);
-const editor = new EditorSession(new Store());
+const editor = new EditorController(new EditorSession(new Store()));
 let store = editor.store,
   frame = 0,
   playing = false,
   raf,
   scaleIndex = tl.DEFAULT_SCALE,
   rows = [],
+  index = null,
   stroke = null,
   fileDirty = false,
   cameraKey = 0;
@@ -52,7 +55,7 @@ const sound = new AudioEngine();
 let clipId = null,
   resolved = [];
 const scale = () => tl.scaleAt(scaleIndex);
-const endFrame = () => tl.total(rows);
+const endFrame = () => index?.totalFrames ?? tl.total(rows);
 const viewport = () => $("timeline").clientWidth || 900;
 // 画像素材の表示用ビットマップ。プロジェクトにはIDだけが入る。
 const images = new Map();
@@ -60,11 +63,18 @@ const tool = { erase: false, size: 3 / 1280 };
 const view = { zoom: 1, x: 0, y: 0 };
 const activeId = () => store.selection.active;
 const isSelected = (id) => store.selection.ids.includes(id);
-const current = () => rows.find((r) => r.panel.id === activeId()) || rows[0];
+const current = () => index?.panelById.get(activeId()) || rows[0];
+const rowFor = (id) => index?.panelById.get(id);
+function reindex() {
+  index = buildProjectIndex(store.p);
+  rows = index.rows;
+  return index;
+}
 const notice = (t) => ($("status").textContent = t);
 function replaceStore(project, selection) {
   editor.replace(project, selection);
   store = editor.store;
+  reindex();
 }
 function stop() {
   playing = false;
@@ -81,9 +91,10 @@ function edit(fn) {
     const result = editor.edit(fn);
     store = editor.store;
     if (result.changed) {
+      reindex();
       if (activeId() !== before)
         frame =
-          flatten(store.p).find((r) => r.panel.id === activeId())?.start || 0;
+          rowFor(activeId())?.start || 0;
       markDirty();
     }
     render();
@@ -116,7 +127,8 @@ function history(step) {
   const result = step === "undo" ? editor.undo() : editor.redo();
   store = editor.store;
   if (result.changed) {
-    frame = flatten(store.p).find((r) => r.panel.id === activeId())?.start || 0;
+    reindex();
+    frame = rowFor(activeId())?.start || 0;
     markDirty();
   }
   render();
@@ -143,7 +155,7 @@ const thumbnailObserver = new IntersectionObserver(
 );
 function render() {
   thumbnailObserver.disconnect();
-  rows = flatten(store.p);
+  reindex();
   editor.select(store.selection);
   store = editor.store;
   resolved = audio.resolveClips(store.p, rows);
