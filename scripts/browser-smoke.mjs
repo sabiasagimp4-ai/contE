@@ -157,6 +157,24 @@ try {
   );
   assert.equal(await page.locator("nav").isVisible(), false, "プレゼン中もnavが見えている");
   assert.equal(await page.locator("#stage").isVisible(), true, "プレゼン中にStageが隠れている");
+  // プレゼンは中央パネルの最大化の上に乗せてある。絵だけを見せたいので、
+  // ヘッダーも道具もサムネイルも引っ込む。
+  assert.equal(
+    await page.evaluate(() => document.body.dataset.max),
+    "center",
+    "プレゼンで中央パネルが最大化されていない",
+  );
+  for (const [selector, what] of [
+    ["header", "ヘッダー"],
+    ["#tools", "ツール列"],
+    ["#strip", "コマ"],
+    ["footer", "タイムライン"],
+  ])
+    assert.equal(
+      await page.locator(selector).isVisible(),
+      false,
+      `プレゼン中も${what}が見えている`,
+    );
   await page.keyboard.press("ArrowLeft");
   assert.notEqual(
     await page.locator("#breadcrumb").innerText(),
@@ -170,6 +188,12 @@ try {
     "Escでプレゼンモードから戻れない",
   );
   assert.equal(await page.locator("nav").isVisible(), true, "戻ってもnavが見えない");
+  assert.equal(
+    await page.evaluate(() => document.body.dataset.max),
+    undefined,
+    "プレゼンから戻っても最大化が残っている",
+  );
+  assert.equal(await page.locator("#tools").isVisible(), true, "戻ってもツール列が出てこない");
   // パネル式UI：使わないパネルは閉じて画面から消し、ウィンドウメニューから
   // 呼び戻せること。常時表示だったショートカット一覧はパネルへ移した。
   assert.equal(

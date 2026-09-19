@@ -370,21 +370,17 @@ nav label {
   white-space: nowrap;
 }
 
-/* ---- プレゼンモード（B8）。Stageだけを見せる。表示状態でありProjectにも
+/* ---- プレゼンモード（B8）。Stageだけを見せる。中身は「中央のパネルの最大化」
+   そのものなので、ここで足すのはヘッダーと道具を隠す分だけにする。同じことを
+   2通りに書くと、片方だけ直したときにズレる。表示状態でありProjectにも
    layoutにも保存しない。 ---------------------------------------------- */
+/* #toolsと#stripはid側でdisplayを持つので、こちらもid込みで書かないと負ける。 */
 body.presenting header,
-body.presenting nav,
-body.presenting footer,
-body.presenting #projectPanel,
-body.presenting #inspector,
-body.presenting .splitter {
+body.presenting #tools,
+body.presenting #strip {
   display: none;
 }
-body.presenting main {
-  display: block;
-}
 body.presenting #stage {
-  height: 100%;
   border: none;
 }
 

@@ -90,11 +90,12 @@ export class Docks {
     this.maximize(this.#max === dock ? null : dock);
   }
   // 画面の状態なのでProjectには入れない。layoutと一緒にmetaへ保存する。
+  // 最大化は「今だけ広げて見る」操作なので覚えない。次に開いたときに畳まれた
+  // 画面で始まると、何が起きたのか分からない。
   state() {
     return {
       open: [...this.#open],
       active: Object.fromEntries(this.#active),
-      max: this.#max,
     };
   }
   // 保存の中身は古い版や壊れた値でもあり得る。知らないIDは黙って捨て、常設の
@@ -109,7 +110,7 @@ export class Docks {
       for (const [dock, id] of Object.entries(saved.active))
         if (this.#modes[dock] && this.#byId.get(id)?.dock === dock)
           this.#active.set(dock, id);
-    this.#max = this.#modes[saved.max] ? saved.max : null;
+    this.#max = null;
     this.render();
   }
   #changed() {

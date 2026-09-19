@@ -119,6 +119,18 @@ test("restore ignores junk and always leaves the app usable", () => {
   }
 });
 
+// 最大化は「今だけ広げて見る」操作。保存して次に開いたときに畳まれた画面で
+// 始まると、何が起きたのか分からない。
+test("maximize is not carried across a restart", () => {
+  const { docks: d } = docks();
+  d.maximize("right");
+  assert.equal("max" in d.state(), false, "最大化まで保存している");
+  const saved = d.state();
+  const fresh = docks().docks;
+  fresh.restore({ ...saved, max: "right" });
+  assert.equal(fresh.maximized(), null, "保存から最大化が戻ってきている");
+});
+
 test("maximize marks one dock and lets go of it", () => {
   const { at, docks: d } = docks();
   d.maximize("right");

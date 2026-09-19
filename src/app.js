@@ -2251,16 +2251,18 @@ function runSearch() {
 }
 $("searchQuery").oninput = runSearch;
 $("searchClose").onclick = closeSearch;
-// プレゼンモード（B8）。body.presentingでStageだけを見せる。Fullscreen APIは
-// 任意で、失敗してもクラスの付け外しだけで成立する。Projectにもlayoutにも
-// 保存しない画面状態。←/→でのPanel送りとSpaceでの再生は既存のキー操作を
-// そのまま使う。
+// プレゼンモード（B8）。中身は「中央のパネルを最大化して、そのうえヘッダーと
+// 道具も隠す」なので、最大化の仕組みへ乗せる。Fullscreen APIは任意で、失敗しても
+// クラスの付け外しだけで成立する。Projectにもlayoutにも保存しない画面状態。
+// ←/→でのPanel送りとSpaceでの再生は既存のキー操作をそのまま使う。
 $("present").onclick = () => {
+  docks.maximize("center");
   document.body.classList.add("presenting");
   document.documentElement.requestFullscreen?.().catch(() => {});
 };
 function exitPresent() {
   document.body.classList.remove("presenting");
+  docks.maximize(null);
   if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
 }
 // ---- パネル式のUI（AEのワークスペース）--------------------------------------
@@ -2303,8 +2305,10 @@ function toggleMaximize() {
 function closeTopmost() {
   if (closeMenus()) return;
   if (!$("search").hidden) return closeSearch();
-  if (docks.maximized()) return docks.maximize(null);
+  // プレゼン中は最大化も同時に立っている。先に最大化だけ解くと、ヘッダーを
+  // 隠したままの中途半端な画面が残るので、プレゼンから先に抜ける。
   if (document.body.classList.contains("presenting")) return exitPresent();
+  if (docks.maximized()) return docks.maximize(null);
   return false;
 }
 // ウィンドウメニュー。閉じたパネルを呼び戻す唯一の入口なので、並びは画面の
