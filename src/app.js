@@ -427,7 +427,7 @@ function render() {
   durationInfo();
   paint();
   reveal();
-  paperFollow();
+  followOutputPanels();
 }
 // 総尺・目標尺との差・Shotごとの内訳（B1）。目標尺は保存しない実行時の値。
 function durationInfo() {
@@ -2290,6 +2290,7 @@ function afterDockChange() {
   // コンポジション以外を前へ出しているとき、Panelのパンくずは指すものが無い。
   $("breadcrumb").hidden = docks.activeIn("center") !== "composition";
   syncPaperPanel();
+  syncAnimaticPanel();
 }
 // ~で広げるのは、いま触っているパネルのドック。手がかりが無ければStage。
 function maximizeTarget() {
@@ -2397,7 +2398,7 @@ const shortcutActions = new Map([
 const SHORTCUT_BY_COMBO = shortcutIndex();
 document.addEventListener("keydown", (e) => {
   // ダイアログを開いている間は、その中の操作を邪魔しない。
-  if ($("animaticDialog").open || $("recoverDialog").open) return;
+  if (animaticJob || $("recoverDialog").open) return;
   const entry = SHORTCUT_BY_COMBO.get(comboOf(e));
   if (!entry) return;
   // 文字を打っている最中のnや[は編集コマンドにしない。検索とEscだけは通す。
@@ -2713,6 +2714,13 @@ function preview() {
 // 出力中も作り直さない（出力は開始時点のページを持っているので混ざらないが、
 // 見ているページが勝手に入れ替わる）。
 let paintedPaper = null;
+// 出力のパネルは、開いている間だけ今のProjectへ追従する。
+function followOutputPanels() {
+  paperFollow();
+  // Animaticの見積り（尺・フレーム数・解像度）は今のProjectから出す。形式やfpsの
+  // 選択肢は作り直さない（選んだものが既定へ戻ってしまう）。
+  if (docks.isOpen("animatic") && !animaticJob) animaticInfo();
+}
 function paperFollow() {
   if (!docks.isOpen("paper") || job) return;
   // 用紙の設定はProjectの一部なので、Undoで戻ったら欄も戻す。ただしその欄を
@@ -3049,20 +3057,32 @@ async function animaticRecord(spec, mime) {
 }
 $("animatic").onclick = () => {
   stop();
+  docks.reveal("animatic");
+};
+// 紙コンテと同じく、どこから開かれても同じ状態で始め、閉じたら出力を止める。
+// 録画中はパネルを前から動かせないようにしてあるので、閉じられるのは
+// 「中止してよい」と決めたときだけになる。
+let animaticOpen = false;
+function syncAnimaticPanel() {
+  const open = docks.isOpen("animatic");
+  if (open === animaticOpen) return;
+  animaticOpen = open;
+  if (!open) return animaticJob?.cancel();
   animaticSetup();
   animaticProgress("", false);
-  $("animaticDialog").showModal();
-};
-$("closeAnimatic").onclick = () => {
-  animaticJob?.cancel();
-  $("animaticDialog").close();
-};
+}
 $("animaticCancel").onclick = () => animaticJob?.cancel();
 $("animaticStart").onclick = async () => {
   if (animaticJob) return;
   const spec = animaticSpec();
   const format = $("animaticFormat").value;
   try {
+    // 出力中は人の操作を止める。録画は実時間で進むので、途中でProjectや再生位置が
+    // 動くと映像も音も作り直しになる。モーダルをやめた分をここで持つ：画面は
+    // 触れない見た目にし（CSSのbody[data-recording]）、キー操作も止める。
+    // 入力欄に残っていたフォーカスは外す。触れない面の上でも打てるため。
+    document.activeElement?.blur?.();
+    document.body.dataset.recording = "";
     animaticProgress("準備中…", true);
     // 出力中はプロジェクトへ触れない。失敗しても素材と編集内容は元のまま。
     const blob =
@@ -3087,6 +3107,7 @@ $("animaticStart").onclick = async () => {
     );
   } finally {
     animaticJob = null;
+    delete document.body.dataset.recording;
     animaticProgress($("animaticProgress").textContent, false);
   }
 };

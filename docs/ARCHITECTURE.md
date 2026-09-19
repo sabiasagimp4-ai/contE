@@ -277,14 +277,15 @@ body
 │  ├─ #projectPanel .dock           dock=left（tabs）
 │  │  ├─ .panelBar > .tabs          「プロジェクト」タブ
 │  │  └─ #tree                      Scene・Shot・Panelツリー（JSが中身を差し替える）
-│  ├─ #stage .dock                  dock=center（tabs：コンポジション / 紙コンテ）
+│  ├─ #stage .dock                  dock=center（tabs：コンポジション / 紙コンテ / Animatic）
 │  │  ├─ .panelBar > .tabs          タブ列 / #breadcrumb（コンポジションのときだけ）
 │  │  ├─ [data-body=composition]
 │  │  │  └─ .stageStack             dock=stageStack（stack：開いている分を積む）
 │  │  │     ├─ #tools               描画、消しゴム、画像、表示、#viewInfo
 │  │  │     ├─ #viewer              暗いビューア。中央に#drawing（1280×720 Canvas）
 │  │  │     └─ #strip               現ShotのPanel strip
-│  │  └─ [data-body=paper]          紙コンテ（設定・列・出力・#paperInfo・#pages）
+│  │  ├─ [data-body=paper]          紙コンテ（設定・列・出力・#paperInfo・#pages）
+│  │  └─ [data-body=animatic]      Animatic（設定・#animaticInfo・出力・#animaticPreview）
 │  └─ #inspector .dock              dock=right（tabs）
 │     ├─ .panelBar > .tabs          内容 / Camera / 音 / マーカー / 構成 / ショートカット
 │     └─ .pane × 6                  尺・台詞・注記 / Cameraキー / 音声Clip / マーカー / Scene・Shot操作 / キー一覧
@@ -325,7 +326,16 @@ body
 用紙の大きさは`PAPER_SIZES[].mm`と向きから`#printPage`（`<style>`）へ`@page`として
 書き出すので、印刷ダイアログで用紙を手で合わせる必要がない。
 
-Animaticと復旧候補は`dialog`として開く。低頻度設定はInspectorまたはDialogへ置き、高頻度操作はToolbar、ショートカット、Timeline上に置く構成になっている。
+Animaticも同じ枠のタブ。出力中は`body[data-recording]`が立ち、Animaticのパネル以外を
+`pointer-events: none`で触れなくしてキー操作も止める。録画は実時間で進むので、途中で
+Projectや再生ヘッドが動くと映像も音も作り直しになるからで、モーダルが与えていた保証を
+この形で保つ。**止めるのは人の操作だけ**で、開始前に走り出した非同期の取り込みは完了
+してコミットされる（出力の中身は開始時点で固定してあるので混ざらない＝E3）。開いている
+あいだは`render()`から見積り（`animaticInfo()`）だけを作り直す。形式やfpsの選択肢は
+作り直さない（選んだものが既定へ戻ってしまう）。
+
+復旧候補だけが`dialog`のまま残る。起動時に「復旧するか破棄するか」を決めてもらう場面
+なので、ほかの操作を止めるのが正しい。低頻度設定はInspectorまたはパネルへ置き、高頻度操作はToolbar、ショートカット、Timeline上に置く構成になっている。
 
 ### 5.1.1 パネルの出し入れ（`src/ui/docks.js`）
 

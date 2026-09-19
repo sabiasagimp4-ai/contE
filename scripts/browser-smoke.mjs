@@ -106,6 +106,8 @@ try {
   // 紙コンテは中央ドックのタブ。閉じるのはタブの×（コンポジションは常設なので
   // ×を持たず、前に出ているタブの×は必ず紙コンテのもの）。
   const closePaper = () => page.locator("#stage .panelTab.on .tabClose").click();
+  // Animaticも同じ枠のタブ。閉じ方も同じ。
+  const closeAnimatic = closePaper;
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   // 書き出し名はプロジェクト名から作るので、最初に名前を付けておく。
   await page.locator("#title").fill("conte-smoke");
@@ -1140,7 +1142,29 @@ try {
     (await page.locator("#animaticInfo").innerText()).match(/([\d.]+)秒/)[1],
   );
   await page.locator("#animaticStart").click();
+  // 録画中は人の操作を止める。実時間で進むので、途中でProjectや再生ヘッドが
+  // 動くと映像も音も作り直しになる。モーダルをやめた分をここで持っている。
+  await page.waitForFunction(() => document.body.hasAttribute("data-recording"));
+  assert.equal(
+    await page.evaluate(
+      () => getComputedStyle(document.querySelector("nav")).pointerEvents,
+    ),
+    "none",
+    "録画中も上のバーを押せてしまう",
+  );
+  assert.equal(
+    await page.evaluate(
+      () => getComputedStyle(document.querySelector("#animaticCancel")).pointerEvents,
+    ),
+    "auto",
+    "録画中に中止も押せなくなっている",
+  );
   await page.waitForFunction(() => window.__captured, null, { timeout: 90000 });
+  assert.equal(
+    await page.evaluate(() => document.body.hasAttribute("data-recording")),
+    false,
+    "録画が終わっても操作が止まったままになっている",
+  );
   const animatic = await page.evaluate(async (expectedSeconds) => {
     const blob = await (await fetch(window.__captured)).blob();
     const out = { bytes: blob.size };
@@ -1201,12 +1225,13 @@ try {
   await page.evaluate(() => {
     HTMLAnchorElement.prototype.click = window.__realClick;
   });
-  await page.locator("#closeAnimatic").click();
+  await closeAnimatic();
   // E3：Animatic出力の内容固定。録画開始時点の内容に固定するので、録画中に
   // 完了する素材取り込みが録画へ写り込まないこと（ライブの編集画面には
   // 反映されること）を確かめる。frame 0は先頭Panel（現在選択中）に対応する。
-  // Animatic Dialogはmodalで#imageFileを操作できないため、取込は開く前に
-  // 始め、createImageBitmapを遅らせて録画中に完了させる。
+  // 取込は開く前に始め、createImageBitmapを遅らせて録画中に完了させる。録画中は
+  // 人の操作を止めるが、開始前に走り出した非同期の取込は完了してコミットされる
+  // （出力の中身は開始時点で固定してあるので混ざらない）。
   await page.locator('[data-tab="content"]').click();
   await page.evaluate(() => {
     window.__realCreateImageBitmap = window.createImageBitmap;
@@ -1272,7 +1297,7 @@ try {
   await page.evaluate(() => {
     HTMLAnchorElement.prototype.click = window.__realClick2;
   });
-  await page.locator("#closeAnimatic").click();
+  await closeAnimatic();
   // 取り込み自体は普通にコミットされている（固定したのは出力だけ）。
   await page.waitForFunction(() =>
     document.querySelector("#assetInfo").textContent.includes("race.png"),
@@ -1762,7 +1787,7 @@ try {
     /ワークエリアのみ/,
     "Animatic出力の情報にワークエリアが反映されていない",
   );
-  await page.locator("#closeAnimatic").click();
+  await closeAnimatic();
   await page.locator("#workAreaClear").click();
   await page.waitForFunction(() => document.querySelector("#workAreaBand").hidden);
   assert.equal(await page.locator("#workAreaInfo").innerText(), "ワークエリア未設定");

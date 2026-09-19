@@ -1387,8 +1387,23 @@ summary {
   background: white;
   margin-top: 12px;
 }
-#animaticDialog {
-  width: min(720px, 94vw);
+/* Animaticのパネル。設定・見積り・操作・プレビューが縦に並ぶ。 */
+.animaticPane {
+  display: block;
+  overflow: auto;
+  padding: 8px 12px 16px;
+}
+/* 録画は実時間で進むので、途中でProjectや再生位置が動くと映像も音も作り直しに
+   なる。モーダルをやめた分、ここで他を触れない見た目にする（実際の拒否は
+   app.jsのbusyWithOutput）。中止だけは押せるよう、Animaticのパネルは外す。 */
+body[data-recording] header,
+body[data-recording] nav,
+body[data-recording] main > :not(#stage),
+body[data-recording] footer,
+body[data-recording] #stage .panelBar,
+body[data-recording] .stageStack {
+  pointer-events: none;
+  opacity: 0.45;
 }
 #animaticSettings {
   display: flex;
@@ -1398,7 +1413,7 @@ summary {
 #animaticSettings label {
   width: 200px;
 }
-#animaticPreview {
+.animaticPane #animaticPreview {
   width: 100%;
   height: auto;
   background: #fff;

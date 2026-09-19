@@ -154,6 +154,26 @@
           <output id="paperInfo" class="hint"></output>
           <div id="pages"></div>
         </div>
+        <div class="dockBody animaticPane" data-body="animatic" hidden>
+          <div id="animaticSettings">
+            <label>形式<select id="animaticFormat"></select></label
+            ><label>fps<select id="animaticFps"></select></label
+            ><label>解像度<select id="animaticSize"></select></label>
+          </div>
+          <p class="hint" id="animaticInfo"></p>
+          <details class="hint">
+            <summary>録画は実時間で進みます（3分のコンテは3分かかります）</summary>
+            <p>
+              WebMは音つきです。フレームを正確に得たいときはPNG連番を選び、外部のエンコーダで組み立ててください。録画中は編集できません。中止しても途中のファイルは残しません。
+            </p>
+          </details>
+          <div id="animaticActions">
+            <button id="animaticStart">書き出す</button
+            ><button id="animaticCancel" hidden>中止</button
+            ><output id="animaticProgress"></output>
+          </div>
+          <canvas id="animaticPreview" width="854" height="480"></canvas>
+        </div>
       </section>
       <div
         class="splitter"
@@ -408,25 +428,6 @@
     </footer>
     <div id="printArea" aria-hidden="true"></div>
     <style id="printPage"></style>
-    <dialog id="animaticDialog">
-      <h2>Animatic出力</h2>
-      <div id="animaticSettings">
-        <label>形式<select id="animaticFormat"></select></label
-        ><label>fps<select id="animaticFps"></select></label
-        ><label>解像度<select id="animaticSize"></select></label>
-      </div>
-      <p class="hint" id="animaticInfo"></p>
-      <p class="hint">
-        WebMは音つきですが、ブラウザの録画は実時間で進みます（3分のコンテは3分かかります）。フレームを正確に得たいときはPNG連番を選び、外部のエンコーダで組み立ててください。出力中は編集できません。中止しても途中のファイルは残しません。
-      </p>
-      <div id="animaticActions">
-        <button id="animaticStart">書き出す</button
-        ><button id="animaticCancel" hidden>中止</button
-        ><button id="closeAnimatic">閉じる</button
-        ><output id="animaticProgress"></output>
-      </div>
-      <canvas id="animaticPreview" width="854" height="480"></canvas>
-    </dialog>
     <dialog id="recoverDialog">
       <h2 id="recoverTitle">前回の作業が残っています</h2>
       <p id="recoverInfo"></p>

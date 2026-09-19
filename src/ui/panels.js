@@ -17,6 +17,7 @@ export const PANELS = [
   { id: "project", title: "プロジェクト", dock: "left", openByDefault: true },
   { id: "composition", title: "コンポジション", dock: "center", fixed: true },
   { id: "paper", title: "紙コンテ", dock: "center" },
+  { id: "animatic", title: "Animatic", dock: "center" },
   { id: "tools", title: "描画ツール", dock: "stageStack", openByDefault: true },
   { id: "viewer", title: "ビュー", dock: "stageStack", fixed: true },
   {
