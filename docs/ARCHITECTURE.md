@@ -47,6 +47,7 @@ IndexedDBが利用できない場合、UI編集は継続し、保存層だけが
 | `src/ui/number-scrub.js` | 数値入力の横ドラッグ（AEのホットテキスト）。値の計算はDOMを持たない純粋関数 |
 | `src/ui/docks.js` | パネルの出し入れ。どのパネルを開き、どれを前面にするかだけを持つ |
 | `src/ui/shortcuts.js` | キー操作の表。効くキーと画面に出る説明の唯一の出どころ |
+| `src/ui/menu.js` | 押したときだけ出るメニュー。開いているのは常に1つ |
 | `src/model.js` | Projectの生成・検証・Migration・履歴・選択・Panel移動・Cameraキー・紙面設定検証 |
 | `src/playback.js` | 時刻からPanelを引く純粋関数。再生時計と二分探索 |
 | `src/timeline.js` | Timelineのフレーム/px変換、可視Panel、目盛、スナップ、Zoom、追従、選択範囲 |
@@ -267,8 +268,9 @@ DOM / Pointer / Keyboard
 
 ```text
 body
-├─ header                           アプリ名 / #title / ファイル操作 / #windowMenuButton / #savestate / #status
-├─ #windowMenu                      パネルの開閉メニュー（押したときだけ出る）
+├─ header                           アプリ名 / #title / #fileMenuButton / #windowMenuButton / #savestate / #status
+├─ #fileMenu .popupMenu            保存・読み込み・履歴からの復元（押したときだけ出る）
+├─ #windowMenu .popupMenu          パネルの開閉メニュー（押したときだけ出る）
 ├─ nav                              Panel追加 / 複製 / Undo / Redo / 再生 / 紙コンテ / Animatic
 ├─ main
 │  ├─ #projectPanel .dock           dock=left（tabs）

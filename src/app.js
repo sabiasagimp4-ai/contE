@@ -48,6 +48,7 @@ import { scrubAll, scrubNumber } from "./ui/number-scrub.js";
 import { autoScroll } from "./ui/auto-scroll.js";
 import * as shapeTools from "./ui/shape-tools.js";
 import { Docks } from "./ui/docks.js";
+import { PopupMenu, menuGroup, menuItem, closeMenus } from "./ui/menu.js";
 import {
   SHORTCUTS,
   GESTURES,
@@ -2300,80 +2301,50 @@ function toggleMaximize() {
 }
 // Escで閉じるものの順番。手前にあるものから1つだけ閉じる。
 function closeTopmost() {
-  if (!$("windowMenu").hidden) return closeWindowMenu();
+  if (closeMenus()) return;
   if (!$("search").hidden) return closeSearch();
   if (docks.maximized()) return docks.maximize(null);
   if (document.body.classList.contains("presenting")) return exitPresent();
   return false;
 }
 // ウィンドウメニュー。閉じたパネルを呼び戻す唯一の入口なので、並びは画面の
-// 位置と同じ順にする。常に画面へ並べず、押したときだけ出す。
+// 位置と同じ順にする。開くたびに作り直すので、チェックは必ず今の状態と合う。
 const MENU_GROUPS = [
   { title: "左", dock: "left" },
   { title: "Stage", dock: "center" },
   { title: "インスペクタ", dock: "right" },
   { title: "下", dock: "bottom" },
 ];
-function menuItem(checked, title, run) {
-  const b = document.createElement("button");
-  const mark = document.createElement("span");
-  mark.className = "check";
-  mark.textContent = checked ? "✓" : "";
-  b.append(mark, document.createTextNode(title));
-  b.onclick = () => {
-    closeWindowMenu();
-    run();
-  };
-  return b;
-}
-function renderWindowMenu() {
-  const items = [];
-  const head = (title) => {
-    const d = document.createElement("div");
-    d.className = "menuGroup";
-    d.textContent = title;
-    return d;
-  };
-  for (const group of MENU_GROUPS) {
-    // 常設のパネル（ビュー）は閉じられないので並べない。
-    const members = PANELS.filter((p) => p.dock === group.dock && !p.fixed);
-    if (!members.length) continue;
-    items.push(head(group.title));
-    for (const panel of members)
-      items.push(
-        menuItem(docks.isOpen(panel.id), panel.title, () =>
-          docks.isOpen(panel.id) ? docks.close(panel.id) : docks.reveal(panel.id),
-        ),
-      );
-  }
-  items.push(
-    head("その他"),
-    menuItem(!$("search").hidden, "検索", () =>
-      $("search").hidden ? openSearch() : closeSearch(),
-    ),
-    menuItem(false, "配置を初期値に戻す", resetLayout),
-  );
-  $("windowMenu").replaceChildren(...items);
-}
-function openWindowMenu() {
-  const menu = $("windowMenu");
-  renderWindowMenu();
-  menu.hidden = false;
-  const r = $("windowMenuButton").getBoundingClientRect();
-  menu.style.left = `${Math.round(Math.max(4, Math.min(r.left, innerWidth - menu.offsetWidth - 8)))}px`;
-  menu.style.top = `${Math.round(r.bottom + 2)}px`;
-  $("windowMenuButton").setAttribute("aria-expanded", "true");
-}
-function closeWindowMenu() {
-  $("windowMenu").hidden = true;
-  $("windowMenuButton").setAttribute("aria-expanded", "false");
-}
-$("windowMenuButton").onclick = () =>
-  $("windowMenu").hidden ? openWindowMenu() : closeWindowMenu();
-document.addEventListener("pointerdown", (e) => {
-  if (!$("windowMenu").hidden && !e.target.closest("#windowMenu, #windowMenuButton"))
-    closeWindowMenu();
+new PopupMenu({
+  button: $("windowMenuButton"),
+  box: $("windowMenu"),
+  build() {
+    const items = [];
+    for (const group of MENU_GROUPS) {
+      // 常設のパネル（ビュー）は閉じられないので並べない。
+      const members = PANELS.filter((p) => p.dock === group.dock && !p.fixed);
+      if (!members.length) continue;
+      items.push(menuGroup(group.title));
+      for (const panel of members)
+        items.push(
+          menuItem(docks.isOpen(panel.id), panel.title, () =>
+            docks.isOpen(panel.id) ? docks.close(panel.id) : docks.reveal(panel.id),
+          ),
+        );
+    }
+    items.push(
+      menuGroup("その他"),
+      menuItem(!$("search").hidden, "検索", () =>
+        $("search").hidden ? openSearch() : closeSearch(),
+      ),
+      menuItem(false, "配置を初期値に戻す", resetLayout),
+    );
+    return items;
+  },
 });
+// ファイルの操作。中身はHTMLに書いたまま使う（idも押したときの処理も、
+// ヘッダーに並べていたときのまま）。名前だけ、何が入っているかが分かる形にした。
+new PopupMenu({ button: $("fileMenuButton"), box: $("fileMenu") });
 
 // キー操作はSHORTCUTSの表1つから配る。効くキーと画面に出る説明が別々の場所に
 // あると、片方だけ直したときに説明のほうが嘘になる。eを渡すのは、←/→や

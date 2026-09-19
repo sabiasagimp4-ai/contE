@@ -453,9 +453,9 @@ body[data-max="bottom"] footer {
   flex: 1 1 auto;
 }
 
-/* ---- ウィンドウメニュー。閉じたパネルを呼び戻す入口。常時並べず、押したときだけ
-   出す。 ----------------------------------------------------------------- */
-#windowMenu {
+/* ---- ポップアップメニュー。常時並べず、押したときだけ出す操作の置き場所。
+   ウィンドウ（パネルの開閉）とファイル（保存・読み込み）で共有する。 ------ */
+.popupMenu {
   position: fixed;
   z-index: 20;
   min-width: 210px;
@@ -465,18 +465,18 @@ body[data-max="bottom"] footer {
   border-radius: 3px;
   box-shadow: 0 12px 40px #000000a6;
 }
-#windowMenu .menuGroup {
+.popupMenu .menuGroup {
   padding: 5px 8px 2px;
   font-size: 10px;
   color: var(--dim);
   border-top: 1px solid var(--line-soft);
   margin-top: 3px;
 }
-#windowMenu .menuGroup:first-child {
+.popupMenu .menuGroup:first-child {
   border-top: 0;
   margin-top: 0;
 }
-#windowMenu button {
+.popupMenu button {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -489,15 +489,15 @@ body[data-max="bottom"] footer {
   color: var(--text);
   font-size: 11px;
 }
-#windowMenu button:hover {
+.popupMenu button:hover {
   background: var(--accent);
   color: #eaf2fb;
 }
-#windowMenu .check {
+.popupMenu .check {
   width: 1em;
   color: var(--accent-hi);
 }
-#windowMenu button:hover .check {
+.popupMenu button:hover .check {
   color: #eaf2fb;
 }
 

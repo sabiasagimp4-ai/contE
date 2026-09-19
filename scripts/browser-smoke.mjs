@@ -74,6 +74,11 @@ function testWav(seconds = 3, rate = 22050, freq = 440) {
   header.writeUInt32LE(data.length, 40);
   return Buffer.concat([header, data]);
 }
+// ファイルの操作は「ファイル」メニューの中にある。押す前にメニューを開く。
+const fileMenu = async (target, id) => {
+  await target.locator("#fileMenuButton").click();
+  await target.locator(`#fileMenu ${id}`).click();
+};
 const server = await serve(resolve("."), 0);
 const browser = await chromium.launch({
   headless: true,
@@ -177,6 +182,20 @@ try {
     0,
     "ショートカットのタブが最初から開いている",
   );
+  // ファイル操作はヘッダーに並べず「ファイル」メニューへ畳んだ。開いているのは
+  // 常に1つで、別のメニューを開けば前のは閉じる。
+  assert.equal(await page.locator("#fileMenu").isHidden(), true);
+  await page.locator("#fileMenuButton").click();
+  assert.equal(await page.locator("#fileMenu").isVisible(), true, "ファイルメニューが開かない");
+  assert.equal(await page.locator("#fileMenu button").count(), 5);
+  await page.locator("#windowMenuButton").click();
+  assert.equal(
+    await page.locator("#fileMenu").isHidden(),
+    true,
+    "別のメニューを開いてもファイルメニューが残っている",
+  );
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator("#windowMenu").isHidden(), true, "Escでメニューが閉じない");
   const windowItem = (name) =>
     page.locator("#windowMenu button").filter({ hasText: name });
   await page.locator("#windowMenuButton").click();
@@ -1417,7 +1436,7 @@ try {
   );
   await page.locator("#zoom").fill("9");
   const save = page.waitForEvent("download");
-  await page.locator("#save").click();
+  await fileMenu(page, "#save");
   assert.equal((await save).suggestedFilename(), "project.contp");
   // P1：画像取り込み。原本はAssetストアへ入り、プロジェクトはIDだけを持つ。
   // A6でSceneの開閉を記憶するようになったので、summaryのクリック（トグル）では
@@ -1658,7 +1677,7 @@ try {
   // この時点のPanelにはP1/B5で取り込んだ画像（bg.png）が乗っている。
   const panelsBeforeBundle = await page.locator("#tree .panel").count();
   const bundleDownload = page.waitForEvent("download");
-  await page.locator("#exportBundle").click();
+  await fileMenu(page, "#exportBundle");
   const bundleFile = await bundleDownload;
   assert.match(bundleFile.suggestedFilename(), /\.conte\.zip$/);
   const bundleBytes = await readFile(await bundleFile.path());
@@ -1815,7 +1834,7 @@ try {
     () => document.querySelectorAll("#tree .panel").length,
   );
   assert.equal(genB, genA + 1, "世代Bの生成に失敗している");
-  await page.locator("#history").click();
+  await fileMenu(page, "#history");
   await page.waitForSelector("#recoverDialog[open]");
   assert.equal(await page.locator("#recoverInfo").isHidden(), true);
   await page.waitForFunction(
@@ -2021,7 +2040,7 @@ try {
       );
       assert.equal(await assetCount(), 1, "Bの取込がAssetストアへ反映されていない");
       const saveA = pageA.waitForEvent("download");
-      await pageA.locator("#save").click();
+      await fileMenu(pageA, "#save");
       await saveA;
       await pageA.waitForFunction(() =>
         document
@@ -2044,8 +2063,8 @@ try {
       const [dlA, dlB] = await Promise.all([
         pageA.waitForEvent("download"),
         pageB.waitForEvent("download"),
-        pageA.locator("#save").click(),
-        pageB.locator("#save").click(),
+        fileMenu(pageA, "#save"),
+        fileMenu(pageB, "#save"),
       ]);
       assert.equal(dlA.suggestedFilename(), "project.contp");
       assert.equal(dlB.suggestedFilename(), "project.contp");

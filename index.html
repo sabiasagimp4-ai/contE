@@ -8,33 +8,43 @@
   <body>
     <header>
       <strong>contE</strong
-      ><input id="title" aria-label="プロジェクト名" /><button id="save">
-        保存</button
-      ><button id="open">開く</button
-      ><button
-        id="exportBundle"
-        title="使っている画像・音声を同梱した.conte.zipへ書き出す"
+      ><input id="title" aria-label="プロジェクト名" /><button
+        id="fileMenuButton"
+        aria-haspopup="true"
+        aria-expanded="false"
       >
-        素材ごと書き出す</button
-      ><button id="importBundle" title=".conte.zipを素材ごと読み込む">
-        Bundleを開く</button
-      ><button id="history" title="ブラウザ内保存の履歴から選んで復元">
-        履歴</button
+        ファイル ▾</button
+      ><button id="windowMenuButton" aria-haspopup="true" aria-expanded="false">
+        ウィンドウ ▾</button
       ><input id="file" type="file" accept=".contp" hidden /><input
         id="bundleFile"
         type="file"
         accept=".zip,.conte.zip"
         hidden
-      /><span class="barSep"></span
-      ><button id="windowMenuButton" aria-haspopup="true" aria-expanded="false">
-        ウィンドウ ▾</button
-      ><span
+      /><span
         id="savestate"
         role="status"
       ></span
       ><span id="status" role="status"></span>
     </header>
-    <div id="windowMenu" hidden></div>
+    <div id="fileMenu" class="popupMenu" hidden>
+      <div class="menuGroup">保存する</div>
+      <button id="save">保存（.contp）</button>
+      <button
+        id="exportBundle"
+        title="使っている画像・音声を同梱した1つのファイルにする"
+      >
+        素材ごと保存（.conte.zip）
+      </button>
+      <div class="menuGroup">開く</div>
+      <button id="open">開く（.contp・素材は別途）</button>
+      <button id="importBundle" title="素材を同梱した.conte.zipを読み込む">
+        素材ごと開く（.conte.zip）
+      </button>
+      <div class="menuGroup">戻す</div>
+      <button id="history">ブラウザ内の履歴から復元</button>
+    </div>
+    <div id="windowMenu" class="popupMenu" hidden></div>
     <div id="search" hidden>
       <div class="row">
         <input
