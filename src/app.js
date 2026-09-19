@@ -36,6 +36,7 @@ import { AudioEngine } from "./audio.js";
 import { ProjectRepository, Autosaver } from "./repository.js";
 import { IndexedDbStorage, MemoryStorage } from "./storage.js";
 import { EditorSession } from "./editor-session.js";
+import { AssetOperationCoordinator } from "./asset-flow.js";
 const $ = (id) => document.getElementById(id);
 const editor = new EditorSession(new Store());
 let store = editor.store,
@@ -1021,11 +1022,21 @@ $("imageFile").onchange = async () => {
   const f = $("imageFile").files[0];
   $("imageFile").value = "";
   if (!f) return;
+  let operation = null;
+  let id = null;
+  let bitmap = null;
   try {
     if (!f.type.startsWith("image/")) throw Error("画像ファイルではありません");
     if (f.size > 30e6) throw Error("30MBを超える画像は未対応です");
+    const token = editor.capture();
+    const target = activeId();
+    id = uid();
+    operation = assetOps.begin({
+      sessionId: token.sessionId,
+      targetId: target,
+      assetId: id,
+    });
     const source = await createImageBitmap(f);
-    const id = uid();
     const meta = {
       id,
       kind: "image",
@@ -1036,19 +1047,30 @@ $("imageFile").onchange = async () => {
       height: source.height,
     };
     source.close?.();
-    // 先にバイナリを保存する。保存できない画像をプロジェクトへ参照させない。
     await repo.putAsset(id, f);
-    images.set(id, await bitmapFor(f));
-    const target = activeId();
+    bitmap = await bitmapFor(f);
+    if (!assetOps.isCurrent(operation, editor.capture().sessionId))
+      throw Error("読み込み先が変更されたため画像を破棄しました");
+    images.set(id, bitmap);
+    bitmap = null;
     edit((p) => {
+      const row = flatten(p).find((r) => r.panel.id === target);
+      if (!row) throw Error("読み込み先Panelが存在しません");
       p.assets.push(meta);
-      flatten(p).find((r) => r.panel.id === target).panel.image = {
+      row.panel.image = {
         assetId: id,
         opacity: Number($("imageOpacity").value) / 100 || 1,
       };
     });
+    assetOps.finish(operation);
+    operation = null;
     notice(`${meta.name} を読み込みました（${meta.width}×${meta.height}）`);
   } catch (e) {
+    bitmap?.close?.();
+    if (operation) {
+      await discardImportedAsset(operation, id, "image");
+      operation = null;
+    }
     notice(`画像を読み込めません：${e.message}`);
   }
 };
@@ -1065,17 +1087,32 @@ $("audioFile").onchange = async () => {
   const file = $("audioFile").files[0];
   $("audioFile").value = "";
   if (!file) return;
+  let operation = null;
+  let id = null;
   try {
     if (!file.type.startsWith("audio/"))
       throw Error("音声ファイルではありません");
     if (file.size > 80e6) throw Error("80MBを超える音声は未対応です");
-    const id = uid();
-    const buffer = await sound.decode(id, file);
-    await repo.putAsset(id, file);
+    const token = editor.capture();
     const at = Math.round(frame);
     const host = rowAtFrame(rows, at);
+    if (!host) throw Error("音声の配置先Panelがありません");
+    const target = host.panel.id;
+    const relativeAt = Math.max(0, at - host.start);
+    id = uid();
+    operation = assetOps.begin({
+      sessionId: token.sessionId,
+      targetId: target,
+      assetId: id,
+    });
+    const buffer = await sound.decode(id, file);
+    await repo.putAsset(id, file);
+    if (!assetOps.isCurrent(operation, editor.capture().sessionId))
+      throw Error("読み込み先が変更されたため音声を破棄しました");
     const frames = Math.max(1, Math.round(buffer.duration * store.p.fps));
     edit((p) => {
+      const row = flatten(p).find((r) => r.panel.id === target);
+      if (!row) throw Error("読み込み先Panelが存在しません");
       p.assets.push({
         id,
         kind: "audio",
@@ -1086,15 +1123,22 @@ $("audioFile").onchange = async () => {
       const clip = audio.addClip(p, {
         assetId: id,
         track: $("audioKind").value,
-        anchor: host.panel.id,
-        at: at - host.start,
+        anchor: target,
+        at: Math.min(relativeAt, row.panel.frames),
         frames,
       });
+      if (!clip) throw Error("音声トラックが不正です");
       clipId = clip.id;
-      return { active: host.panel.id, ids: [host.panel.id] };
+      return { active: target, ids: [target] };
     });
+    assetOps.finish(operation);
+    operation = null;
     notice(`${file.name} を配置しました（${buffer.duration.toFixed(2)}秒）`);
   } catch (e) {
+    if (operation) {
+      await discardImportedAsset(operation, id, "audio");
+      operation = null;
+    }
     notice(`音声を読み込めません：${e.message}`);
   }
 };
@@ -1137,22 +1181,44 @@ $("clipRepair").onclick = () => {
   picker.onchange = async () => {
     const file = picker.files[0];
     if (!file) return;
+    let operation = null;
+    let id = null;
     try {
-      sound.forget(clip.assetId);
-      await sound.decode(clip.assetId, file);
-      await repo.putAsset(clip.assetId, file);
-      edit((p) => {
-        const asset = p.assets.find((a) => a.id === clip.assetId);
-        if (asset)
-          Object.assign(asset, {
-            name: file.name.slice(0, 80),
-            mime: file.type,
-            bytes: file.size,
-          });
+      if (!file.type.startsWith("audio/"))
+        throw Error("音声ファイルではありません");
+      if (file.size > 80e6) throw Error("80MBを超える音声は未対応です");
+      const token = editor.capture();
+      const oldAssetId = clip.assetId;
+      id = uid();
+      operation = assetOps.begin({
+        sessionId: token.sessionId,
+        targetId: clip.anchor,
+        assetId: id,
       });
-      notice("素材を差し替えました");
-      render();
+      const buffer = await sound.decode(id, file);
+      await repo.putAsset(id, file);
+      if (!assetOps.isCurrent(operation, editor.capture().sessionId))
+        throw Error("読み込み先が変更されたため音声を破棄しました");
+      edit((p) => {
+        const current = p.audio.find((item) => item.id === clip.id);
+        if (!current) throw Error("差し替え対象の音声クリップが存在しません");
+        p.assets.push({
+          id,
+          kind: "audio",
+          name: file.name.slice(0, 80),
+          mime: file.type,
+          bytes: file.size,
+        });
+        current.assetId = id;
+      });
+      assetOps.finish(operation);
+      operation = null;
+      notice(`素材を差し替えました（${buffer.duration.toFixed(2)}秒）`);
     } catch (e) {
+      if (operation) {
+        await discardImportedAsset(operation, id, "audio");
+        operation = null;
+      }
       notice(`差し替えられません：${e.message}`);
     }
   };
@@ -1809,6 +1875,20 @@ render();
 const repo = new ProjectRepository(
   IndexedDbStorage.available() ? new IndexedDbStorage() : new MemoryStorage(),
 );
+const assetOps = new AssetOperationCoordinator({
+  retain: (id) => repo.retainAsset(id),
+});
+async function discardImportedAsset(operation, id, kind) {
+  assetOps.finish(operation);
+  if (kind === "image") {
+    const bitmap = images.get(id);
+    images.delete(id);
+    bitmap?.close?.();
+  } else if (kind === "audio") {
+    sound.forget(id);
+  }
+  await repo.removeAsset(id).catch(() => {});
+}
 let persistence = false;
 const clock = (t) =>
   new Date(t).toLocaleString("ja-JP", {
