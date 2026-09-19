@@ -12,6 +12,16 @@ export const panel = () => ({
   image: null,
   camera: [{ t: 0, x: 0, y: 0, zoom: 1, rotation: 0 }],
 });
+export const shot = (name = "") => ({
+  id: uid(),
+  name,
+  panels: [panel()],
+});
+export const scene = (name = "シーン01") => ({
+  id: uid(),
+  name,
+  shots: [shot()],
+});
 export const AUDIO_TRACKS = ["dialogue", "se", "bgm"];
 // 紙コンテの用紙。mmと150dpiのピクセル数を持ち、向きで縦横を入れ替える。
 export const PAPER_SIZES = {
@@ -55,11 +65,7 @@ export const project = () => ({
   audio: [],
   paper: paperDefaults(),
   scenes: [
-    {
-      id: uid(),
-      name: "シーン01",
-      shots: [{ id: uid(), name: "", panels: [panel()] }],
-    },
+    scene(),
   ],
 });
 export function flatten(p) {
@@ -102,6 +108,7 @@ export function validate(p) {
   // 素材はIDとメタデータだけを持つ。バイナリはProjectRepositoryが別に保持する。
   if (!Array.isArray(p.assets)) throw Error("不正な素材一覧");
   const assets = new Set();
+  const imageAssets = new Set();
   const audioAssets = new Set();
   for (const a of p.assets) {
     id(a);
@@ -117,11 +124,13 @@ export function validate(p) {
     )
       throw Error("不正な素材");
     assets.add(a.id);
+    if (a.kind === "image") imageAssets.add(a.id);
     if (a.kind === "audio") audioAssets.add(a.id);
   }
   if (!Array.isArray(p.scenes) || !p.scenes.length)
     throw Error("Sceneが必要です");
   const panels = new Set();
+  const panelById = new Map();
   for (const s of p.scenes) {
     id(s);
     if (typeof s.name !== "string" || !s.shots?.length)
@@ -144,7 +153,7 @@ export function validate(p) {
           throw Error("不正な描画/Camera");
         if (b.image !== null) {
           if (
-            !assets.has(b.image?.assetId) ||
+            !imageAssets.has(b.image?.assetId) ||
             !Number.isFinite(b.image.opacity) ||
             b.image.opacity < 0 ||
             b.image.opacity > 1
@@ -196,6 +205,7 @@ export function validate(p) {
           )
             throw Error("不正なCamera");
         panels.add(b.id);
+        panelById.set(b.id, b);
       }
     }
   }
@@ -204,11 +214,14 @@ export function validate(p) {
   if (!Array.isArray(p.audio)) throw Error("不正な音声一覧");
   for (const c of p.audio) {
     id(c);
+    const anchor = panelById.get(c.anchor);
     if (
       !AUDIO_TRACKS.includes(c.track) ||
       !audioAssets.has(c.assetId) ||
-      !panels.has(c.anchor) ||
+      !anchor ||
       !Number.isInteger(c.at) ||
+      c.at < 0 ||
+      c.at > anchor.frames ||
       !Number.isInteger(c.frames) ||
       c.frames < 1 ||
       c.frames > 864000 ||
@@ -564,17 +577,22 @@ export function removeCameraKey(b, index) {
 // 紙コンテ・Inspector・再生で同じ言葉を使うためのCamera動作の要約。
 export function describeCamera(b) {
   const keys = [...b.camera].sort((x, y) => x.t - y.t);
-  const first = keys[0],
-    last = keys.at(-1);
   const moves = [];
-  const dx = last.x - first.x,
-    dy = last.y - first.y,
-    dr = last.rotation - first.rotation;
-  if (Math.abs(dx) > 0.005) moves.push(dx > 0 ? "PAN →" : "PAN ←");
-  if (Math.abs(dy) > 0.005) moves.push(dy > 0 ? "TILT ↓" : "TILT ↑");
-  if (Math.abs(last.zoom - first.zoom) > 0.005)
-    moves.push(last.zoom > first.zoom ? "ZOOM IN" : "ZOOM OUT");
-  if (Math.abs(dr) > 0.5) moves.push(dr > 0 ? "ROLL ↻" : "ROLL ↺");
+  const add = (label) => {
+    if (!moves.includes(label)) moves.push(label);
+  };
+  for (let i = 1; i < keys.length; i++) {
+    const previous = keys[i - 1];
+    const current = keys[i];
+    const dx = current.x - previous.x;
+    const dy = current.y - previous.y;
+    const dz = current.zoom - previous.zoom;
+    const dr = current.rotation - previous.rotation;
+    if (Math.abs(dx) > 0.005) add(dx > 0 ? "PAN →" : "PAN ←");
+    if (Math.abs(dy) > 0.005) add(dy > 0 ? "TILT ↓" : "TILT ↑");
+    if (Math.abs(dz) > 0.005) add(dz > 0 ? "ZOOM IN" : "ZOOM OUT");
+    if (Math.abs(dr) > 0.5) add(dr > 0 ? "ROLL ↻" : "ROLL ↺");
+  }
   return { keys, moves, hold: !moves.length };
 }
 export function cameraAt(b, t) {

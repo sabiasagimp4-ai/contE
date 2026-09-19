@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import {
   Store,
   project,
+  scene,
   panel,
   flatten,
+  validate,
   split,
   merge,
   load,
@@ -368,4 +370,60 @@ test("splitting a shot keeps every camera key with its own panel", () => {
     flatten(s.p).map((r) => r.panel.camera.length),
     [1, 3, 2],
   );
+});
+
+
+test("scene factory always creates a valid shot name", () => {
+  const p = project();
+  const created = scene("シーン02");
+  p.scenes.push(created);
+  assert.equal(created.name, "シーン02");
+  assert.equal(created.shots[0].name, "");
+  assert.doesNotThrow(() => new Store(p));
+});
+
+test("image references and audio placement obey asset and anchor invariants", () => {
+  const p = project();
+  const b = flatten(p)[0].panel;
+  p.assets.push({
+    id: "audio-1",
+    kind: "audio",
+    name: "voice.wav",
+    mime: "audio/wav",
+    bytes: 1,
+  });
+  b.image = { assetId: "audio-1", opacity: 1 };
+  assert.throws(() => validate(p), /画像/);
+
+  p.assets.push({
+    id: "image-1",
+    kind: "image",
+    name: "board.png",
+    mime: "image/png",
+    bytes: 1,
+  });
+  b.image = { assetId: "image-1", opacity: 1 };
+  p.audio.push({
+    id: "clip-1",
+    assetId: "audio-1",
+    track: "dialogue",
+    anchor: b.id,
+    at: -1,
+    frames: 24,
+    offset: 0,
+    gain: 1,
+  });
+  assert.throws(() => validate(p), /音声/);
+  p.audio[0].at = b.frames + 1;
+  assert.throws(() => validate(p), /音声/);
+  p.audio[0].at = b.frames;
+  assert.doesNotThrow(() => validate(p));
+});
+
+test("camera description inspects every segment", () => {
+  const b = panel();
+  setCameraKey(b, 0.5, { x: 1 });
+  setCameraKey(b, 1, { x: 0 });
+  assert.deepEqual(describeCamera(b).moves, ["PAN →", "PAN ←"]);
+  assert.equal(describeCamera(b).hold, false);
 });

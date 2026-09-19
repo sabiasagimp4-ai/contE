@@ -88,10 +88,11 @@ export class IndexedDbStorage {
       request.onblocked = () =>
         reject(Error("IndexedDBが他のタブで使用中です"));
     });
-    this.opening = opening.finally(() => {
-      if (this.opening === opening) this.opening = null;
+    const tracked = opening.finally(() => {
+      if (this.opening === tracked) this.opening = null;
     });
-    return this.opening;
+    this.opening = tracked;
+    return tracked;
   }
   #run(store, mode, body) {
     return new Promise((resolve, reject) => {
