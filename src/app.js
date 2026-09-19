@@ -10,6 +10,7 @@ import {
   describeCamera,
   CAMERA_FIELDS,
   PAPER_COLUMNS,
+  PAPER_SIZES,
   LABEL_COLORS,
   LABEL_NAMES,
   LABEL_HEX,
@@ -426,6 +427,7 @@ function render() {
   durationInfo();
   paint();
   reveal();
+  paperFollow();
 }
 // 総尺・目標尺との差・Shotごとの内訳（B1）。目標尺は保存しない実行時の値。
 function durationInfo() {
@@ -2278,9 +2280,17 @@ const docks = new Docks({
     // 幅も高さも変わるので、Timelineは描き直さないと目盛と帯がずれる。
     timeline();
     saveLayout();
+    afterDockChange();
   },
 });
 docks.render();
+// パネルを出し入れしたあとの後始末。ドック側からも、配置をまとめて差し替えた
+// あとからも通る。
+function afterDockChange() {
+  // コンポジション以外を前へ出しているとき、Panelのパンくずは指すものが無い。
+  $("breadcrumb").hidden = docks.activeIn("center") !== "composition";
+  syncPaperPanel();
+}
 // ~で広げるのは、いま触っているパネルのドック。手がかりが無ければStage。
 function maximizeTarget() {
   return document.activeElement?.closest?.("[data-dock]")?.dataset.dock ?? "center";
@@ -2387,8 +2397,7 @@ const shortcutActions = new Map([
 const SHORTCUT_BY_COMBO = shortcutIndex();
 document.addEventListener("keydown", (e) => {
   // ダイアログを開いている間は、その中の操作を邪魔しない。
-  if ($("paperDialog").open || $("animaticDialog").open || $("recoverDialog").open)
-    return;
+  if ($("animaticDialog").open || $("recoverDialog").open) return;
   const entry = SHORTCUT_BY_COMBO.get(comboOf(e));
   if (!entry) return;
   // 文字を打っている最中のnや[は編集コマンドにしない。検索とEscだけは通す。
@@ -2687,17 +2696,35 @@ function showPage() {
 let previewTimer = null;
 function schedulePreview() {
   clearTimeout(previewTimer);
+  if (!docks.isOpen("paper")) return;
   previewTimer = setTimeout(preview, 120);
 }
 function preview() {
   pages = layoutPages(store.p, paper(), measureText, rows);
   showPage();
   const continued = pages.flat().filter((e) => e.continuation).length;
-  notice(
-    `紙コンテ ${pages.length}ページ / ${rows.length} Panel${
+  $("paperInfo").textContent =
+    `${pages.length}ページ / ${rows.length} Panel${
       continued ? ` · 続き行 ${continued}` : ""
-    }`,
-  );
+    }`;
+}
+// 編集に合わせて紙面を作り直す。開いていない間は一度も作らない：layoutPagesは
+// 全Panelを走るので、閉じたまま打つたびに走らせると、コマが増えるほど重くなる。
+// 出力中も作り直さない（出力は開始時点のページを持っているので混ざらないが、
+// 見ているページが勝手に入れ替わる）。
+let paintedPaper = null;
+function paperFollow() {
+  if (!docks.isOpen("paper") || job) return;
+  // 用紙の設定はProjectの一部なので、Undoで戻ったら欄も戻す。ただしその欄を
+  // 触っている最中は作り直さない（打ち込みの途中でフォーカスが飛ぶ）。
+  if (
+    paintedPaper !== paper() &&
+    !$("paperSettings").contains(document.activeElement)
+  ) {
+    paintedPaper = paper();
+    paperSettings();
+  }
+  schedulePreview();
 }
 function progress(text, running) {
   $("paperProgress").textContent = text;
@@ -2755,18 +2782,35 @@ async function exportPages(handle, label) {
   }
 }
 $("cancelExport").onclick = () => job?.cancel();
-$("paper").onclick = async () => {
+$("paper").onclick = () => {
   stop();
-  $("paperDialog").showModal();
-  await ensureImages(store.p);
-  paperSettings();
-  renderPaperPresets();
-  preview();
+  docks.reveal("paper");
 };
-$("closePaper").onclick = () => {
-  job?.cancel();
-  $("paperDialog").close();
-};
+// 開いた経路（紙コンテ出力のボタンでも、ウィンドウメニューでも、保存された配置
+// からでも）によらず同じ状態で始める。閉じたら出力を止める。
+let paperOpen = false;
+function syncPaperPanel() {
+  const open = docks.isOpen("paper");
+  if (open === paperOpen) return;
+  paperOpen = open;
+  if (!open) return job?.cancel();
+  (async () => {
+    await ensureImages(store.p);
+    paintedPaper = paper();
+    paperSettings();
+    // 紙面を先に出す。プリセットの一覧はIndexedDBを待つので、あとから埋まればよい。
+    preview();
+    await renderPaperPresets();
+  })().catch((e) => notice(`紙面を作れません：${e.message}`));
+}
+// 用紙の指定は印刷にも渡す。手で「用紙サイズを合わせ、余白なしにする」を
+// やってもらわずに済む。
+function printPageRule() {
+  const o = paper();
+  const [short, long] = PAPER_SIZES[o.size]?.mm ?? PAPER_SIZES.A4.mm;
+  const [w, h] = o.orientation === "landscape" ? [long, short] : [short, long];
+  $("printPage").textContent = `@page { size: ${w}mm ${h}mm; margin: 0; }`;
+}
 $("print").onclick = async () => {
   const sheets = await exportPages(async (canvas) => {
     const img = new Image();
@@ -2774,13 +2818,14 @@ $("print").onclick = async () => {
     await img.decode();
     return img;
   }, "印刷用に生成");
-  if (!sheets) return showPage();
-  $("pages").replaceChildren(...sheets);
+  if (!sheets) return;
+  // 印刷はbody直下の#printAreaから出す。紙面のパネルが画面のどこにあっても、
+  // 印刷側の指定は「#printArea以外を消す」だけで済む。
+  printPageRule();
+  $("printArea").replaceChildren(...sheets);
   window.print();
 };
-window.addEventListener("afterprint", () => {
-  if ($("paperDialog").open) showPage();
-});
+window.addEventListener("afterprint", () => $("printArea").replaceChildren());
 // PNGは1ファイルのZIPにまとめる。連番の個別ダウンロードを何十回も許可させない。
 // 全ページ分の{name,bytes}を配列で貯めてからzip()するとPNGを二重に抱えるので、
 // 1ページできるたびにZipBuilderへ足し、Blobは最後にまとめて作る（D2）。
@@ -3071,6 +3116,7 @@ function saveLayout() {
 function applyWorkspace(workspace) {
   Object.assign(layout, DEFAULT_LAYOUT, workspace.layout);
   docks.restore(workspace.panels);
+  afterDockChange();
   applyLayout();
   timeline();
   saveLayout();
@@ -3120,6 +3166,7 @@ for (const [id, key, axis, sign] of [
 applyLayout();
 // 数値入力はどれもドラッグで変えられるようにする（紙面設定は作り直すたびに付ける）。
 scrubAll();
+afterDockChange();
 render();
 // 永続化はProjectRepositoryへ集約する。UIは保存の成否をそのまま表示する。
 const repo = new ProjectRepository(
@@ -3337,6 +3384,7 @@ repo.onRemoteSave(({ savedAt }) => {
     }
     if (ROW_SIZES.includes(saved.rowSize)) layout.rowSize = saved.rowSize;
     docks.restore(saved.panels);
+    afterDockChange();
     applyLayout();
     timeline();
   }

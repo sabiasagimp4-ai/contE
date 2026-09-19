@@ -95,6 +95,15 @@ test("closing the front tab brings the remaining one forward", () => {
   assert.equal(at('[data-body="camera"]').hidden, false, "残ったタブが出てこない");
 });
 
+test("activeIn names the panel in front of each dock", () => {
+  const { docks: d } = docks();
+  d.render();
+  assert.equal(d.activeIn("right"), "content");
+  d.activate("camera");
+  assert.equal(d.activeIn("right"), "camera");
+  assert.equal(d.activeIn("知らないドック"), null);
+});
+
 test("changes are reported once so the caller can save them", () => {
   let count = 0;
   const { docks: d } = docks(() => count++);

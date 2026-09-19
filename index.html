@@ -90,9 +90,11 @@
       ></div>
       <section class="dock" id="stage" data-dock="center">
         <div class="panelBar">
-          <span class="panelTab on"><span class="tabName">コンポジション</span></span>
+          <div class="tabs" data-tabs="center"></div>
           <div id="breadcrumb"></div>
         </div>
+        <div class="dockBody" data-body="composition">
+        <div class="stageStack" data-dock="stageStack">
         <div id="tools" data-body="tools">
           <button id="brushTool" class="tool on">ブラシ</button
           ><button id="eraserTool" class="tool" title="消しゴム（E）">消しゴム</button
@@ -119,6 +121,39 @@
           ></canvas>
         </div>
         <div id="strip" data-body="strip"></div>
+        </div>
+        </div>
+        <div class="dockBody paperPane" data-body="paper" hidden>
+          <div id="paperPresets">
+            <label
+              >プリセット<select id="paperPreset">
+                <option value="">選択…</option></select
+            ></label
+            ><button id="paperPresetSave">名前を付けて保存</button
+            ><button id="paperPresetDelete" disabled>削除</button>
+          </div>
+          <div id="paperSettings"></div>
+          <details id="paperColumnsBox">
+            <summary>列の順番・幅・表示</summary>
+            <div id="paperColumns"></div>
+            <p class="hint">
+              上から順に左から並びます。幅は合計を100とした比率で扱うので、合計が100でなくても構いません。
+            </p>
+          </details>
+          <div id="paperActions">
+            <button id="print">印刷 / PDF</button
+            ><button id="png">PNG連番（ZIP）</button
+            ><button
+              id="shareHtml"
+              title="1ファイルのHTMLに紙面を埋め込んで書き出す"
+            >
+              共有用HTML</button
+            ><button id="cancelExport" hidden>中止</button
+            ><output id="paperProgress"></output>
+          </div>
+          <output id="paperInfo" class="hint"></output>
+          <div id="pages"></div>
+        </div>
       </section>
       <div
         class="splitter"
@@ -371,35 +406,8 @@
       </div>
       </div>
     </footer>
-    <dialog id="paperDialog">
-      <h2>紙コンテ</h2>
-      <div id="paperPresets">
-        <label
-          >プリセット<select id="paperPreset">
-            <option value="">選択…</option></select
-        ></label
-        ><button id="paperPresetSave">名前を付けて保存</button
-        ><button id="paperPresetDelete" disabled>削除</button>
-      </div>
-      <div id="paperSettings"></div>
-      <details id="paperColumnsBox" open>
-        <summary>列の順番・幅・表示</summary>
-        <div id="paperColumns"></div>
-        <p class="hint">
-          上から順に左から並びます。幅は合計を100とした比率で扱うので、合計が100でなくても構いません。
-        </p>
-      </details>
-      <div id="paperActions">
-        <button id="print">印刷 / PDF</button
-        ><button id="png">PNG連番（ZIP）</button
-        ><button id="shareHtml" title="1ファイルのHTMLに紙面を埋め込んで書き出す">
-          共有用HTML</button
-        ><button id="cancelExport" hidden>中止</button
-        ><button id="closePaper">閉じる</button
-        ><output id="paperProgress"></output>
-      </div>
-      <div id="pages"></div>
-    </dialog>
+    <div id="printArea" aria-hidden="true"></div>
+    <style id="printPage"></style>
     <dialog id="animaticDialog">
       <h2>Animatic出力</h2>
       <div id="animaticSettings">

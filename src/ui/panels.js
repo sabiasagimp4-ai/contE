@@ -5,7 +5,9 @@
 // ドックの見せ方。tabsは1枚ずつ切り替え、stackは開いている分を上から順に積む。
 export const DOCK_MODES = {
   left: "tabs",
-  center: "stack",
+  center: "tabs",
+  // コンポジションの中身。ツール列・ビュー・コマは同時に見えるので積む。
+  stageStack: "stack",
   right: "tabs",
   bottom: "tabs",
 };
@@ -13,9 +15,16 @@ export const DOCK_MODES = {
 // fixed は閉じられないパネル。閉じると戻す手がかりが絵として無くなるものだけ。
 export const PANELS = [
   { id: "project", title: "プロジェクト", dock: "left", openByDefault: true },
-  { id: "tools", title: "描画ツール", dock: "center", openByDefault: true },
-  { id: "viewer", title: "ビュー", dock: "center", fixed: true },
-  { id: "strip", title: "コマ（サムネイル）", dock: "center", openByDefault: true },
+  { id: "composition", title: "コンポジション", dock: "center", fixed: true },
+  { id: "paper", title: "紙コンテ", dock: "center" },
+  { id: "tools", title: "描画ツール", dock: "stageStack", openByDefault: true },
+  { id: "viewer", title: "ビュー", dock: "stageStack", fixed: true },
+  {
+    id: "strip",
+    title: "コマ（サムネイル）",
+    dock: "stageStack",
+    openByDefault: true,
+  },
   { id: "content", title: "内容", dock: "right", openByDefault: true },
   { id: "camera", title: "Camera", dock: "right", openByDefault: true },
   { id: "sound", title: "音", dock: "right", openByDefault: true },
@@ -29,7 +38,8 @@ export const PANELS = [
 // 同じ順にする。ここに載っていない閉じられるパネルは、一度閉じると戻せない。
 export const MENU_GROUPS = [
   { title: "左", dock: "left" },
-  { title: "Stage", dock: "center" },
+  { title: "中央", dock: "center" },
+  { title: "コンポジションの中", dock: "stageStack" },
   { title: "インスペクタ", dock: "right" },
   { title: "下", dock: "bottom" },
 ];

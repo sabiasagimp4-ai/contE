@@ -277,14 +277,19 @@ body
 │  ├─ #projectPanel .dock           dock=left（tabs）
 │  │  ├─ .panelBar > .tabs          「プロジェクト」タブ
 │  │  └─ #tree                      Scene・Shot・Panelツリー（JSが中身を差し替える）
-│  ├─ #stage .dock                  dock=center（stack：開いている分を上から積む）
-│  │  ├─ .panelBar                  「コンポジション」/ #breadcrumb
-│  │  ├─ #tools                     描画、消しゴム、画像、表示、#viewInfo
-│  │  ├─ #viewer                    暗いビューア。中央に#drawing（1280×720 Canvas）
-│  │  └─ #strip                     現ShotのPanel strip
+│  ├─ #stage .dock                  dock=center（tabs：コンポジション / 紙コンテ）
+│  │  ├─ .panelBar > .tabs          タブ列 / #breadcrumb（コンポジションのときだけ）
+│  │  ├─ [data-body=composition]
+│  │  │  └─ .stageStack             dock=stageStack（stack：開いている分を積む）
+│  │  │     ├─ #tools               描画、消しゴム、画像、表示、#viewInfo
+│  │  │     ├─ #viewer              暗いビューア。中央に#drawing（1280×720 Canvas）
+│  │  │     └─ #strip               現ShotのPanel strip
+│  │  └─ [data-body=paper]          紙コンテ（設定・列・出力・#paperInfo・#pages）
 │  └─ #inspector .dock              dock=right（tabs）
 │     ├─ .panelBar > .tabs          内容 / Camera / 音 / マーカー / 構成 / ショートカット
 │     └─ .pane × 6                  尺・台詞・注記 / Cameraキー / 音声Clip / マーカー / Scene・Shot操作 / キー一覧
+├─ #printArea                       印刷のときだけ中身が入る置き場（画面には出ない）
+├─ #printPage                       用紙の大きさを@pageとして書き出す<style>
 └─ footer .dock                     dock=bottom（tabs）
    ├─ .panelBar > .tabs             「タイムライン」タブ / #time / #range
    ├─ #timebar                      Zoom、Fit、Snap、追従
@@ -309,7 +314,18 @@ body
 枠が出る。色は`:root`のカスタムプロパティにまとめてあり、個々の部品へ生の色を
 書かない。
 
-紙コンテとAnimaticは`dialog`として開き、復旧候補も別Dialogで表示する。低頻度設定はInspectorまたはDialogへ置き、高頻度操作はToolbar、ショートカット、Timeline上に置く構成になっている。
+紙コンテは中央ドックのタブ（`data-body="paper"`）で、開いたまま編集できる。開いている
+あいだだけ`render()`から`paperFollow()`が走り、用紙の設定欄（Undoで戻った分）と紙面を
+作り直す。閉じているあいだは`layoutPages()`を一度も呼ばない。全Panelを走る処理なので、
+見ていないのに打つたび走らせるとコマが増えるほど重くなる。用紙の設定欄をその場で
+触っているときは作り直さない（打ち込みの途中でフォーカスが飛ぶ）。
+
+印刷は`body`直下の`#printArea`へページを差し込んでから`window.print()`する。紙面の
+パネルが画面のどこにあっても、印刷側の指定は「`#printArea`以外を消す」だけで済む。
+用紙の大きさは`PAPER_SIZES[].mm`と向きから`#printPage`（`<style>`）へ`@page`として
+書き出すので、印刷ダイアログで用紙を手で合わせる必要がない。
+
+Animaticと復旧候補は`dialog`として開く。低頻度設定はInspectorまたはDialogへ置き、高頻度操作はToolbar、ショートカット、Timeline上に置く構成になっている。
 
 ### 5.1.1 パネルの出し入れ（`src/ui/docks.js`）
 

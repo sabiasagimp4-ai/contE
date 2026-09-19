@@ -103,6 +103,9 @@ try {
     errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("dialog", (d) => d.accept());
+  // 紙コンテは中央ドックのタブ。閉じるのはタブの×（コンポジションは常設なので
+  // ×を持たず、前に出ているタブの×は必ず紙コンテのもの）。
+  const closePaper = () => page.locator("#stage .panelTab.on .tabClose").click();
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   // 書き出し名はプロジェクト名から作るので、最初に名前を付けておく。
   await page.locator("#title").fill("conte-smoke");
@@ -197,7 +200,7 @@ try {
   // パネル式UI：使わないパネルは閉じて画面から消し、ウィンドウメニューから
   // 呼び戻せること。常時表示だったショートカット一覧はパネルへ移した。
   assert.equal(
-    await page.locator("#stage .hint").count(),
+    await page.locator("#stage > .hint").count(),
     0,
     "ショートカットの行がStageに残っている",
   );
@@ -329,7 +332,54 @@ try {
     "既定に戻してもTimelineの高さが戻っていない",
   );
   await page.locator("#paper").click();
-  assert.equal(await page.locator("#pages canvas").count(), 1);
+  // 紙面は素材を読み終えてから描くので、出るのを待ってから確かめる。
+  await page.waitForFunction(
+    () => document.querySelectorAll("#pages canvas").length === 1,
+  );
+  // 紙コンテはモーダルではなくタブなので、開いたまま編集でき、紙面はそれへ
+  // 追従する。閉じている間は作り直さない（layoutPagesは全Panelを走るので、
+  // 見ていないのに打つたび走らせるとコマが増えるほど重くなる）。
+  const pageImage = () =>
+    page.evaluate(() => document.querySelector("#pages canvas").toDataURL());
+  const paperBefore = await pageImage();
+  await page.locator("#dialogue").fill("紙面に出る台詞");
+  await page.locator("#dialogue").blur();
+  await page.waitForFunction(
+    (was) => document.querySelector("#pages canvas").toDataURL() !== was,
+    paperBefore,
+  );
+  const paperFollowed = await pageImage();
+  await closePaper();
+  await page.locator("#dialogue").fill("閉じている間に書き換えた台詞");
+  await page.locator("#dialogue").blur();
+  await page.waitForTimeout(300);
+  assert.equal(
+    await pageImage(),
+    paperFollowed,
+    "閉じている間も紙面を作り直している",
+  );
+  await page.locator("#paper").click();
+  await page.waitForFunction(
+    (was) => document.querySelector("#pages canvas").toDataURL() !== was,
+    paperFollowed,
+  );
+  // 印刷はbody直下の#printAreaへ差し込み、用紙の大きさは@pageとして書き出す。
+  // 手で用紙サイズを合わせてもらう手順が1つ減る。
+  await page.locator("#print").click();
+  await page.waitForFunction(
+    () => document.querySelectorAll("#printArea img").length > 0,
+  );
+  assert.equal(
+    await page.locator("#printPage").innerText(),
+    "@page { size: 210mm 297mm; margin: 0; }",
+    "用紙の指定が印刷へ渡っていない",
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+  assert.equal(
+    await page.locator("#printArea img").count(),
+    0,
+    "印刷のあとも置き場にページが残っている",
+  );
   // D3：紙面プリセット。組み込みを選ぶと即座に用紙設定へ反映され、保存した分は
   // Dialogを閉じて開き直しても一覧に残る。
   const beforePreset = await page.evaluate(() => {
@@ -361,7 +411,7 @@ try {
       (o) => o.value === "custom:私のプリセット",
     ),
   );
-  await page.locator("#closePaper").click();
+  await closePaper();
   await page.locator("#paper").click();
   await page.waitForFunction(() =>
     [...document.querySelectorAll("#paperPreset option")].some(
@@ -390,7 +440,7 @@ try {
   const png = page.waitForEvent("download");
   await page.locator("#png").click();
   assert.equal((await png).suggestedFilename(), "conte-smoke-png.zip");
-  await page.locator("#closePaper").click();
+  await closePaper();
   const drag = await page.locator(".handle").first().boundingBox();
   await page.mouse.move(drag.x + 5, drag.y + 20);
   await page.mouse.down();
@@ -1313,7 +1363,7 @@ try {
   await page.locator("#dialogue").blur();
   await page.locator("#paper").click();
   await page.waitForFunction(() =>
-    document.querySelector("#status").textContent.includes("ページ"),
+    document.querySelector("#paperInfo").textContent.includes("ページ"),
   );
   const a4 = await page.evaluate(() => {
     const c = document.querySelector("#pages canvas");
@@ -1334,7 +1384,7 @@ try {
     () => document.querySelector("#pages canvas").width === 1240,
   );
   // 長文は切れずに続き行へ送られる。
-  assert.match(await page.locator("#status").innerText(), /続き行 [1-9]/);
+  assert.match(await page.locator("#paperInfo").innerText(), /続き行 [1-9]/);
   const zipDownload = page.waitForEvent("download");
   await page.locator("#png").click();
   const zip = await zipDownload;
@@ -1385,7 +1435,7 @@ try {
     "縦書きに切り替えてもページ寸法は変わらないはず",
   );
   assert.match(
-    await page.locator("#status").innerText(),
+    await page.locator("#paperInfo").innerText(),
     /続き行 [1-9]/,
     "縦書きでも長文が続き行として送られていない",
   );
@@ -1395,7 +1445,7 @@ try {
       document.querySelector("#pages canvas").toDataURL() === before,
     beforeVertical,
   );
-  await page.locator("#closePaper").click();
+  await closePaper();
   // P2：500 Panelでも生成するクリップは画面分だけ。全体表示と境界スクラブも確認する。
   const clipCount = await page.locator(".clip").count();
   assert.ok(clipCount < 40, `laid out ${clipCount} clips for 500 panels`);
@@ -1677,12 +1727,15 @@ try {
   );
   // 紙面にも注記の列として追加できる（列を有効にしてもエラーにならないこと）。
   await page.locator("#paper").click();
+  // 列の設定は既定で畳んである。読み終えたら閉じておける類の設定なので、
+  // 触るときだけ開く。
+  await page.locator("#paperColumnsBox summary").click();
   await page
     .locator("#paperColumns .column", { hasText: "マーカー" })
     .locator('input[type="checkbox"]')
     .click();
   await page.waitForFunction(() => document.querySelectorAll("#pages canvas").length > 0);
-  await page.locator("#closePaper").click();
+  await closePaper();
   await page.locator("#markerDelete").click();
   await page.waitForFunction(
     () => document.querySelectorAll("#markerTrack .marker").length === 0,
@@ -1896,7 +1949,7 @@ try {
   const paperStart = Date.now();
   await page.locator("#paper").click();
   await page.waitForFunction(
-    () => document.querySelector("#status").textContent.includes("ページ"),
+    () => document.querySelector("#paperInfo").textContent.includes("ページ"),
     null,
     { timeout: 30000 },
   );
@@ -1921,7 +1974,7 @@ try {
     cancelled < Number(partial.match(/\/ (\d+)/)?.[1] ?? 0),
     "cancel did not stop the export",
   );
-  await page.locator("#closePaper").click();
+  await closePaper();
   // P3：素材のない音声クリップを差し替える。原本を上書きせず新しいIDを作るので、
   // Undoで「素材が見つからない」状態へ戻る。
   const orphan = project();

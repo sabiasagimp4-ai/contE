@@ -561,6 +561,22 @@ input.rename {
 }
 
 /* ---- コンポジション（Stage） ------------------------------------------- */
+.stageStack {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+/* 紙コンテのパネル。設定と紙面が縦に並び、全体が縦スクロールする。 */
+.paperPane {
+  display: block;
+  overflow: auto;
+  padding: 8px 12px 16px;
+}
+#paperInfo {
+  display: block;
+  margin-top: 4px;
+}
 #breadcrumb {
   display: flex;
   align-items: center;
@@ -1402,33 +1418,24 @@ summary {
   margin-right: 8px;
 }
 
+/* 印刷はbody直下の#printAreaから出す。紙面のパネルが画面のどこにあっても、
+   印刷の指定は「#printArea以外を消す」だけで済む。用紙の大きさは設定から
+   #printPage（@page）へ書き出すので、ここには持たない。 */
+#printArea {
+  display: none;
+}
 @media print {
   body > * {
     display: none !important;
   }
-  body > #paperDialog {
+  body > #printArea {
     display: block !important;
-    position: static;
-    max-height: none;
-    width: 100%;
-    border: 0;
-    padding: 0;
     background: #fff;
   }
-  #paperDialog > * {
-    display: none !important;
-  }
-  #paperDialog > #pages {
-    display: block !important;
-  }
-  #pages :is(canvas, img) {
+  #printArea :is(canvas, img) {
     display: block;
     width: 100%;
     margin: 0;
     break-after: page;
-  }
-  @page {
-    size: A4 portrait;
-    margin: 0;
   }
 }

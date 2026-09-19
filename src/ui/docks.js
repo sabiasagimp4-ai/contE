@@ -79,6 +79,10 @@ export class Docks {
   reveal(id) {
     this.isOpen(id) ? this.activate(id) : this.open(id);
   }
+  // そのドックで前に出ているパネル。中身によって周りの見せ方を変えたいときに使う。
+  activeIn(dock) {
+    return this.#active.get(dock) ?? null;
+  }
   maximized() {
     return this.#max;
   }
