@@ -119,3 +119,18 @@ test("fit chooses the largest scale that still shows everything", () => {
   assert.equal(fitScaleIndex(10e6, 300), 0);
   assert.equal(fitScaleIndex(0, 1000) >= 0, true);
 });
+
+
+test("visible rows keep exact edge semantics on a large sorted timeline", () => {
+  const rows = Array.from({ length: 100000 }, (_, i) => ({
+    id: i,
+    start: i * 10,
+    end: (i + 1) * 10,
+  }));
+  const visibleRows = visible(rows, 1, 500000, 100);
+  const expected = rows.filter(
+    (row) => row.end >= 499880 && row.start <= 500220,
+  );
+  assert.deepEqual(visibleRows, expected);
+  assert.deepEqual(visible([], 3, 0, 900), []);
+});
