@@ -40,6 +40,7 @@ import { EditorController } from "./editor-controller.js";
 import { buildProjectIndex } from "./project-index.js";
 import { RenderScheduler } from "./render-scheduler.js";
 import { createBundle, readBundle, bytesOf, sha256Hex } from "./bundle.js";
+import { createExportSnapshot } from "./export-snapshot.js";
 import { AssetOperationCoordinator } from "./asset-flow.js";
 const $ = (id) => document.getElementById(id);
 const editor = new EditorController(new EditorSession(new Store()));
@@ -1581,9 +1582,15 @@ async function exportPages(handle, label) {
   if (job) return null;
   job = new Job();
   // 生成中に編集されても、1つの出力内で設定やProjectが混ざらないよう固定する。
-  const exportProject = store.p;
-  const exportPaper = paper();
-  const exportPagesList = pages.slice();
+  const exportSnapshot = createExportSnapshot(store.p, editor.capture());
+  const exportProject = exportSnapshot.project;
+  const exportPaper = exportProject.paper;
+  const exportPagesList = layoutPages(
+    exportProject,
+    exportPaper,
+    measureText,
+    exportSnapshot.rows,
+  );
   const exportImages = new Map(images);
   const total = exportPagesList.length;
   progress(`${label} 0 / ${total}`, true);
@@ -1706,10 +1713,11 @@ function animaticSetup() {
     $(id).onchange = animaticInfo;
   animaticInfo();
 }
-function animaticSpec() {
+function animaticSpec(snapshot = null) {
+  const project = snapshot?.project ?? store.p;
   return animatic.plan(
-    endFrame(),
-    store.p.fps,
+    snapshot?.endFrame ?? endFrame(),
+    project.fps,
     Number($("animaticFps").value),
     $("animaticSize").value,
   );
@@ -1735,7 +1743,7 @@ function animaticProgress(text, running) {
     $(id).disabled = running;
 }
 // PNG連番：フレーム厳密。再生時計に頼らず、出力フレームごとに時刻を決める。
-async function animaticFrames(spec) {
+async function animaticFrames(spec, snapshot) {
   const canvas = $("animaticPreview");
   canvas.width = spec.width;
   canvas.height = spec.height;
@@ -1747,7 +1755,7 @@ async function animaticFrames(spec) {
     async (i) => {
       animatic.renderFrame(
         context,
-        rows,
+        snapshot.rows,
         spec.sourceFrame(i),
         spec.width,
         spec.height,
@@ -1771,13 +1779,19 @@ async function animaticFrames(spec) {
   return builder.finish();
 }
 // WebM：実時間の録画。音は再生と同じ予約を録音用の出力先へ流す。
-async function animaticRecord(spec, mime) {
+async function animaticRecord(spec, mime, snapshot) {
   const canvas = $("animaticPreview");
   canvas.width = spec.width;
   canvas.height = spec.height;
   const context = canvas.getContext("2d");
   const stream = canvas.captureStream(spec.outFps);
-  const schedule = audio.scheduleFor(resolved, 0, store.p.fps, endFrame());
+  const snapshotAudio = audio.resolveClips(snapshot.project, snapshot.rows);
+  const schedule = audio.scheduleFor(
+    snapshotAudio,
+    0,
+    snapshot.project.fps,
+    snapshot.endFrame,
+  );
   if (schedule.length) {
     const destination = sound.streamDestination();
     for (const track of destination.stream.getAudioTracks())
@@ -1790,7 +1804,7 @@ async function animaticRecord(spec, mime) {
   const started = performance.now();
   try {
     while (true) {
-      const clock = sound.frameAt(store.p.fps);
+      const clock = sound.frameAt(snapshot.project.fps);
       const elapsed =
         clock !== null
           ? clock / store.p.fps
@@ -1799,8 +1813,14 @@ async function animaticRecord(spec, mime) {
       animaticJob.check();
       animatic.renderFrame(
         context,
-        rows,
-        Math.max(0, Math.min(endFrame() - 1e-6, elapsed * store.p.fps)),
+        snapshot.rows,
+        Math.max(
+          0,
+          Math.min(
+            snapshot.endFrame - 1e-6,
+            elapsed * snapshot.project.fps,
+          ),
+        ),
         spec.width,
         spec.height,
         images,
@@ -1834,17 +1854,22 @@ $("closeAnimatic").onclick = () => {
 $("animaticCancel").onclick = () => animaticJob?.cancel();
 $("animaticStart").onclick = async () => {
   if (animaticJob) return;
-  const spec = animaticSpec();
   const format = $("animaticFormat").value;
   try {
+    const exportSnapshot = createExportSnapshot(store.p, editor.capture());
+    const spec = animaticSpec(exportSnapshot);
     animaticProgress("準備中…", true);
-    // 出力中はプロジェクトへ触れない。失敗しても素材と編集内容は元のまま。
+    // 出力中はスナップショットだけを参照し、編集中のProjectと混ぜない。
     const blob =
       format === "webm"
-        ? await animaticRecord(spec, animatic.pickMime("webm"))
-        : await animaticFrames(spec);
+        ? await animaticRecord(
+            spec,
+            animatic.pickMime("webm"),
+            exportSnapshot,
+          )
+        : await animaticFrames(spec, exportSnapshot);
     const name = animatic.outputName(
-      store.p.title,
+      exportSnapshot.project.title,
       animatic.FORMATS[format].extension,
     );
     download(blob, name);
