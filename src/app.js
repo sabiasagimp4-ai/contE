@@ -1581,20 +1581,20 @@ function progress(text, running) {
 async function exportPages(handle, label) {
   if (job) return null;
   job = new Job();
-  // 生成中に編集されても、1つの出力内で設定やProjectが混ざらないよう固定する。
-  const exportSnapshot = createExportSnapshot(store.p, editor.capture());
-  const exportProject = exportSnapshot.project;
-  const exportPaper = exportProject.paper;
-  const exportPagesList = layoutPages(
-    exportProject,
-    exportPaper,
-    measureText,
-    exportSnapshot.rows,
-  );
-  const exportImages = new Map(images);
-  const total = exportPagesList.length;
-  progress(`${label} 0 / ${total}`, true);
   try {
+    // 生成中に編集されても、1つの出力内で設定やProjectが混ざらないよう固定する。
+    const exportSnapshot = createExportSnapshot(store.p, editor.capture());
+    const exportProject = exportSnapshot.project;
+    const exportPaper = exportProject.paper;
+    const exportPagesList = layoutPages(
+      exportProject,
+      exportPaper,
+      measureText,
+      exportSnapshot.rows,
+    );
+    const exportImages = new Map(images);
+    const total = exportPagesList.length;
+    progress(`${label} 0 / ${total}`, true);
     const result = await forEachPage(
       total,
       async (i) => {
@@ -1796,7 +1796,7 @@ async function animaticRecord(spec, mime, snapshot) {
     const destination = sound.streamDestination();
     for (const track of destination.stream.getAudioTracks())
       stream.addTrack(track);
-    sound.play(schedule, 0, store.p.fps, 0.12, destination);
+    sound.play(schedule, 0, snapshot.project.fps, 0.12, destination);
   }
   const recorder = new animatic.Recorder(stream, mime);
   animaticJob = new Job();
@@ -1807,7 +1807,7 @@ async function animaticRecord(spec, mime, snapshot) {
       const clock = sound.frameAt(snapshot.project.fps);
       const elapsed =
         clock !== null
-          ? clock / store.p.fps
+          ? clock / snapshot.project.fps
           : (performance.now() - started) / 1000;
       if (elapsed >= spec.seconds) break;
       animaticJob.check();
