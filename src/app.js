@@ -49,6 +49,7 @@ import { autoScroll } from "./ui/auto-scroll.js";
 import * as shapeTools from "./ui/shape-tools.js";
 import { Docks } from "./ui/docks.js";
 import { PopupMenu, menuGroup, menuItem, closeMenus } from "./ui/menu.js";
+import { PANELS, DOCK_MODES, MENU_GROUPS, WORKSPACES } from "./ui/panels.js";
 import {
   SHORTCUTS,
   GESTURES,
@@ -2269,30 +2270,16 @@ function exitPresent() {
 // 画面は4つのドックに分かれ、パネルはそのどれかへ入る。使わないパネルは閉じて
 // 消し、ウィンドウメニューから呼び戻す。全部を常に出しておく必要はない。
 // 表示状態なのでProjectには入れず、layoutと同じmetaへ保存する。
-const PANELS = [
-  { id: "project", title: "プロジェクト", dock: "left", openByDefault: true },
-  { id: "tools", title: "描画ツール", dock: "center", openByDefault: true },
-  { id: "viewer", title: "ビュー", dock: "center", fixed: true },
-  { id: "strip", title: "コマ（サムネイル）", dock: "center", openByDefault: true },
-  { id: "content", title: "内容", dock: "right", openByDefault: true },
-  { id: "camera", title: "Camera", dock: "right", openByDefault: true },
-  { id: "sound", title: "音", dock: "right", openByDefault: true },
-  { id: "marker", title: "マーカー", dock: "right", openByDefault: true },
-  { id: "structure", title: "構成", dock: "right", openByDefault: true },
-  { id: "keys", title: "ショートカット", dock: "right" },
-  { id: "timeline", title: "タイムライン", dock: "bottom", openByDefault: true },
-];
-// 右と下と左はタブで1枚ずつ。中央はツール列・ビュー・コマを縦に積む。
+// パネルの表と作業レイアウトはsrc/ui/panels.jsのデータ。ここは動かすだけ。
 const docks = new Docks({
   panels: PANELS,
-  modes: { left: "tabs", center: "stack", right: "tabs", bottom: "tabs" },
+  modes: DOCK_MODES,
   onChange: () => {
     // 幅も高さも変わるので、Timelineは描き直さないと目盛と帯がずれる。
     timeline();
     saveLayout();
   },
 });
-const DEFAULT_PANELS = docks.state();
 docks.render();
 // ~で広げるのは、いま触っているパネルのドック。手がかりが無ければStage。
 function maximizeTarget() {
@@ -2311,19 +2298,15 @@ function closeTopmost() {
   if (docks.maximized()) return docks.maximize(null);
   return false;
 }
-// ウィンドウメニュー。閉じたパネルを呼び戻す唯一の入口なので、並びは画面の
-// 位置と同じ順にする。開くたびに作り直すので、チェックは必ず今の状態と合う。
-const MENU_GROUPS = [
-  { title: "左", dock: "left" },
-  { title: "Stage", dock: "center" },
-  { title: "インスペクタ", dock: "right" },
-  { title: "下", dock: "bottom" },
-];
+// ウィンドウメニュー。閉じたパネルを呼び戻す唯一の入口。開くたびに作り直すので、
+// チェックは必ず今の状態と合う。並びは画面の位置と同じ順にする。
 new PopupMenu({
   button: $("windowMenuButton"),
   box: $("windowMenu"),
   build() {
-    const items = [];
+    const items = [menuGroup("作業レイアウト")];
+    for (const workspace of WORKSPACES)
+      items.push(menuItem(false, workspace.name, () => applyWorkspace(workspace)));
     for (const group of MENU_GROUPS) {
       // 常設のパネル（ビュー）は閉じられないので並べない。
       const members = PANELS.filter((p) => p.dock === group.dock && !p.fixed);
@@ -2341,7 +2324,6 @@ new PopupMenu({
       menuItem(!$("search").hidden, "検索", () =>
         $("search").hidden ? openSearch() : closeSearch(),
       ),
-      menuItem(false, "配置を初期値に戻す", resetLayout),
     );
     return items;
   },
@@ -3084,14 +3066,15 @@ function saveLayout() {
   if (persistence)
     repo.setLayout({ ...layout, panels: docks.state() }).catch(() => {});
 }
-// パネルを閉じすぎて戻せなくなったときの逃げ道。ウィンドウメニューから呼ぶ。
-function resetLayout() {
-  Object.assign(layout, DEFAULT_LAYOUT);
-  docks.restore(DEFAULT_PANELS);
+// 作業レイアウトの切り替え。閉じすぎて戻せなくなったときの逃げ道も兼ねる
+// （「仕上げ（既定）」が初期状態そのもの）。書いていない幅・高さは既定へ戻す。
+function applyWorkspace(workspace) {
+  Object.assign(layout, DEFAULT_LAYOUT, workspace.layout);
+  docks.restore(workspace.panels);
   applyLayout();
   timeline();
   saveLayout();
-  notice("パネルの配置を初期値に戻しました");
+  notice(`レイアウトを「${workspace.name}」にしました`);
 }
 function applyLayout() {
   for (const key of ["tree", "inspector", "timeline"])

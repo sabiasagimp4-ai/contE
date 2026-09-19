@@ -302,13 +302,31 @@ try {
   await page.locator("#windowMenuButton").click();
   await windowItem("コマ（サムネイル）").click();
   assert.equal(await page.locator("#strip").isHidden(), true);
+  // 作業レイアウト。やることが変わればいるパネルも変わるので、まとめて切り替える。
   await page.locator("#windowMenuButton").click();
-  await windowItem("配置を初期値に戻す").click();
-  assert.equal(await page.locator("#strip").isVisible(), true, "初期値に戻してもコマが出ない");
+  await windowItem("描く").click();
+  assert.equal(await page.locator("footer").isHidden(), true, "「描く」でTimelineが畳まれない");
+  assert.equal(await page.locator("#strip").isVisible(), true, "「描く」でコマが出ていない");
+  await page.locator("#windowMenuButton").click();
+  await windowItem("尺を決める").click();
+  assert.equal(await page.locator("footer").isVisible(), true, "「尺を決める」でTimelineが出ない");
+  assert.ok(
+    (await page.locator("footer").boundingBox()).height > 400,
+    "「尺を決める」でTimelineが高くなっていない",
+  );
+  // 「仕上げ（既定）」は閉じすぎたときの逃げ道も兼ねる。
+  await page.locator("#windowMenuButton").click();
+  await windowItem("仕上げ").click();
+  assert.equal(await page.locator("#strip").isVisible(), true, "既定に戻してもコマが出ない");
   assert.equal(
     await page.locator('[data-tab="keys"]').count(),
     0,
-    "初期値にショートカットのタブが混ざっている",
+    "既定にショートカットのタブが混ざっている",
+  );
+  assert.equal(
+    (await page.locator("footer").boundingBox()).height,
+    270,
+    "既定に戻してもTimelineの高さが戻っていない",
   );
   await page.locator("#paper").click();
   assert.equal(await page.locator("#pages canvas").count(), 1);
