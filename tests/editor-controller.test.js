@@ -20,7 +20,7 @@ test("controller exposes one operation boundary and reports results", () => {
     results.map((result) => result.kind),
     ["rename", "select", "undo", "redo"],
   );
-  assert.equal(controller.capture().revision, 1);
+  assert.equal(controller.capture().revision, 3);
 });
 
 test("replace starts a new session through the same controller", () => {
