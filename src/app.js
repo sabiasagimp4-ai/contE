@@ -1201,7 +1201,8 @@ $("clipRepair").onclick = () => {
         throw Error("読み込み先が変更されたため音声を破棄しました");
       edit((p) => {
         const current = p.audio.find((item) => item.id === clip.id);
-        if (!current) throw Error("差し替え対象の音声クリップが存在しません");
+        if (!current || current.assetId !== oldAssetId)
+          throw Error("差し替え対象の音声クリップが変更されています");
         p.assets.push({
           id,
           kind: "audio",
