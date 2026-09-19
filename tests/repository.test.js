@@ -300,3 +300,26 @@ test("a stale autosave does not report the latest revision as saved", async () =
   assert.equal(saver.pending, false);
   assert.equal(flatten((await repo.latest()).project).length, 2);
 });
+
+
+test("asset binaries are immutable once written", async () => {
+  const { repo } = repository();
+  await repo.putAsset("immutable", new Uint8Array([1, 2]));
+  await assert.rejects(
+    () => repo.putAsset("immutable", new Uint8Array([9])),
+    /上書きできません/,
+  );
+  assert.deepEqual([...(await repo.getAsset("immutable"))], [1, 2]);
+});
+
+test("asset leases protect in-flight binaries from garbage collection", async () => {
+  const { repo } = repository();
+  await repo.putAsset("in-flight", new Uint8Array([3]));
+  const release = repo.retainAsset("in-flight");
+  assert.equal(await repo.pruneAssets(project()), 0);
+  assert.deepEqual([...(await repo.getAsset("in-flight"))], [3]);
+  assert.equal(release(), true);
+  assert.equal(release(), false);
+  assert.equal(await repo.pruneAssets(project()), 1);
+  assert.equal(await repo.getAsset("in-flight"), undefined);
+});
