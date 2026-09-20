@@ -62,6 +62,21 @@ test('IME drafts survive until composition ends and retain their original target
  drafts.stage('notes',{target:'panel-A',value:'変換後'});drafts.composition('notes',false);await delay(30);
  assert.deepEqual(committed,[[{target:'panel-A',value:'変換後'}]]);assert.equal(drafts.pending,false);
 });
+// CONFIRMED but not fixed (see docs/LOGIC_UX_AUDIT.md, docs/LOGIC_UX_FIX_PLAN.md):
+// TextDrafts.schedule() gates the flush timer on ANY key being composed, not
+// just the key the pending draft belongs to. A finished draft in one field
+// (e.g. dialogue) can therefore sit unflushed for as long as an unrelated
+// field (e.g. notes) stays under IME composition, which can exceed the
+// documented maxDelay bound by an arbitrary amount. This is marked `todo` so
+// it documents the gap without failing `npm test`; it should be un-todo'd
+// once schedule() stops gating unrelated keys.
+test('a finished draft in one field is not held hostage by composition in another field', {todo: true}, async()=>{
+  const committed=[];const drafts=new TextDrafts(entries=>committed.push(entries),{delay:20,maxDelay:60});
+  drafts.stage('dialogue',{target:'panel-A',value:'done typing'});
+  drafts.composition('notes',true); // unrelated field starts composing
+  await delay(150); // far past dialogue's maxDelay
+  assert.ok(committed.length>0,'dialogue draft should have flushed within maxDelay regardless of an unrelated composing field');
+});
 test('save/visibility flush captures pending composition, failed commits keep drafts',()=>{
  let fail=true;const drafts=new TextDrafts(()=>{if(fail)throw Error('failure');});drafts.composition('title',true);drafts.stage('title',{value:'未確定'});
  assert.throws(()=>drafts.flush());assert.ok(drafts.pending);fail=false;drafts.flush();assert.equal(drafts.pending,false);drafts.clear();
