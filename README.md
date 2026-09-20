@@ -14,13 +14,13 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 
 ## Windows版のビルド
 
-Windows上で.NET 10 SDKとWebView2 Runtimeを用意し、次を実行すると自己完結型の`win-x64`版とZIP artifactを生成します。
+Windows上で.NET 10 SDKとWebView2 Runtimeを用意し、次を実行すると自己完結型の`win-x64`版、portable ZIP、セットアップexeを生成します。
 
 ```powershell
 npm run build:desktop
 ```
 
-出力は`artifacts/contE-win-x64.zip`です。配布前にWindows実機でペン入力、音声同期、保存・復旧を確認してください。デスクトップ版の実装順と検証条件は[.NET + WebView2実装計画](docs/DOTNET_WEBVIEW2_PLAN.md)にまとめています。
+出力は`artifacts/contE-win-x64.zip`と`artifacts/contE-Setup-win-x64.exe`です。セットアップexeはユーザー領域へ展開し、`.contb/.contp`をcontEへ関連付けます。WebView2 Runtimeは別途必要です。配布前にWindows実機でペン入力、音声同期、保存・復旧を確認してください。デスクトップ版の実装順と検証条件は[.NET + WebView2実装計画](docs/DOTNET_WEBVIEW2_PLAN.md)にまとめています。
 
 ## 今回の実装
 

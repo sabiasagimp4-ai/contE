@@ -50,8 +50,10 @@ jobs:
       - name: Publish portable desktop artifact
         shell: pwsh
         run: ./scripts/build-desktop.ps1
-      - name: Upload desktop artifact
+      - name: Upload desktop artifacts
         uses: actions/upload-artifact@v4
         with:
           name: conte-win-x64
-          path: artifacts/contE-win-x64.zip
+          path: |
+            artifacts/contE-win-x64.zip
+            artifacts/contE-Setup-win-x64.exe
