@@ -11,7 +11,7 @@ public partial class MainWindow : System.Windows.Window
 {
     private const string AppOrigin = NativeFileService.AppOrigin;
     private readonly bool _smokeTest = Environment.GetCommandLineArgs().Contains("--smoke-test", StringComparer.OrdinalIgnoreCase);
-    private readonly NativeFileService _files = new();
+    private readonly NativeFileService _files = new(GetStartupPath());
     private BridgeRouter? _router;
     private bool _dirty;
 
@@ -20,6 +20,30 @@ public partial class MainWindow : System.Windows.Window
         InitializeComponent();
         Loaded += OnLoaded;
         Closing += OnClosing;
+    }
+
+    private static string? GetStartupPath()
+    {
+        var args = Environment.GetCommandLineArgs();
+        for (var i = 1; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (arg.StartsWith("--", StringComparison.Ordinal)) continue;
+            try
+            {
+                var path = Path.GetFullPath(arg);
+                var extension = Path.GetExtension(path);
+                if (File.Exists(path) &&
+                    (string.Equals(extension, ".contb", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(extension, ".contp", StringComparison.OrdinalIgnoreCase)))
+                    return path;
+            }
+            catch (Exception)
+            {
+                // Ignore malformed shell arguments and start normally.
+            }
+        }
+        return null;
     }
 
     private async void OnLoaded(object sender, System.Windows.RoutedEventArgs e)
@@ -190,7 +214,14 @@ public partial class MainWindow : System.Windows.Window
             System.Windows.Application.Current.Shutdown(1);
             return;
         }
-        System.Windows.MessageBox.Show(error.Message, "contEを起動できません", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+        var message = error.Message;
+        if (message.Contains("WebView2", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("browser version", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("runtime", StringComparison.OrdinalIgnoreCase))
+        {
+            message = "Microsoft Edge WebView2 Runtimeが見つからないか、起動できません。RuntimeをインストールしてからcontEを再起動してください。\n\nhttps://developer.microsoft.com/microsoft-edge/webview2/";
+        }
+        System.Windows.MessageBox.Show(message, "contEを起動できません", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
         System.Windows.Application.Current.Shutdown(1);
     }
 }

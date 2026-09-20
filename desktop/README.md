@@ -10,7 +10,7 @@ WindowsでNode.js、.NET 10 SDK、WebView2 Runtimeを用意して、リポジト
 npm run build:desktop
 ```
 
-`dist/`がWebView2の固定originへコピーされ、`artifacts/contE-win-x64.zip`に自己完結型の`contE.exe`が入ります。現段階ではセットアップexeではなく、portable ZIPを生成します。
+`dist/`がWebView2の固定originへコピーされ、`artifacts/contE-win-x64.zip`に自己完結型の`contE.exe`、`artifacts/contE-Setup-win-x64.exe`にセットアップexeが入ります。セットアップは`%LOCALAPPDATA%\\Programs\\contE`へ展開し、`.contb/.contp`の関連付けを登録します。
 
 ## 設計上の注意
 

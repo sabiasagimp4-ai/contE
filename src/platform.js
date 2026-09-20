@@ -62,15 +62,15 @@ export const platformReady = isDesktop
     })
   : Promise.resolve({ protocol: 1, platform: "browser" });
 
-export async function openProjectFile() {
+export async function openProjectFile(ticket = null) {
   if (!isDesktop) return null;
-  const ticket = await request("file.open");
-  if (!ticket || ticket.cancelled) return null;
-  const response = await fetch(ticket.url, { cache: "no-store" });
+  const transfer = ticket || await request("file.open");
+  if (!transfer || transfer.cancelled) return null;
+  const response = await fetch(transfer.url, { cache: "no-store" });
   if (!response.ok) throw Error(`Projectを開けません：HTTP ${response.status}`);
   const bytes = await response.arrayBuffer();
-  return new File([bytes], ticket.name || "project.contb", {
-    type: ticket.mime || "application/octet-stream",
+  return new File([bytes], transfer.name || "project.contb", {
+    type: transfer.mime || "application/octet-stream",
   });
 }
 
