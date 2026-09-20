@@ -1,8 +1,8 @@
 # contE .NET + WebView2 デスクトップ版実装計画
 
 更新日：2026-09-20  
-基準：main `aed6808b2d78316048ee3a5a25e2c0da3130b71a`  
-状態：実装開始用の計画。Windows実機の合格条件を満たすまで技術選定は暫定。
+基準：main `1289ec81451d064319802e4f2b4b6f4eb3038280`  
+状態：PR 1〜5の初期実装をmainへ統合済み。portable ZIP／セットアップexe／起動時Project指定まで実装済み。WebView2 Runtime、ペン、音声、DPI、OneDrive、強制終了はWindows実機ゲートとして未完了。
 
 ## 1. 結論
 
@@ -17,7 +17,7 @@ contEのWindowsデスクトップ版は、次の構成で試作する。
 | Web資産 | 現在の `npm run build` が生成する `dist/` |
 | Project形式 | 現行の自己完結Bundle `.contb` を維持 |
 | ブラウザ版 | 継続して単独動作させる |
-| 初期配布 | portable ZIP + `contE-Setup-x64.exe` |
+| 初期配布 | `contE-win-x64.zip` + `contE-Setup-win-x64.exe` |
 | 動画出力 | 現行経路を維持。ffmpeg同梱は別計画 |
 
 2026-09-20時点で.NET 10はLTSで、公式サポートは2028-11-14までである。.NET 8は2026-11-10にサポート終了予定なので、新規デスクトップ層には使わない。
@@ -157,7 +157,7 @@ IndexedDBは即座に廃止しない。ブラウザ版の自動保存、デス�
 
 ## 4. 実装順
 
-### PR 1 — Windows Shell Spike
+### PR 1 — Windows Shell Spike（完了：PR #13）
 
 実装：
 
@@ -184,7 +184,7 @@ IndexedDBは即座に廃止しない。ブラウザ版の自動保存、デス�
 
 中止条件に該当した場合、PR 2へ進まずElectron spikeと同じfixtureで比較する。
 
-### PR 2 — PlatformAdapterと制御Bridge
+### PR 2 — PlatformAdapterと制御Bridge（完了：PR #13）
 
 実装：
 
@@ -200,7 +200,7 @@ IndexedDBは即座に廃止しない。ブラウザ版の自動保存、デス�
 - ブラウザ版の保存と読込が変わらない。
 - 未知method、timeout、host切断を無言で失敗させない。
 
-### PR 3 — Streaming File I/Oと原子的保存
+### PR 3 — Streaming File I/Oと原子的保存（完了：PR #13）
 
 実装：
 
@@ -217,7 +217,7 @@ IndexedDBは即座に廃止しない。ブラウザ版の自動保存、デス�
 - 書込み途中の例外で既存ファイルが破損しない。
 - 保存成功前にdirtyを解除しない。
 
-### PR 4 — デスクトップUXと復旧
+### PR 4 — デスクトップUXと復旧（初期分完了：PR #14／残りは実機ゲート）
 
 実装：
 
@@ -235,7 +235,7 @@ IndexedDBは即座に廃止しない。ブラウザ版の自動保存、デス�
 - 100%/150%/200% DPIと複数monitorで操作できる。
 - キーボードだけでOpen、Save、Save As、Close確認を操作できる。
 
-### PR 5 — 配布とCI
+### PR 5 — 配布とCI（初期分完了：PR #14／Runtime検査・署名は残課題）
 
 実装：
 
