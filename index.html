@@ -11,19 +11,23 @@
       ><input id="title" aria-label="プロジェクト名" /><button id="save">
         保存</button
       ><button id="open">開く</button
-      ><input id="file" type="file" accept=".contp" hidden /><span
+      ><input id="file" type="file" accept=".contb,.contp" hidden /><span
         id="savestate"
         role="status"
       ></span
-      ><span id="status" role="status"></span>
+      ><span id="filestate"></span><span id="status" role="status"></span>
     </header>
+    <section id="errorNotice" hidden role="alert">
+      <p id="noticeText"></p><button id="noticeRetry" hidden>再試行</button>
+      <button id="noticeAssets">素材を確認</button><button id="noticeDismiss">閉じる</button>
+    </section>
     <nav>
       <button data-act="add">＋ Panel <kbd>N</kbd></button
       ><button data-act="duplicate">複製</button
       ><button data-act="undo">元に戻す</button
       ><button data-act="redo">やり直す</button><button id="play">▶ 再生</button
       ><button id="paper">紙コンテ出力</button
-      ><button id="animatic">Animatic出力</button>
+      ><button id="animatic">Animatic出力</button><button id="toggleInspector" aria-controls="inspector" aria-expanded="false">設定・台詞・音</button>
     </nav>
     <main>
       <aside id="tree"></aside>
@@ -52,12 +56,16 @@
           <button id="fit">表示リセット <kbd>0</kbd></button
           ><output id="viewInfo">100%</output>
         </div>
+        <div id="canvasArea">
         <canvas
           id="drawing"
           width="1280"
           height="720"
           aria-label="描画キャンバス"
         ></canvas>
+        <div id="cameraOverlay" hidden><div id="cameraFrame" role="group" aria-label="Camera枠：ドラッグで移動">
+          <span>Camera</span><button id="cameraResize" aria-label="Camera枠の大きさを変更" title="ドラッグでZoom変更"></button>
+        </div></div></div>
         <div class="hint">
           描画 · N 新規 · ← → Panel · Space 再生 · [ ] 尺 ±1f · Ctrl Z / Shift Z
           履歴 · ホイールでズーム · Alt/中ボタンドラッグで移動 ·
@@ -66,7 +74,8 @@
         <div id="strip"></div>
       </section>
       <div class="splitter" id="splitInspector" title="幅を変更"></div>
-      <aside id="inspector">
+      <aside id="inspector" aria-label="設定">
+        <button id="closeInspector">設定を閉じる</button><p id="selectionInfo" role="status"></p>
         <div id="tabs">
           <button class="tab on" data-tab="content">内容</button
           ><button class="tab" data-tab="camera">Camera</button
@@ -75,7 +84,7 @@
         </div>
         <div class="pane" data-pane="content">
           <label
-            >尺（フレーム）<input
+            >尺（フレーム・複数選択時は一括）<input
               id="frames"
               type="number"
               min="1"
@@ -84,9 +93,12 @@
           ><label>SE / BGM（注記）<textarea id="sound"></textarea></label
           ><label>演出メモ<textarea id="notes"></textarea></label>
           <p class="hint" id="assetInfo"></p>
+          <button id="bulkText" hidden>このコマの文章を選択コマへ適用…</button>
         </div>
         <div class="pane" data-pane="camera" hidden>
           <p id="cameraSummary" class="hint"></p>
+          <label><input id="cameraPreview" type="checkbox" />仕上がりをプレビュー</label>
+          <p class="hint">枠をドラッグして位置、右下をドラッグしてZoomを変更できます。Cameraタブでは描画せず、内容タブに戻ると描画できます。</p>
           <label>キー<select id="keyList" size="4"></select></label>
           <label
             >X<input id="cx" type="number" step=".05" min="-2" max="2" /></label
@@ -245,3 +257,4 @@
     <script type="module" src="src/app.js"></script>
   </body>
 </html>
+

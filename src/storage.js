@@ -23,8 +23,9 @@ export class MemoryStorage {
   async put(store, key, value) {
     this.#bucket(store).set(key, copy(value));
   }
-  async batch(operations) {
+  async batch(operations, {guard = () => {}} = {}) {
     validateBatch(operations);
+    guard();
     // MemoryStorageのテスト/フォールバックでも、複数Storeの確定を一単位にする。
     // put/deleteを差し替えたテスト doubles も同じ失敗経路を通れるようにする。
     const before = new Map(
@@ -35,9 +36,11 @@ export class MemoryStorage {
     );
     try {
       for (const operation of operations) {
+        guard();
         if (operation.type === "put")
           await this.put(operation.store, operation.key, operation.value);
         else await this.delete(operation.store, operation.key);
+        guard();
       }
     } catch (e) {
       this.#data = before;
@@ -127,20 +130,24 @@ export class IndexedDbStorage {
   values(store) {
     return this.#run(store, "readonly", (s) => s.getAll());
   }
-  batch(operations) {
+  batch(operations, {guard = () => {}} = {}) {
     validateBatch(operations);
+    guard();
     if (!operations.length) return Promise.resolve();
     return new Promise((resolve, reject) => {
       if (!this.db) return reject(Error("IndexedDBが開かれていません"));
       const stores = [...new Set(operations.map((operation) => operation.store))];
-      let tx;
+      let tx, guardError;
       try {
         tx = this.db.transaction(stores, "readwrite");
         for (const operation of operations) {
           const objectStore = tx.objectStore(operation.store);
-          if (operation.type === "put")
-            objectStore.put(operation.value, operation.key);
-          else objectStore.delete(operation.key);
+          const request = operation.type === "put"
+            ? objectStore.put(operation.value, operation.key)
+            : objectStore.delete(operation.key);
+          request.onsuccess = () => {
+            try { guard(); } catch (e) { guardError = e; tx.abort(); }
+          };
         }
       } catch (e) {
         try {
@@ -154,7 +161,7 @@ export class IndexedDbStorage {
       tx.onerror = () =>
         reject(tx.error ?? Error("保存失敗"));
       tx.onabort = () =>
-        reject(tx.error ?? Error("保存中断"));
+        reject(guardError ?? tx.error ?? Error("保存中断"));
     });
   }
   close() {
@@ -177,3 +184,4 @@ function validateBatch(operations) {
       throw Error("保存値がありません");
   }
 }
+
