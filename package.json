@@ -7,9 +7,9 @@
     "test": "node --test",
     "build": "node scripts/build.mjs",
     "start": "node scripts/serve.mjs",
+    "build:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1",
     "bench": "node scripts/bench.mjs",
     "test:browser": "node scripts/browser-smoke.mjs",
     "test:ux": "node scripts/browser-ux.mjs"
   }
 }
-

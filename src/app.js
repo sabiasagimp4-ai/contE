@@ -44,6 +44,13 @@ import { prepareProjectDownload, checkProjectSize } from "./project-io.js";
 import { TextDrafts } from "./text-drafts.js";
 import { createExportSnapshot } from "./export-snapshot.js";
 import { AssetOperationCoordinator } from "./asset-flow.js";
+import {
+  isDesktop,
+  openProjectFile,
+  platformReady,
+  saveProjectFile,
+  setDesktopDirty,
+} from "./platform.js";
 const $ = (id) => document.getElementById(id);
 const editor = new EditorController(new EditorSession(new Store()));
 let store = editor.store,
@@ -64,6 +71,9 @@ const endFrame = () => index?.totalFrames ?? tl.total(rows);
 const viewport = () => $("timeline").clientWidth || 900;
 const timelineScheduler = new RenderScheduler(() => timeline());
 const scheduleTimeline = (reason) => timelineScheduler.request(reason);
+platformReady.catch((error) =>
+  notice(`デスクトップ版の初期化に失敗：${error.message}`),
+);
 // 画像素材の表示用ビットマップ。プロジェクトにはIDだけが入る。
 const images = new Map();
 const tool = { erase: false, size: 3 / 1280 };
@@ -112,6 +122,7 @@ function displayValue(id, value) {
 }
 function fileState() {
   $("filestate").textContent = fileDirty ? "ファイル未保存" : "";
+  setDesktopDirty(fileDirty);
 }
 function openInspector(open) {
   $("inspector").classList.toggle("is-open", open);
@@ -1407,18 +1418,28 @@ $("save").onclick = async () => {
   notice("素材をまとめています…");
   try {
     const output = await prepareProjectDownload(store.p, editor.capture(), repo);
-    download(output.blob, output.name);
+    const result = isDesktop
+      ? await saveProjectFile(output.blob, output.name)
+      : (download(output.blob, output.name), { downloaded: true });
+    if (result?.cancelled) {
+      notice("保存をキャンセルしました");
+      return;
+    }
     if (editor.isCurrentRevision(output.token) && !drafts.pending) fileDirty = false;
     fileState();
-    notice(fileDirty ? "ファイルを書き出しました。その後の編集は未保存です。" : `${output.name} のダウンロードを開始しました`);
+    notice(
+      fileDirty
+        ? "ファイルを書き出しました。その後の編集は未保存です。"
+        : isDesktop
+          ? `${result.name || output.name} に保存しました`
+          : `${output.name} のダウンロードを開始しました`,
+    );
     await persist("manual");
   } catch (e) {
     notice(`プロジェクトを保存できません：${e.message}`, () => $("save").click());
   } finally { $("save").disabled = false; }
 };
-$("open").onclick = () => { flushDrafts(); $("file").click(); };
-$("file").onchange = async () => {
-  const f = $("file").files[0];
+async function openProjectInput(f) {
   if (!f) return;
   try {
     flushDrafts();
@@ -1445,14 +1466,29 @@ $("file").onchange = async () => {
     fileDirty = false;
     render();
     notice(bundle ? "Project Bundleを読み込みました" : "読み込み完了");
-    markDirty();
+    // 読み込んだ直後はファイル自体を未変更にする。自動保存だけは更新する。
+    markDirty({ file: false });
     await loadImages();
   } catch (e) {
     notice(e.message, () => $("open").click());
   } finally {
     $("file").value = "";
   }
+}
+$("open").onclick = async () => {
+  flushDrafts();
+  if (isDesktop) {
+    try {
+      const file = await openProjectFile();
+      if (file) await openProjectInput(file);
+    } catch (e) {
+      notice(`Projectを開けません：${e.message}`, () => $("open").click());
+    }
+    return;
+  }
+  $("file").click();
 };
+$("file").onchange = () => openProjectInput($("file").files[0]);
 window.addEventListener("beforeunload", (e) => {
   // ブラウザ内保存が済んでいれば次回の起動で復旧できるので引き止めない。
   if (drafts.pending || saver.pending || (!persistence && fileDirty)) {
@@ -2182,8 +2218,11 @@ const saver = new Autosaver(repo, {
     if (state === "failed") notice(`自動保存に失敗：${message}`, () => saver.flush());
   },
 });
-function markDirty() {
-  fileDirty = true; fileState();
+function markDirty({ file = true } = {}) {
+  if (file) {
+    fileDirty = true;
+    fileState();
+  }
   // 自動保存の失敗で編集操作そのものを止めない。
   try {
     if (persistence) saver.schedule(() => store.p, editor.capture());
@@ -2298,4 +2337,3 @@ function offerRecovery({ meta, project }) {
     notice(`復旧候補を確認できません：${e.message}`);
   }
 })();
-
