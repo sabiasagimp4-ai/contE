@@ -87,6 +87,7 @@ function notice(t, retry = null) {
     $("noticeRetry").onclick = retry;
   }
 }
+$("noticeImage").onclick = () => { flushDrafts(); $("imageFile").click(); };
 $("noticeDismiss").onclick = () => $("errorNotice").hidden = true;
 $("noticeAssets").onclick = () => { openInspector(true); activateTab("sound"); };
 let selectionKind = "panel", cameraMode = false, previewing = false, cameraDraft = null, scrubbing = false;

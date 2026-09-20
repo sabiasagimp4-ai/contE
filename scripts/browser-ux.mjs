@@ -61,7 +61,18 @@ try {
  await page.locator('[data-tab=camera]').click();const frame=await page.locator('#cameraFrame').boundingBox();
  const xBefore=await page.locator('#cx').inputValue();await page.mouse.move(frame.x+frame.width*.45,frame.y+frame.height*.4);await page.mouse.down();await page.mouse.move(frame.x+frame.width*.45+25,frame.y+frame.height*.4+10,{steps:4});await page.mouse.up();
  assert.notEqual(await page.locator('#cx').inputValue(),xBefore);await page.locator('[data-act=undo]').click();assert.equal(await page.locator('#cx').inputValue(),xBefore);
+ const resize=await page.locator('#cameraResize').boundingBox();const zoomBefore=await page.locator('#cz').inputValue();
+ await page.mouse.move(resize.x+5,resize.y+5);await page.mouse.down();await page.mouse.move(resize.x-30,resize.y-20,{steps:4});await page.mouse.up();
+ assert.notEqual(await page.locator('#cz').inputValue(),zoomBefore);await page.locator('[data-act=undo]').click();assert.equal(await page.locator('#cz').inputValue(),zoomBefore);
  await page.locator('#cameraPreview').check();assert.equal(await page.locator('#cameraOverlay').isVisible(),false);
+ await page.locator('[data-tab=content]').click();
+ // Select audio from another panel; Delete must remove audio, not the panel.
+ await page.locator('#strip button').first().click();await page.locator('[data-tab=sound]').click();
+ const wav=Buffer.alloc(16044);wav.write('RIFF');wav.writeUInt32LE(16036,4);wav.write('WAVE',8);wav.write('fmt ',12);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(8000,24);wav.writeUInt32LE(16000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(16000,40);
+ await page.locator('#audioFile').setInputFiles({name:'tone.wav',mimeType:'audio/wav',buffer:wav});await page.waitForFunction(()=>document.querySelectorAll('.sound').length===1);
+ await page.locator('#strip button').nth(2).click();await page.locator('.sound').first().click();
+ assert.match(await page.locator('#clipInfo').innerText(),/tone.wav/);
+ const panelCount=await page.locator('#strip button').count();await page.keyboard.press('Delete');assert.equal(await page.locator('.sound').count(),0);assert.equal(await page.locator('#strip button').count(),panelCount);
  await page.locator('[data-tab=content]').click();
  // Tree collapse and keyboard focus survive unrelated rendering.
  await page.locator('#tree summary').click();assert.equal(await page.locator('#tree details').first().getAttribute('open'),null);
@@ -92,6 +103,15 @@ try {
  // File picker can reopen the generated Bundle, with assets intact.
  await page.locator('#file').setInputFiles({name:out.suggestedFilename(),mimeType:'application/zip',buffer:await readFile(await out.path())});
  await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Bundleを読み込みました'));
+ // Real IndexedDB transaction abort: neither newly imported asset survives.
+ const atomic = await page.evaluate(async()=>{
+   const {ProjectRepository}=await import('./src/repository.js');const {IndexedDbStorage}=await import('./src/storage.js');const {sha256Hex}=await import('./src/bundle.js');
+   const storage=new IndexedDbStorage('ux-atomic'), repo=new ProjectRepository(storage);await repo.open();
+   const entries=[];for(const id of ['one','two']){const bytes=new TextEncoder().encode(id);entries.push({id,bytes,mime:'audio/wav',sha256:await sha256Hex(bytes)});}
+   let checks=0,adopted=false,error='';try{await repo.importAssets(entries,{isCurrent:()=>++checks<4,adopt:()=>adopted=true});}catch(e){error=e.message;}
+   const ids=await repo.assetIds();storage.close();return {ids,adopted,error};
+ });
+ assert.deepEqual(atomic.ids,[]);assert.equal(atomic.adopted,false);assert.match(atomic.error,/編集が変わり/);
  // Long errors remain fully readable and retryable.
  await page.locator('#file').setInputFiles({name:'broken.contp',mimeType:'application/json',buffer:Buffer.from('{broken')});
  await page.waitForFunction(()=>!document.querySelector('#errorNotice').hidden);assert.ok(await page.locator('#noticeRetry').isVisible());

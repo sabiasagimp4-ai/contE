@@ -4,6 +4,17 @@
 
 最終更新: 2026-09-14
 
+## 2026-09-20の実装差分
+
+- `project-io.js`：出力スナップショット、素材Lease、作品名、Bundle入出力の容量境界。
+- `text-drafts.js`：元の対象・Sessionを保持する文章下書き。IME中はタイマー確定を待つ。
+- `ProjectRepository.importAssets()`：全件検証後のbatch書き込み、revisionガード、同期的なProject採用。Storage.batchは任意のguardに対応。
+- `app.js`：Panel/Camera/音声の操作対象、スクラブ表示との同期、Camera枠、狭幅Inspector、開閉・フォーカス保持、全文エラー通知。
+- `bundle.js`、`export-snapshot.js`、`editor-controller.js`、`project-index.js`、`render-scheduler.js`、`asset-flow.js`は以前の基盤改善で導入済み。
+- 保存ボタンは素材込み `.contb`。旧 `.contp` JSONは読み込み互換。ブラウザ内保存とファイル書き出しの状態を区別する。
+
+以下の詳細節は以前の基準構造を含む。現行のUXと検証の差分は[UX_REVIEW_FIXES.md](UX_REVIEW_FIXES.md)を参照。
+
 ## 1. 実行形態
 
 contE は、Node.jsで静的ファイルを配信してブラウザで実行する、依存ライブラリなしのES Modulesアプリである。
@@ -538,3 +549,4 @@ Asset GCは、現在Project、Undo/Redo履歴、保持中SnapshotのAsset IDを�
 8. 出力の中止・進捗・逐次処理は`Job`/`forEachPage()`の規約を通す。
 
 この8点が、編集画面、Timeline、再生、紙コンテ、Animatic、復旧の間でProjectの意味を一致させている現在の構造である。
+
