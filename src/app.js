@@ -39,7 +39,9 @@ import { EditorSession } from "./editor-session.js";
 import { EditorController } from "./editor-controller.js";
 import { buildProjectIndex } from "./project-index.js";
 import { RenderScheduler } from "./render-scheduler.js";
-import { createBundle, readBundle, bytesOf, sha256Hex } from "./bundle.js";
+import { readBundle } from "./bundle.js";
+import { prepareProjectDownload, checkProjectSize } from "./project-io.js";
+import { TextDrafts } from "./text-drafts.js";
 import { createExportSnapshot } from "./export-snapshot.js";
 import { AssetOperationCoordinator } from "./asset-flow.js";
 const $ = (id) => document.getElementById(id);
@@ -75,8 +77,51 @@ function reindex() {
   rows = index.rows;
   return index;
 }
-const notice = (t) => ($("status").textContent = t);
+function notice(t, retry = null) {
+  $("status").textContent = t;
+  $("status").title = t;
+  if (retry || /失敗|できません|不正|見つかりません|未対応|一致しません|違います/.test(t)) {
+    $("noticeText").textContent = t;
+    $("errorNotice").hidden = false;
+    $("noticeRetry").hidden = !retry;
+    $("noticeRetry").onclick = retry;
+  }
+}
+$("noticeImage").onclick = () => { flushDrafts(); $("imageFile").click(); };
+$("noticeDismiss").onclick = () => $("errorNotice").hidden = true;
+$("noticeAssets").onclick = () => { openInspector(true); activateTab("sound"); };
+let selectionKind = "panel", cameraMode = false, previewing = false, cameraDraft = null, scrubbing = false;
+const treeOpen = new Map();
+const drafts = new TextDrafts((entries) => {
+  const result = editor.edit(p => {
+    const all = flatten(p);
+    for (const d of entries) {
+      if (!editor.isCurrent(d.token)) continue;
+      const row = all.find(r => r.panel.id === d.target);
+      const object = d.kind === "project" ? p : row?.[d.kind];
+      if (object) object[d.field] = d.value;
+    }
+  });
+  store = editor.store;
+  if (result.changed) { reindex(); markDirty(); }
+});
+function flushDrafts() { drafts.flush(); }
+function displayValue(id, value) {
+  const node = $(id);
+  if (document.activeElement !== node || (!drafts.pending && !drafts.composing.has(id))) node.value = value;
+}
+function fileState() {
+  $("filestate").textContent = fileDirty ? "ファイル未保存" : "";
+}
+function openInspector(open) {
+  $("inspector").classList.toggle("is-open", open);
+  $("toggleInspector").setAttribute("aria-expanded", String(open));
+}
+$("toggleInspector").onclick = () => openInspector(!$("inspector").classList.contains("is-open"));
+$("closeInspector").onclick = () => { openInspector(false); $("toggleInspector").focus(); };
+
 function replaceStore(project, selection) {
+  drafts.clear(); treeOpen.clear(); previewing = false; selectionKind = "panel";
   editor.replace(project, selection);
   store = editor.store;
   reindex();
@@ -89,6 +134,7 @@ function stop() {
   $("play").textContent = "▶ 再生";
 }
 function edit(fn) {
+  flushDrafts();
   const before = activeId();
   stop();
   try {
@@ -104,11 +150,13 @@ function edit(fn) {
     }
     render();
   } catch (e) {
-    notice(e.message);
+    notice(e.message, () => { openInspector(true); activateTab("content"); });
   }
 }
 // Ctrl/Cmdで増減、Shiftで全体順序上の範囲選択。
 function select(id, e = {}) {
+  flushDrafts();
+  selectionKind = "panel"; previewing = false;
   stop();
   const all = rows.map((r) => r.panel.id);
   let ids;
@@ -128,6 +176,7 @@ function select(id, e = {}) {
   render();
 }
 function history(step) {
+  flushDrafts();
   stop();
   const result = step === "undo" ? editor.undo() : editor.redo();
   store = editor.store;
@@ -159,6 +208,9 @@ const thumbnailObserver = new IntersectionObserver(
   { root: $("strip") },
 );
 function render() {
+  const focused = document.activeElement?.dataset?.focusKey;
+  const treeScroll = $("tree").scrollTop, stripScroll = $("strip").scrollLeft;
+  for (const d of $("tree").querySelectorAll("details[data-scene]")) treeOpen.set(d.dataset.scene, d.open);
   timelineScheduler.cancel();
   thumbnailObserver.disconnect();
   reindex();
@@ -166,12 +218,15 @@ function render() {
   store = editor.store;
   resolved = audio.resolveClips(store.p, rows);
   const r = current();
-  $("title").value = store.p.title;
+  displayValue("title", store.p.title);
+  fileState();
   $("tree").replaceChildren();
   store.p.scenes.forEach((s) => {
     const d = document.createElement("details");
-    d.open = s.id === r.scene.id;
+    d.dataset.scene = s.id;
+    d.open = treeOpen.get(s.id) ?? (s.id === r.scene.id);
     const summary = document.createElement("summary");
+    summary.dataset.focusKey = `scene-${s.id}`;
     summary.textContent = `${s.name} (${s.shots.length} Shots)`;
     summary.title = "ダブルクリックで名前を変更";
     summary.ondblclick = (e) => {
@@ -186,6 +241,7 @@ function render() {
         select(h.panels[0].id, e),
       );
       shot.className = "shot";
+      shot.dataset.focusKey = `shot-${h.id}`;
       shot.title = "ダブルクリックで名前を変更";
       shot.ondblclick = (e) => {
         e.preventDefault();
@@ -197,24 +253,33 @@ function render() {
         );
       };
       d.append(shot);
-      h.panels.forEach((p, pi) =>
-        d.append(
-          button(
+      h.panels.forEach((p, pi) => {
+        const node = button(
             `Panel ${pi + 1} · ${p.frames}f`,
             (e) => select(p.id, e),
             `panel ${isSelected(p.id) ? "selected" : ""}`,
-          ),
-        ),
-      );
+          );
+        node.dataset.focusKey = `tree-${p.id}`;
+        d.append(node);
+      });
     });
     $("tree").append(d);
   });
   $("breadcrumb").textContent =
     `${r.scene.name}  /  ${r.shot.name || `Shot ${r.hi + 1}`}  /  Panel ${r.pi + 1}`;
   for (const k of ["frames", "dialogue", "sound", "notes"])
-    $(k).value = r.panel[k];
-  $("sceneName").value = r.scene.name;
-  $("shotName").value = r.shot.name;
+    displayValue(k, r.panel[k]);
+  displayValue("sceneName", r.scene.name);
+  displayValue("shotName", r.shot.name);
+  const selected = rows.filter(row => isSelected(row.panel.id));
+  const mixed = ["frames", "dialogue", "sound", "notes"].filter(k => new Set(selected.map(row => row.panel[k])).size > 1);
+  $("selectionInfo").textContent = selected.length > 1
+    ? `${selected.length}コマ選択中${mixed.length ? "・値が混在" : ""}。文章は表示中のコマのみ、尺は選択全体へ適用。`
+    : selectionKind === "camera" ? "Cameraキーを編集（Deleteでキー削除）"
+    : selectionKind === "audio" ? "音声を編集（Deleteでクリップ削除）" : "表示中のコマを編集";
+  $("bulkText").hidden = selected.length < 2;
+  $("frames").placeholder = mixed.includes("frames") ? "値が混在" : "";
+  if (mixed.includes("frames") && document.activeElement !== $("frames")) $("frames").value = "";
   const asset =
     r.panel.image && store.p.assets.find((a) => a.id === r.panel.image.assetId);
   $("imageOpacity").value = Math.round((r.panel.image?.opacity ?? 1) * 100);
@@ -234,6 +299,7 @@ function render() {
         isSelected(p.id) ? "selected" : "",
       );
       b.dataset.panel = p.id;
+      b.dataset.focusKey = `strip-${p.id}`;
       b.onclick = (e) => {
         if (dragged) return;
         select(p.id, e);
@@ -250,6 +316,8 @@ function render() {
   );
   timeline();
   paint();
+  $("tree").scrollTop = treeScroll; $("strip").scrollLeft = stripScroll;
+  if (focused) document.querySelector(`[data-focus-key="${CSS.escape(focused)}"]`)?.focus({preventScroll:true});
   reveal();
 }
 // Cameraキーの一覧と値。位置はフレームで見せ、保存は比率のまま。
@@ -335,7 +403,7 @@ function audioTrack(px, left, width) {
 function soundClip(item, px) {
   const el = document.createElement("div");
   const missing = !sound.has(item.clip.assetId);
-  el.className = `sound${item.clip.id === clipId ? " selected" : ""}${
+  el.className = `sound${selectionKind === "audio" && item.clip.id === clipId ? " selected" : ""}${
     missing ? " missing" : ""
   }`;
   el.style.left = `${item.start * px}px`;
@@ -370,7 +438,11 @@ function soundClip(item, px) {
 function startClipDrag(e, item, el, px) {
   if (e.target.className === "trim") return;
   stop();
+  flushDrafts();
+  selectionKind = "audio";
   clipId = item.clip.id;
+  editor.select({active:item.clip.anchor, ids:[item.clip.anchor]}); store = editor.store;
+  previewing = false; activateTab("sound", false);
   const origin = e.clientX,
     start = item.start;
   let moved = false;
@@ -393,7 +465,11 @@ function startClipDrag(e, item, el, px) {
     el.onpointermove = el.onpointerup = el.onpointercancel = null;
     if (!commit || !moved) return render();
     const at = next(v);
-    edit((p) => audio.placeClip(p, flatten(p), item.clip.id, at));
+    edit((p) => {
+      audio.placeClip(p, flatten(p), item.clip.id, at);
+      const target = p.audio.find(c => c.id === item.clip.id).anchor;
+      return {active:target, ids:[target]};
+    });
   };
   el.onpointerup = (v) => finish(v, true);
   el.onpointercancel = (v) => finish(v, false);
@@ -401,7 +477,11 @@ function startClipDrag(e, item, el, px) {
 function startClipTrim(e, item, trim, el, px) {
   e.stopPropagation();
   stop();
+  flushDrafts();
+  selectionKind = "audio";
   clipId = item.clip.id;
+  editor.select({active:item.clip.anchor, ids:[item.clip.anchor]}); store = editor.store;
+  previewing = false; activateTab("sound", false);
   const origin = e.clientX,
     frames = item.clip.frames;
   trim.setPointerCapture(e.pointerId);
@@ -422,6 +502,7 @@ function startClipTrim(e, item, trim, el, px) {
 // 選択が変わったときだけ視界へ入れる。ユーザーのスクロールを毎回奪わない。
 let revealed = null;
 function reveal() {
+  if (scrubbing) { revealed = activeId(); return; }
   if (revealed === activeId()) return;
   revealed = activeId();
   for (const sel of ["#strip .selected", "#tree .panel.selected"])
@@ -430,7 +511,7 @@ function reveal() {
       inline: "nearest",
     });
   const view = $("timeline");
-  view.scrollLeft = tl.follow(
+  if (!playing || $("followHead").checked) view.scrollLeft = tl.follow(
     current().start,
     scale(),
     view.scrollLeft,
@@ -543,10 +624,21 @@ function clips(px, left, width) {
   for (const r of tl.visible(rows, px, left, width)) {
     const rect = tl.clipRect(r, px);
     const b = button(
-      `P${r.pi + 1} · ${r.panel.frames}f`,
+      `${r.scene.name} / ${r.shot.name || `Shot ${r.hi + 1}`} / P${r.pi + 1} · ${r.panel.frames}f`,
       () => {},
       `clip ${isSelected(r.panel.id) ? "selected" : ""}`,
     );
+    b.title = b.textContent;
+    b.dataset.focusKey = `timeline-${r.panel.id}`;
+    b.classList.toggle("shot-start", r.pi === 0);
+    const label = document.createElement("span"); label.className = "clip-label";
+    label.textContent = b.textContent; b.replaceChildren(label);
+    if (rect.width >= 65) {
+      const thumb = document.createElement("canvas"); thumb.className = "timeline-thumb";
+      thumb.width = 88; thumb.height = 50;
+      draw(thumb.getContext("2d"), r.panel, 88, 50, null, images);
+      b.append(thumb);
+    }
     b.style.left = `${rect.left}px`;
     b.style.width = `${rect.width}px`;
     b.onclick = (e) => {
@@ -616,7 +708,7 @@ function cameraTrack(px, left, width) {
     r.panel.camera.forEach((k, index) => {
       const dot = document.createElement("span");
       dot.className = `camkey${
-        r.panel.id === activeId() && index === cameraKey ? " selected" : ""
+        selectionKind === "camera" && r.panel.id === activeId() && index === cameraKey ? " selected" : ""
       }`;
       dot.style.left = `${k.t * r.panel.frames * px}px`;
       dot.title = `${Math.round(k.t * r.panel.frames)}f`;
@@ -637,6 +729,7 @@ const localFrame = (e, r, px) =>
     ),
   );
 function startKeyDrag(e, r, index, dot, px) {
+  flushDrafts(); selectionKind = "camera"; activateTab("camera", false);
   e.stopPropagation();
   stop();
   let moved = false;
@@ -672,16 +765,21 @@ function cameraKeyIndexAt(b, f, fallback) {
   return best;
 }
 function paint(preview = false) {
+  preview = preview || playing || previewing;
   const r = preview ? rowAtFrame(rows, frame) : current();
+  const key = cameraDraft ?? r.panel.camera[cameraKey] ?? r.panel.camera[0];
+  const camera = preview ? cameraAt(r.panel, (frame-r.start)/r.panel.frames)
+    : cameraMode && $("cameraPreview").checked ? key : null;
   draw(
     $("drawing").getContext("2d"),
     r.panel,
     1280,
     720,
-    preview ? cameraAt(r.panel, (frame - r.start) / r.panel.frames) : null,
+    camera,
     images,
-    preview ? null : view,
+    preview || cameraMode ? null : view,
   );
+  updateCameraOverlay();
   $("time").textContent = `${Math.floor(frame / store.p.fps)}s : ${Math.floor(
     frame % store.p.fps,
   )
@@ -749,17 +847,40 @@ for (const [name, delta] of [
 document
   .querySelectorAll("[data-act]")
   .forEach((b) => (b.onclick = acts[b.dataset.act]));
-for (const k of ["frames", "dialogue", "sound", "notes"])
-  $(k).onchange = () =>
-    edit((p) => {
-      const ids = new Set(store.selection.ids);
-      for (const r of flatten(p))
-        if (ids.has(r.panel.id))
-          r.panel[k] = k === "frames" ? Number($(k).value) : $(k).value;
-    });
-$("title").onchange = () => edit((p) => (p.title = $("title").value));
+$("frames").onchange = () => {
+  if (!$("frames").value) return;
+  const value = Number($("frames").value);
+  edit(p => { for (const r of flatten(p)) if (isSelected(r.panel.id)) r.panel.frames = value; });
+};
+for (const [id, kind, field] of [
+  ["title", "project", "title"], ["dialogue", "panel", "dialogue"],
+  ["sound", "panel", "sound"], ["notes", "panel", "notes"],
+  ["sceneName", "scene", "name"], ["shotName", "shot", "name"],
+]) {
+  const node = $(id);
+  const stage = () => {
+    stop();
+    drafts.stage(id, {kind, field, target:activeId(), token:editor.capture(),
+      value: kind === "scene" || kind === "shot" ? node.value.slice(0,60) : node.value});
+    fileDirty = true; fileState();
+    $("savestate").textContent = "入力中・保存待ち";
+  };
+  node.oninput = stage;
+  node.oncompositionstart = () => drafts.composition(id, true);
+  node.oncompositionend = () => { stage(); drafts.composition(id, false); };
+  node.onchange = () => { stage(); flushDrafts(); };
+  node.onblur = () => { drafts.composition(id, false); flushDrafts(); };
+}
+$("bulkText").onclick = () => {
+  flushDrafts();
+  if (!confirm(`選択した${store.selection.ids.length}コマの台詞・音注記・演出メモを、このコマの文章で置き換えますか？`)) return;
+  const source = current().panel;
+  edit(p => { for (const r of flatten(p)) if (isSelected(r.panel.id))
+    for (const key of ["dialogue", "sound", "notes"]) r.panel[key] = source[key]; });
+};
 // キーは再生ヘッドがあるPanelへ置く。そのPanelを選択し直すので次の操作が続けやすい。
 $("key").onclick = () => {
+  flushDrafts(); selectionKind = "camera";
   const target = rowAtFrame(rows, Math.round(frame));
   edit((p) => {
     const r = flatten(p).find((v) => v.panel.id === target.panel.id);
@@ -781,7 +902,7 @@ $("keyDelete").onclick = () =>
     if (removeCameraKey(b, cameraKey)) cameraKey = Math.max(0, cameraKey - 1);
   });
 $("keyList").onchange = () => {
-  cameraKey = Number($("keyList").value);
+  cameraKey = Number($("keyList").value); selectionKind = "camera"; previewing = false;
   render();
 };
 const values = () =>
@@ -797,8 +918,10 @@ for (const id of ["cx", "cy", "cz", "cr"])
       const b = flatten(p).find((v) => v.panel.id === activeId()).panel;
       const key = b.camera[cameraKey];
       if (key) Object.assign(key, values());
+      previewing = false; selectionKind = "camera";
     });
 $("play").onclick = () => {
+  flushDrafts();
   if (playing) {
     stop();
     return;
@@ -821,6 +944,12 @@ $("play").onclick = () => {
       frame = endFrame();
       stop();
     }
+    const shown = rowAtFrame(rows, Math.min(frame, endFrame() - 1));
+    if (shown.panel.id !== activeId()) {
+      editor.select({active:shown.panel.id, ids:[shown.panel.id]}); store = editor.store;
+      render();
+    }
+    previewing = true;
     paint(true);
     if ($("followHead").checked) {
       const view = $("timeline");
@@ -868,10 +997,11 @@ $("timeline").onscroll = () => scheduleTimeline("scroll");
 // 目盛と空き領域はスクラブ。整数フレームでPanel境界をまたぐ。
 $("track").onpointerdown = (e) => {
   if (
-    ![$("track"), $("ruler"), $("clips"), $("cameraTrack")].includes(e.target)
+    ![$("track"), $("ruler"), $("clips"), $("cameraTrack")].includes(e.target) && !e.target.closest(".tick")
   )
     return;
   stop();
+  flushDrafts(); selectionKind = "panel"; scrubbing = true;
   const targets = $("snap").checked
     ? tl.snapTargets(rows, store.p.fps, endFrame(), null)
     : [];
@@ -882,12 +1012,19 @@ $("track").onpointerdown = (e) => {
       endFrame(),
     );
     frame = targets.length && !v.altKey ? tl.snap(raw, targets, scale()) : raw;
+    const shown = rowAtFrame(rows, frame);
+    previewing = true;
+    if (shown.panel.id !== activeId()) {
+      editor.select({active:shown.panel.id, ids:[shown.panel.id]}); store = editor.store;
+      render();
+    }
     paint(true);
   };
   $("track").setPointerCapture(e.pointerId);
   seek(e);
   $("track").onpointermove = seek;
   $("track").onpointerup = $("track").onpointercancel = () => {
+    scrubbing = false;
     $("track").onpointermove = null;
   };
 };
@@ -922,7 +1059,15 @@ function setView(zoom, x, y) {
 }
 let panning = null;
 $("drawing").onpointerdown = (e) => {
+  flushDrafts();
   stop();
+  if (cameraMode) return;
+  if (previewing) {
+    const shown = rowAtFrame(rows, frame);
+    editor.select({active:shown.panel.id, ids:[shown.panel.id]}); store = editor.store;
+    previewing = false; render();
+  }
+  selectionKind = "panel";
   if (e.button === 1 || e.altKey) {
     panning = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
     $("drawing").setPointerCapture(e.pointerId);
@@ -931,6 +1076,7 @@ $("drawing").onpointerdown = (e) => {
   }
   if (e.button !== 0) return;
   stroke = {
+    targetId: activeId(),
     size: tool.size,
     erase: tool.erase,
     points: [[...point(e), pressure(e)]],
@@ -962,12 +1108,12 @@ $("drawing").onpointermove = (e) => {
 $("drawing").onpointerup = () => {
   panning = null;
   if (stroke) {
-    const s = stroke;
+    const {targetId, ...s} = stroke;
     stroke = null;
     edit(
       (p) =>
-        (flatten(p).find((r) => r.panel.id === activeId()).panel.strokes = [
-          ...flatten(p).find((r) => r.panel.id === activeId()).panel.strokes,
+        (flatten(p).find((r) => r.panel.id === targetId).panel.strokes = [
+          ...flatten(p).find((r) => r.panel.id === targetId).panel.strokes,
           s,
         ]),
     );
@@ -1243,45 +1389,44 @@ $("clipRepair").onclick = () => {
   };
   picker.click();
 };
-for (const [id, key] of [
-  ["sceneName", "scene"],
-  ["shotName", "shot"],
-])
-  $(id).onchange = () =>
-    edit((p) => {
-      const r = flatten(p).find((v) => v.panel.id === activeId());
-      r[key].name = $(id).value.slice(0, 60);
-    });
-for (const tab of document.querySelectorAll(".tab"))
-  tab.onclick = () => {
-    for (const t of document.querySelectorAll(".tab"))
-      t.classList.toggle("on", t === tab);
-    for (const pane of document.querySelectorAll("#inspector .pane"))
-      pane.hidden = pane.dataset.pane !== tab.dataset.tab;
-  };
+function activateTab(name, redraw = true) {
+  for (const t of document.querySelectorAll(".tab")) {
+    t.classList.toggle("on", t.dataset.tab === name);
+    t.setAttribute("aria-pressed", String(t.dataset.tab === name));
+  }
+  for (const pane of document.querySelectorAll("#inspector .pane")) pane.hidden = pane.dataset.pane !== name;
+  cameraMode = name === "camera"; previewing = false;
+  if (redraw) { selectionKind = cameraMode ? "camera" : name === "sound" ? "audio" : "panel"; render(); }
+}
+for (const tab of document.querySelectorAll(".tab")) tab.onclick = () => {flushDrafts(); activateTab(tab.dataset.tab);};
+$("cameraPreview").onchange = () => paint();
 $("save").onclick = async () => {
+  if ($("save").disabled) return;
+  flushDrafts();
+  $("save").disabled = true;
+  notice("素材をまとめています…");
   try {
-    const blob = await createBundle(
-      store.p,
-      await bundleAssetEntries(store.p),
-    );
-    download(blob, "project.contb");
-    fileDirty = false;
-    notice("素材込みのProject Bundleをダウンロードしました");
+    const output = await prepareProjectDownload(store.p, editor.capture(), repo);
+    download(output.blob, output.name);
+    if (editor.isCurrentRevision(output.token) && !drafts.pending) fileDirty = false;
+    fileState();
+    notice(fileDirty ? "ファイルを書き出しました。その後の編集は未保存です。" : `${output.name} のダウンロードを開始しました`);
     await persist("manual");
   } catch (e) {
-    notice(`プロジェクトを保存できません：${e.message}`);
-  }
+    notice(`プロジェクトを保存できません：${e.message}`, () => $("save").click());
+  } finally { $("save").disabled = false; }
 };
-$("open").onclick = () => $("file").click();
+$("open").onclick = () => { flushDrafts(); $("file").click(); };
 $("file").onchange = async () => {
   const f = $("file").files[0];
   if (!f) return;
   try {
-    if (f.size > 50e6) throw Error("50MBを超えるファイルは未対応です");
+    flushDrafts();
+    const isBundle = f.name.toLowerCase().endsWith(".contb");
+    checkProjectSize(f.size, isBundle);
     // BundleはProjectと素材を検証してから、現在の編集内容へ触れる。
     let bundle = null;
-    const p = f.name.toLowerCase().endsWith(".contb")
+    const p = isBundle
       ? (bundle = await readBundle(f)).project
       : load(await f.text());
     if (
@@ -1289,12 +1434,13 @@ $("file").onchange = async () => {
       !confirm("編集中の内容を置き換えて開きますか？")
     )
       return;
+    flushDrafts();
     const token = editor.capture();
-    if (bundle) await importBundleAssets(bundle);
-    if (!editor.isCurrent(token))
-      throw Error("読み込み中に編集内容が変わったため開くのを中止しました");
-    stop();
-    replaceStore(p);
+    const adopt = () => { stop(); replaceStore(p); };
+    if (bundle) await repo.importAssets(bundle.assets, {
+      isCurrent: () => editor.isCurrentRevision(token) && !drafts.pending, adopt,
+    });
+    else adopt();
     frame = 0;
     fileDirty = false;
     render();
@@ -1302,24 +1448,29 @@ $("file").onchange = async () => {
     markDirty();
     await loadImages();
   } catch (e) {
-    notice(e.message);
+    notice(e.message, () => $("open").click());
   } finally {
     $("file").value = "";
   }
 };
 window.addEventListener("beforeunload", (e) => {
   // ブラウザ内保存が済んでいれば次回の起動で復旧できるので引き止めない。
-  if (saver.pending || (!persistence && fileDirty)) {
+  if (drafts.pending || saver.pending || (!persistence && fileDirty)) {
     e.preventDefault();
     e.returnValue = "";
   }
 });
 for (const event of ["pagehide", "visibilitychange"])
   window.addEventListener(event, () => {
-    if (event === "pagehide" || document.visibilityState === "hidden")
-      saver.flush();
+    if (event === "pagehide" || document.visibilityState === "hidden") {
+      flushDrafts(); saver.flush();
+    }
   });
 document.addEventListener("keydown", (e) => {
+  if (e.isComposing) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+    e.preventDefault(); flushDrafts(); $("save").click(); return;
+  }
   if (
     /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) ||
     $("paperDialog").open ||
@@ -1335,6 +1486,7 @@ document.addEventListener("keydown", (e) => {
   else if (mod && k === "s") fn = () => $("save").click();
   else if (mod && e.shiftKey && k === "k") fn = acts.merge;
   else if (mod && k === "k") fn = acts.split;
+  else if (mod || e.altKey) return;
   else if (k === "n") fn = acts.add;
   else if (k === "k") fn = () => $("key").click();
   else if (k === "e")
@@ -1342,7 +1494,11 @@ document.addEventListener("keydown", (e) => {
   else if (k === "0") fn = () => $("fit").click();
   else if (k === "f") fn = () => $("fitTime").click();
   else if (k === "delete" || k === "backspace")
-    fn = () => !$("keyDelete").disabled && $("keyDelete").click();
+    fn = () => {
+      if (selectionKind === "camera") { if (!$("keyDelete").disabled) $("keyDelete").click(); }
+      else if (selectionKind === "audio") { if (!$("clipDelete").disabled) $("clipDelete").click(); }
+      else acts.delete();
+    };
   else if (k === "+" || k === "=" || k === "-")
     fn = () => {
       zoomTo(scaleIndex + (k === "-" ? -1 : 1));
@@ -1380,6 +1536,7 @@ document.addEventListener("keydown", (e) => {
 const paper = () => store.p.paper;
 const paperEdit = (change) => {
   edit((p) => change(p.paper));
+  columnSettings();
   schedulePreview();
 };
 function paperSettings() {
@@ -1470,7 +1627,7 @@ function columnSettings() {
   const list = $("paperColumns");
   list.replaceChildren();
   const used = new Map(o.columns.map((c) => [c.key, c]));
-  for (const key of PAPER_COLUMNS) {
+  for (const key of [...o.columns.map(c => c.key), ...PAPER_COLUMNS.filter(k => !used.has(k))]) {
     const column = used.get(key);
     const row = document.createElement("div");
     row.className = "column";
@@ -1510,7 +1667,14 @@ function columnSettings() {
       );
     const up = move(-1),
       down = move(1);
-    up.disabled = down.disabled = !column;
+    const at = o.columns.findIndex(c => c.key === key);
+    up.disabled = !column || at === 0;
+    down.disabled = !column || at === o.columns.length - 1;
+    show.disabled = !!column && o.columns.length === 1;
+    show.setAttribute("aria-label", `${COLUMN_LABEL[key]}を表示`);
+    width.setAttribute("aria-label", `${COLUMN_LABEL[key]}の幅`);
+    up.setAttribute("aria-label", `${COLUMN_LABEL[key]}を左へ`);
+    down.setAttribute("aria-label", `${COLUMN_LABEL[key]}を右へ`);
     row.append(show, name, width, up, down);
     list.append(row);
   }
@@ -1576,6 +1740,7 @@ function progress(text, running) {
     "#paperSettings input, #paperSettings select, #paperColumns input, #paperColumns button, #print, #png",
   ))
     node.disabled = running;
+  if (!running) columnSettings();
 }
 // 出力は1ページずつ。途中でキャンセルできるようJobを渡す。
 async function exportPages(handle, label) {
@@ -1632,6 +1797,7 @@ async function exportPages(handle, label) {
 }
 $("cancelExport").onclick = () => job?.cancel();
 $("paper").onclick = async () => {
+  flushDrafts();
   stop();
   $("paperDialog").showModal();
   await ensureImages(store.p);
@@ -1842,6 +2008,7 @@ async function animaticRecord(spec, mime, snapshot) {
   }
 }
 $("animatic").onclick = () => {
+  flushDrafts();
   stop();
   animaticSetup();
   animaticProgress("", false);
@@ -1889,6 +2056,50 @@ $("animaticStart").onclick = async () => {
     animaticProgress($("animaticProgress").textContent, false);
   }
 };
+// Camera frame is shown in source-image coordinates; pointer gestures are a
+// preview only until pointerup, so one drag is exactly one Undo operation.
+function canvasGeometry() {
+  const box = $("drawing").getBoundingClientRect();
+  const width = Math.min(box.width, box.height * 16 / 9), height = width * 9 / 16;
+  return {width, height, left:(box.width-width)/2, top:(box.height-height)/2, box};
+}
+function updateCameraOverlay() {
+  const show = cameraMode && !playing && !previewing && !$("cameraPreview").checked;
+  $("cameraOverlay").hidden = !show;
+  if (!show || !current()) return;
+  const g = canvasGeometry(), key = cameraDraft ?? current().panel.camera[cameraKey];
+  const node = $("cameraFrame"), width = g.width/key.zoom, height = g.height/key.zoom;
+  Object.assign(node.style, {left:`${g.left+g.width*(.5+key.x)-width/2}px`,
+    top:`${g.top+g.height*(.5+key.y)-height/2}px`, width:`${width}px`, height:`${height}px`,
+    transform:`rotate(${-key.rotation}deg)`});
+}
+function startCameraGesture(e, resize) {
+  if (e.button !== 0) return;
+  e.preventDefault(); e.stopPropagation(); flushDrafts(); stop();
+  previewing = false; selectionKind = "camera";
+  const node = e.currentTarget, token = editor.capture(), id = activeId(), index = cameraKey;
+  const base = {...current().panel.camera[index]}, g = canvasGeometry();
+  const x = e.clientX, y = e.clientY;
+  const centerX = g.box.left+g.left+g.width*(.5+base.x), centerY = g.box.top+g.top+g.height*(.5+base.y);
+  const distance = Math.max(1, Math.hypot(x-centerX,y-centerY));
+  cameraDraft = {...base}; node.setPointerCapture(e.pointerId);
+  node.onpointermove = v => {
+    cameraDraft = resize ? {...base, zoom:Math.max(.1,Math.min(10,base.zoom*distance/Math.max(1,Math.hypot(v.clientX-centerX,v.clientY-centerY))))}
+      : {...base,x:Math.max(-2,Math.min(2,base.x+(v.clientX-x)/g.width)),y:Math.max(-2,Math.min(2,base.y+(v.clientY-y)/g.height))};
+    paint();
+  };
+  const finish = commit => {
+    const value = cameraDraft; cameraDraft = null;
+    node.onpointermove = node.onpointerup = node.onpointercancel = null;
+    if (commit && editor.isCurrentRevision(token) && value)
+      edit(p => Object.assign(flatten(p).find(r=>r.panel.id===id).panel.camera[index], value));
+    else paint();
+  };
+  node.onpointerup = () => finish(true); node.onpointercancel = () => finish(false);
+}
+$("cameraFrame").onpointerdown = e => startCameraGesture(e, false);
+$("cameraResize").onpointerdown = e => startCameraGesture(e, true);
+new ResizeObserver(updateCameraOverlay).observe($("canvasArea"));
 // ペインの幅/高さ。ドラッグで変え、次回の起動でも同じ配置で開く。
 // Timelineの初期高さは目盛・Panel・Camera・音声の4段が全部見える値にする。
 const layout = { tree: 220, inspector: 260, timeline: 270 };
@@ -1945,31 +2156,6 @@ async function discardImportedAsset(operation, id, kind) {
   await repo.removeAsset(id).catch(() => {});
 }
 
-async function bundleAssetEntries(project) {
-  const entries = [];
-  for (const asset of project.assets) {
-    const blob = await repo.getAsset(asset.id);
-    if (!blob) throw Error(`素材が見つかりません：${asset.name}`);
-    entries.push({ id: asset.id, bytes: blob });
-  }
-  return entries;
-}
-
-async function importBundleAssets(bundle) {
-  for (const asset of bundle.assets) {
-    const existing = await repo.getAsset(asset.id);
-    if (existing) {
-      const digest = await sha256Hex(await bytesOf(existing));
-      if (digest !== asset.sha256)
-        throw Error(`既存AssetとBundleの内容が違います：${asset.id}`);
-      continue;
-    }
-    await repo.putAsset(
-      asset.id,
-      new Blob([asset.bytes], { type: asset.mime }),
-    );
-  }
-}
 let persistence = false;
 const clock = (t) =>
   new Date(t).toLocaleString("ja-JP", {
@@ -1992,10 +2178,12 @@ const saver = new Autosaver(repo, {
         failed: `自動保存に失敗：${message}／保存ボタンでファイルへ`,
       }[state] ?? "";
     $("savestate").className = state;
+    if (drafts.pending && state === "saved") $("savestate").textContent = "入力中・保存待ち";
+    if (state === "failed") notice(`自動保存に失敗：${message}`, () => saver.flush());
   },
 });
 function markDirty() {
-  fileDirty = true;
+  fileDirty = true; fileState();
   // 自動保存の失敗で編集操作そのものを止めない。
   try {
     if (persistence) saver.schedule(() => store.p, editor.capture());
@@ -2110,3 +2298,4 @@ function offerRecovery({ meta, project }) {
     notice(`復旧候補を確認できません：${e.message}`);
   }
 })();
+

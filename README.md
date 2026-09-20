@@ -14,20 +14,22 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 
 ## 今回の実装
 
-- Scene → Shot → Panel。Panel追加、複製、同Shot内移動、複数選択と一括尺/注記変更、削除、Shot分割/前Shotへの統合。
+- Scene → Shot → Panel。Panel追加、複製、同Shot内移動、複数選択と一括尺変更、確認つき文章一括適用、削除、Shot分割/前Shotへの統合。
 - Canvasで線を描画。描画と尺調整を同じ画面で実施。サムネイルは表示範囲で描画。
 - ブラシの太さ、消しゴム、ペンの筆圧（対応デバイスのみ）、Canvasのズーム（ホイール）とパン（Alt/中ボタンドラッグ）。消しゴムは紙に穴を開けず、紙コンテ出力やPNGでも白のままになります。
 - 画像の取り込み。Panelごとに1枚、縦横比を保って収め、濃さを調整できます。原本はブラウザ内のAssetストアへ保存し、表示用は長辺2048pxまで縮小します。プロジェクトJSONにはIDとメタデータだけが入ります。`.contp`に画像は同梱されず、素材込みで持ち運ぶ場合は`.contb`を使います。
 - Shiftクリックで範囲選択、Stripのドラッグで並べ替え（Shot/Sceneをまたいで移動可）、Scene/Shot名の編集（ツリーをダブルクリック、またはInspectorの「構成」タブ）、選択Panelへの自動スクロール。
 - 左ツリー・中央・右Inspector・下Timelineの境界をドラッグして幅/高さを変更でき、配置は次回の起動でも保たれます。Inspectorは内容 / Camera / 構成のタブに分かれています。
 - 整数フレームのTimeline。fps基準の目盛、選択範囲の表示、端をドラッグしてリップル尺変更、Panel境界と秒へのスナップ（Altで一時解除）、目盛/空白でのスクラブ、カーソル基準のZoom、全体表示、再生ヘッド追従。
+- Cameraタブで枠をドラッグして位置、右下ハンドルでZoomを操作できます。「仕上がりをプレビュー」で現在キーの結果を確認し、内容タブに戻ると描画できます。
 - Timeline下段のCameraトラック。Panelごとのレーンにキーを表示し、ドラッグで移動、ダブルクリックで追加、Deleteで削除できます。
 - 台詞 / SE / BGMの音声トラック。音声ファイルを読み込むと再生ヘッド位置へクリップを置き、波形を表示します。ドラッグで移動、右端で長さ調整、Inspectorの「音」タブで音量・長さ・素材内の開始位置を変更できます。
 - **クリップは開始位置のPanelに属します**。前のPanelの尺が変わると一緒に動き、そのPanelを削除すると音も消えます（Undoで一緒に戻ります）。
 - 再生は音声時計に同期します。再生・停止を繰り返しても二重に鳴りません。素材が見つからないクリップは「音」タブから差し替えて直せます。
 - CameraキーはPanel内の任意の時刻に何本でも置けます（X/Y/Zoom/Rotation、キー間は線形補間）。キーは尺に対する比率で保持するため、**尺を変えるとCameraの動きも同じ比率で伸縮します**。再生・紙コンテ・Inspectorは同じ補間関数と同じ要約（PAN / TILT / ZOOM / ROLL / HOLD）を共有します。
 - 80段階のUndo/Redo。無効な編集は原子的に拒否。描画データは不変共有して履歴コストを削減。変更のない操作は履歴段数を消費せず、Undo/Redoで選択Panelと再生位置も戻ります。
-- 旧`.contp` JSON v5の保存/読み込み。v1〜v4のファイルは読み込み時に順番へMigrationします。破損データ・重複ID・未知Versionを拒否します。保存ボタンはProject JSONと素材を含む`.contb` Bundleを出力し、読み込みは`.contb`と旧`.contp`に対応します。既存ファイルへの直接上書きではありません。
+- 旧`.contp` JSON v5の読み込み。v1〜v4のファイルは読み込み時に順番へMigrationします。破損データ・重複ID・未知Versionを拒否します。保存ボタンはProject JSONと素材を含む`作品名.contb` Bundleを出力し、読み込みは`.contb`と旧`.contp`に対応します。既存ファイルへの直接上書きではありません。Bundleは保存・読み込み共通で512MiBまで、旧JSONは50MBまでです。保存処理中の追加編集はファイル未保存として残ります。
+- 台詞・メモは入力中も下書きを保持し、通常350ms（連続入力では最長1200ms）で編集に反映します。IME変換中の入力を再描画で消しません。複数選択時も文章の通常編集は表示中の1コマだけで、一括適用は専用ボタンから確認して行います。
 - 変更の0.6秒後（連続編集中は最長4秒）にIndexedDBへ自動保存し、ヘッダーに保存状態を表示します。最大8世代を保持し、起動時に前回の作業を日時・タイトル・Panel数つきで提示して復旧/破棄を選べます。読めない保存データは削除せず読み飛ばし、直前の正常な世代を提示します。容量不足のときは古い世代を減らして一度だけ再試行し、それでも失敗した場合は失敗として表示します（成功表示にしません）。
 - 素材（画像/音声）はIDとメタデータのみをProjectに持ち、バイナリは別ストアへ保存します。旧`.contp`はメタデータのみですが、`.contb`はProjectと素材を一つにまとめた自己完結Bundleです。
 - 紙コンテ：**用紙（A4/A3/B4/Letter）と向き、列の順番・個別幅・表示/非表示、コマ数、余白、文字サイズ、ヘッダー/フッター**を調整でき、設定はプロジェクトに保存されます（Undo対象・自動保存対象）。
@@ -54,17 +56,19 @@ http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での�
 | 音声の配置 | Inspector「音」タブ → 音声を読み込む |
 | Undo / Redo | Ctrl/Cmd Z / Shift Z |
 | Shot分割 / 前Shotへ統合 | Ctrl/Cmd K / Shift K |
-| 保存（ファイル書き出し） | Ctrl/Cmd S（テキスト編集中は保存ボタン） |
+| 保存（ファイル書き出し） | Ctrl/Cmd S（テキスト入力欄でも有効） |
+| 選択対象の削除 | Delete / Backspace（Panel・音声・Cameraの編集対象に応じる） |
+| 狭い画面でInspectorを開く | 設定・台詞・音 |
 | 複数選択 | Strip / TimelineをCtrl/Cmdクリック |
 | 紙コンテ | 紙コンテ出力 → 印刷/PDF またはPNG連番 |
 
-ショートカットはテキスト入力中に編集コマンドとして発火しません。Shot先頭での分割、Scene先頭Shotの統合は何も変更しません。最後のPanelは削除できません。別SceneのShot同士の統合は未対応です。
+保存以外のショートカットはテキスト入力中に編集コマンドとして発火しません。Shot先頭での分割、Scene先頭Shotの統合は何も変更しません。最後のPanelは削除できません。別SceneのShot同士の統合は未対応です。
 
 ## 構成と次の段階
 
 `src/model.js`：階層・検証・Migration・履歴・Panel移動・Cameraキー、`src/timeline.js`：Timeline Engine、`src/audio.js`：Audio Engine、`src/exporter.js`：進捗・中止・ZIP、`src/animatic.js`：Animatic、`src/repository.js`：保存/復旧/素材と自動保存、`src/storage.js`：IndexedDB/メモリのStorage Adapter、`src/bundle.js`：自己完結Bundleの作成/検証、`src/export-snapshot.js`：出力用スナップショット、`src/project-index.js`：Projectの索引、`src/render-scheduler.js`：描画予約の集約、`src/editor-controller.js`：編集境界、`src/asset-flow.js`：Asset入出力、`src/playback.js`：時刻計算・Panel検索、`src/drawing.js`：描画Adapter、`src/paper.js`：ページ生成・Camera表記、`src/app.js`：UI統合。
 
-[現行アーキテクチャ](docs/ARCHITECTURE.md) / [次期計画](docs/NEXT_PLAN.md) / [次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md) / [デスクトップ化と動画書き出しの調査](docs/DESKTOP.md)。P0〜P5に加え、Asset安全性、編集境界、Timeline性能、ExportSnapshot、素材込みBundleまで実装済みです。次はBundle読み込みの原子性、大規模実測、ストリーミング出力、制作フロー、Windows実機計測を`docs/NEXT_PLAN.md`の順で進めます。
+[現行アーキテクチャ](docs/ARCHITECTURE.md) / [次期計画](docs/NEXT_PLAN.md) / [UXレビュー修正](docs/UX_REVIEW_FIXES.md) / [次期開発資料・元プロンプト・添付UI](docs/NEXT_STEPS.md) / [ロードマップ](docs/ROADMAP.md) / [改善サイクルと検証](docs/DEVELOPMENT.md) / [デスクトップ化と動画書き出しの調査](docs/DESKTOP.md)。P0〜P5に加え、Asset安全性、編集境界、Timeline性能、ExportSnapshot、素材込みBundleまで実装済みです。Bundle読み込みの原子性とUXレビュー指摘を修正しました。次は大規模実測、ストリーミング出力、制作フロー、Windows実機計測を`docs/NEXT_PLAN.md`の順で進めます。
 
 ```sh
 npm test
@@ -73,3 +77,6 @@ npm run build
 ```
 
 任意のブラウザテスト：別途PlaywrightとChromiumを用意し、`npm run test:browser`。`PLAYWRIGHT_MODULE`と`CHROMIUM_EXECUTABLE`で外部インストールを指定できます。これらはアプリ配布物には含まれません。
+
+
+`npm run test:ux`で、文章入力・保存・選択・狭い画面・Camera・紙面設定のブラウザ回帰テストを実行できます。

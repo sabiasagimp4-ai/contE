@@ -58,6 +58,7 @@ function paint(ctx, b, w, h, images) {
 }
 export function draw(ctx, b, w, h, camera, images, view) {
   ctx.save();
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);
   if (view) {
     ctx.scale(view.zoom, view.zoom);
     ctx.translate(-view.x * w, -view.y * h);
@@ -83,3 +84,4 @@ export function draw(ctx, b, w, h, camera, images, view) {
   } else paint(ctx, b, w, h, images);
   ctx.restore();
 }
+

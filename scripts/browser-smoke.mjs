@@ -568,9 +568,9 @@ try {
   await page.locator("#zoom").fill("9");
   const save = page.waitForEvent("download");
   await page.locator("#save").click();
-  assert.equal((await save).suggestedFilename(), "project.contb");
+  assert.equal((await save).suggestedFilename(), "conte-paper.contb");
   // P1：画像取り込み。原本はAssetストアへ入り、プロジェクトはIDだけを持つ。
-  await page.locator("#tree details").first().locator("summary").click();
+  await page.locator("#tree details").first().evaluate(el => el.open = true);
   await page.locator("#tree .panel").first().click();
   await page.locator("#imageFile").setInputFiles({
     name: "bg.png",
@@ -682,3 +682,4 @@ try {
   await browser.close();
   server.close();
 }
+

@@ -40,3 +40,7 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run browser smoke test
         run: npm run test:browser
+
+      - name: Run UX regression tests
+        if: ${{ !cancelled() }}
+        run: npm run test:ux

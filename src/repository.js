@@ -1,4 +1,5 @@
 import { load, validate, flatten } from "./model.js";
+import { bytesOf, sha256Hex } from "./bundle.js";
 export const SNAPSHOT_LIMIT = 8;
 const isQuota = (e) =>
   e?.name === "QuotaExceededError" ||
@@ -127,6 +128,42 @@ export class ProjectRepository {
       if (existing !== undefined)
         throw Error("Assetは上書きできません。差し替えには新しいIDを使ってください");
       await this.storage.put("assets", id, blob);
+    });
+  }
+  // Validation/hash work happens before the transaction. GC and imports share
+  // the asset queue, so newly committed assets cannot disappear before adoption.
+  importAssets(assets, { isCurrent = () => true, adopt = () => {} } = {}) {
+    return this.#enqueueAsset(async () => {
+      const operations = [];
+      const seen = new Set();
+      for (const asset of assets) {
+        if (!asset?.id || seen.has(asset.id)) throw Error("Asset IDが重複または不正です");
+        seen.add(asset.id);
+        const bytes = await bytesOf(asset.bytes);
+        if (await sha256Hex(bytes) !== asset.sha256) throw Error("素材のハッシュが一致しません");
+        const existing = await this.storage.get("assets", asset.id);
+        if (existing !== undefined) {
+          if (await sha256Hex(await bytesOf(existing)) !== asset.sha256)
+            throw Error(`既存素材と内容が違います：${asset.id}`);
+        } else operations.push({type: "put", store: "assets", key: asset.id,
+          value: new Blob([bytes], {type: asset.mime})});
+      }
+      const guard = () => {
+        if (!isCurrent()) throw Error("読み込み中に編集が変わりました。もう一度開いてください。");
+      };
+      guard();
+      await this.storage.batch(operations, {guard});
+      // If the session changed just as the transaction completed, remove only
+      // this import's additions; existing shared assets are never touched.
+      if (!isCurrent()) {
+        await this.storage.batch(operations.map(op => ({type: "delete", store: "assets", key: op.key})));
+        guard();
+      }
+      try { adopt(); } // synchronous replacement, before yielding to GC
+      catch (e) {
+        await this.storage.batch(operations.map(op => ({type: "delete", store: "assets", key: op.key})));
+        throw e;
+      }
     });
   }
   async getAsset(id) {
@@ -290,3 +327,4 @@ export class Autosaver {
     this.#emit("idle");
   }
 }
+

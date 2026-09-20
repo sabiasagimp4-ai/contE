@@ -8,6 +8,8 @@
     "build": "node scripts/build.mjs",
     "start": "node scripts/serve.mjs",
     "bench": "node scripts/bench.mjs",
-    "test:browser": "node scripts/browser-smoke.mjs"
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "test:ux": "node scripts/browser-ux.mjs"
   }
 }
+
