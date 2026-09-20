@@ -2323,6 +2323,16 @@ function offerRecovery({ meta, project }) {
     applyLayout();
     timeline();
   }
+  const startup = await platformReady.catch(() => null);
+  if (startup?.startupFile) {
+    try {
+      const file = await openProjectFile(startup.startupFile);
+      if (file) await openProjectInput(file);
+      return;
+    } catch (e) {
+      notice(`起動時のProjectを開けません：${e.message}`);
+    }
+  }
   try {
     const candidate = await repo.latest();
     if (!candidate) return;

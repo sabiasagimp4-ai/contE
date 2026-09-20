@@ -13,6 +13,9 @@ public sealed class NativeFileService
     private readonly Dictionary<string, Transfer> _transfers = new(StringComparer.Ordinal);
     private readonly object _gate = new();
     private string? _currentPath;
+    private string? _startupPath;
+
+    public NativeFileService(string? startupPath = null) => _startupPath = startupPath;
 
     public object? PrepareOpen()
     {
@@ -24,7 +27,18 @@ public sealed class NativeFileService
             Multiselect = false,
         };
         if (dialog.ShowDialog() != true) return null;
-        var path = dialog.FileName;
+        return PrepareOpenPath(dialog.FileName);
+    }
+
+    public object? ConsumeStartupOpen()
+    {
+        var path = System.Threading.Interlocked.Exchange(ref _startupPath, null);
+        return path is null ? null : PrepareOpenPath(path);
+    }
+
+    private object? PrepareOpenPath(string path)
+    {
+        if (!File.Exists(path)) return null;
         var token = AddTransfer(new Transfer(TransferKind.Open, path));
         return new { token, url = StreamUrl(token), name = Path.GetFileName(path), mime = Mime(path) };
     }
