@@ -12,6 +12,16 @@ npm start
 
 http://127.0.0.1:8000 をChrome/Edgeで開いてください。`file://`での直接起動には対応しません。`npm run build`で`dist/`に静的アプリを生成します。
 
+## Windows版のビルド
+
+Windows上で.NET 10 SDKとWebView2 Runtimeを用意し、次を実行すると自己完結型の`win-x64`版とZIP artifactを生成します。
+
+```powershell
+npm run build:desktop
+```
+
+出力は`artifacts/contE-win-x64.zip`です。配布前にWindows実機でペン入力、音声同期、保存・復旧を確認してください。デスクトップ版の実装順と検証条件は[.NET + WebView2実装計画](docs/DOTNET_WEBVIEW2_PLAN.md)にまとめています。
+
 ## 今回の実装
 
 - Scene → Shot → Panel。Panel追加、複製、同Shot内移動、複数選択と一括尺変更、確認つき文章一括適用、削除、Shot分割/前Shotへの統合。

@@ -1,0 +1,57 @@
+name: desktop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "src/**"
+      - "index.html"
+      - "style.css"
+      - "scripts/build.mjs"
+      - "scripts/build-desktop.ps1"
+      - ".github/workflows/desktop.yml"
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "src/**"
+      - "index.html"
+      - "style.css"
+      - "scripts/build.mjs"
+      - "scripts/build-desktop.ps1"
+      - ".github/workflows/desktop.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test browser application
+        run: npm test
+      - name: Build browser assets
+        run: npm run build
+      - name: Restore desktop host
+        run: dotnet restore desktop/src/ContE.Desktop/ContE.Desktop.csproj
+      - name: Build desktop host
+        run: dotnet build desktop/src/ContE.Desktop/ContE.Desktop.csproj --configuration Release --no-restore --runtime win-x64
+      - name: Publish portable desktop artifact
+        shell: pwsh
+        run: ./scripts/build-desktop.ps1
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: conte-win-x64
+          path: artifacts/contE-win-x64.zip
