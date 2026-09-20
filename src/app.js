@@ -89,7 +89,7 @@ function notice(t, retry = null) {
 }
 $("noticeDismiss").onclick = () => $("errorNotice").hidden = true;
 $("noticeAssets").onclick = () => { openInspector(true); activateTab("sound"); };
-let selectionKind = "panel", cameraMode = false, previewing = false, cameraDraft = null;
+let selectionKind = "panel", cameraMode = false, previewing = false, cameraDraft = null, scrubbing = false;
 const treeOpen = new Map();
 const drafts = new TextDrafts((entries) => {
   const result = editor.edit(p => {
@@ -149,7 +149,7 @@ function edit(fn) {
     }
     render();
   } catch (e) {
-    notice(e.message);
+    notice(e.message, () => { openInspector(true); activateTab("content"); });
   }
 }
 // Ctrl/Cmdで増減、Shiftで全体順序上の範囲選択。
@@ -274,7 +274,8 @@ function render() {
   const mixed = ["frames", "dialogue", "sound", "notes"].filter(k => new Set(selected.map(row => row.panel[k])).size > 1);
   $("selectionInfo").textContent = selected.length > 1
     ? `${selected.length}コマ選択中${mixed.length ? "・値が混在" : ""}。文章は表示中のコマのみ、尺は選択全体へ適用。`
-    : "表示中のコマを編集";
+    : selectionKind === "camera" ? "Cameraキーを編集（Deleteでキー削除）"
+    : selectionKind === "audio" ? "音声を編集（Deleteでクリップ削除）" : "表示中のコマを編集";
   $("bulkText").hidden = selected.length < 2;
   $("frames").placeholder = mixed.includes("frames") ? "値が混在" : "";
   if (mixed.includes("frames") && document.activeElement !== $("frames")) $("frames").value = "";
@@ -401,7 +402,7 @@ function audioTrack(px, left, width) {
 function soundClip(item, px) {
   const el = document.createElement("div");
   const missing = !sound.has(item.clip.assetId);
-  el.className = `sound${item.clip.id === clipId ? " selected" : ""}${
+  el.className = `sound${selectionKind === "audio" && item.clip.id === clipId ? " selected" : ""}${
     missing ? " missing" : ""
   }`;
   el.style.left = `${item.start * px}px`;
@@ -463,7 +464,11 @@ function startClipDrag(e, item, el, px) {
     el.onpointermove = el.onpointerup = el.onpointercancel = null;
     if (!commit || !moved) return render();
     const at = next(v);
-    edit((p) => audio.placeClip(p, flatten(p), item.clip.id, at));
+    edit((p) => {
+      audio.placeClip(p, flatten(p), item.clip.id, at);
+      const target = p.audio.find(c => c.id === item.clip.id).anchor;
+      return {active:target, ids:[target]};
+    });
   };
   el.onpointerup = (v) => finish(v, true);
   el.onpointercancel = (v) => finish(v, false);
@@ -496,6 +501,7 @@ function startClipTrim(e, item, trim, el, px) {
 // 選択が変わったときだけ視界へ入れる。ユーザーのスクロールを毎回奪わない。
 let revealed = null;
 function reveal() {
+  if (scrubbing) { revealed = activeId(); return; }
   if (revealed === activeId()) return;
   revealed = activeId();
   for (const sel of ["#strip .selected", "#tree .panel.selected"])
@@ -504,7 +510,7 @@ function reveal() {
       inline: "nearest",
     });
   const view = $("timeline");
-  view.scrollLeft = tl.follow(
+  if (!playing || $("followHead").checked) view.scrollLeft = tl.follow(
     current().start,
     scale(),
     view.scrollLeft,
@@ -701,7 +707,7 @@ function cameraTrack(px, left, width) {
     r.panel.camera.forEach((k, index) => {
       const dot = document.createElement("span");
       dot.className = `camkey${
-        r.panel.id === activeId() && index === cameraKey ? " selected" : ""
+        selectionKind === "camera" && r.panel.id === activeId() && index === cameraKey ? " selected" : ""
       }`;
       dot.style.left = `${k.t * r.panel.frames * px}px`;
       dot.title = `${Math.round(k.t * r.panel.frames)}f`;
@@ -994,7 +1000,7 @@ $("track").onpointerdown = (e) => {
   )
     return;
   stop();
-  flushDrafts(); selectionKind = "panel";
+  flushDrafts(); selectionKind = "panel"; scrubbing = true;
   const targets = $("snap").checked
     ? tl.snapTargets(rows, store.p.fps, endFrame(), null)
     : [];
@@ -1017,6 +1023,7 @@ $("track").onpointerdown = (e) => {
   seek(e);
   $("track").onpointermove = seek;
   $("track").onpointerup = $("track").onpointercancel = () => {
+    scrubbing = false;
     $("track").onpointermove = null;
   };
 };
@@ -1388,7 +1395,7 @@ function activateTab(name, redraw = true) {
   }
   for (const pane of document.querySelectorAll("#inspector .pane")) pane.hidden = pane.dataset.pane !== name;
   cameraMode = name === "camera"; previewing = false;
-  if (redraw) { selectionKind = cameraMode ? "camera" : name === "sound" ? "audio" : "panel"; paint(); }
+  if (redraw) { selectionKind = cameraMode ? "camera" : name === "sound" ? "audio" : "panel"; render(); }
 }
 for (const tab of document.querySelectorAll(".tab")) tab.onclick = () => {flushDrafts(); activateTab(tab.dataset.tab);};
 $("cameraPreview").onchange = () => paint();

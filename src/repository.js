@@ -159,7 +159,11 @@ export class ProjectRepository {
         await this.storage.batch(operations.map(op => ({type: "delete", store: "assets", key: op.key})));
         guard();
       }
-      adopt(); // synchronous project replacement, before yielding to GC
+      try { adopt(); } // synchronous replacement, before yielding to GC
+      catch (e) {
+        await this.storage.batch(operations.map(op => ({type: "delete", store: "assets", key: op.key})));
+        throw e;
+      }
     });
   }
   async getAsset(id) {

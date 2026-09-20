@@ -70,8 +70,8 @@ try {
  assert.ok(await page.locator('.timeline-thumb').count()>0);assert.match(await page.locator('.clip').first().getAttribute('title'),/Shot 1/);
  // Paper controls reflect stored order immediately, also after reopening.
  await page.locator('#paper').click();await page.locator('#paperColumns .column').first().locator('button').nth(1).click();
- assert.match(await page.locator('#paperColumns .column').first().innerText(),/コンテ画像/);
- await page.locator('#closePaper').click();await page.locator('#paper').click();assert.match(await page.locator('#paperColumns .column').first().innerText(),/コンテ画像/);await page.locator('#closePaper').click();
+ assert.match(await page.locator('#paperColumns .column').first().innerText(),/^コンテ/);
+ await page.locator('#closePaper').click();await page.locator('#paper').click();assert.match(await page.locator('#paperColumns .column').first().innerText(),/^コンテ/);await page.locator('#closePaper').click();
  // Every inspector tab remains reachable on a narrow display.
  await page.setViewportSize({width:390,height:844});await page.locator('#toggleInspector').click();await page.locator('[data-tab=sound]').click();assert.ok(await page.locator('#audioAdd').isVisible());
  await page.locator('[data-tab=content]').click();assert.ok(await page.locator('#notes').isVisible());await page.locator('#closeInspector').click();
