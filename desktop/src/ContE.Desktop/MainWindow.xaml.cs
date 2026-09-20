@@ -122,7 +122,8 @@ public partial class MainWindow : System.Windows.Window
     private static void OpenExternal(string uri)
     {
         if (!Uri.TryCreate(uri, UriKind.Absolute, out var parsed) ||
-            parsed.Scheme is not (Uri.UriSchemeHttp or Uri.UriSchemeHttps)) return;
+            (!string.Equals(parsed.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+             !string.Equals(parsed.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))) return;
         Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
     }
 

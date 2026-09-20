@@ -1,8 +1,5 @@
 using System.IO;
-using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.ComTypes;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Microsoft.Win32;
 
@@ -16,7 +13,6 @@ public sealed class NativeFileService
     private readonly Dictionary<string, Transfer> _transfers = new(StringComparer.Ordinal);
     private readonly object _gate = new();
     private string? _currentPath;
-    private bool _dirty;
 
     public object? PrepareOpen()
     {
@@ -57,7 +53,7 @@ public sealed class NativeFileService
         return new { token, url = StreamUrl(token), name = Path.GetFileName(path) };
     }
 
-    public async Task<NativeResponse> HandleStreamAsync(string method, string token, IStream? content)
+    public async Task<NativeResponse> HandleStreamAsync(string method, string token, Stream? content)
     {
         if (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
             return Open(token);
@@ -91,7 +87,7 @@ public sealed class NativeFileService
         return new NativeResponse(stream, 200, "OK", headers);
     }
 
-    private async Task<NativeResponse> SaveAsync(string token, IStream content)
+    private async Task<NativeResponse> SaveAsync(string token, Stream content)
     {
         var transfer = Take(token, TransferKind.Save);
         var directory = Path.GetDirectoryName(transfer.Path);
@@ -104,7 +100,7 @@ public sealed class NativeFileService
             await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                 128 * 1024, FileOptions.SequentialScan | FileOptions.WriteThrough))
             {
-                await CopyComStreamAsync(content, output);
+                await CopyStreamAsync(content, output);
                 await output.FlushAsync();
                 output.Flush(true);
             }
@@ -113,7 +109,6 @@ public sealed class NativeFileService
             else
                 File.Move(temporary, transfer.Path);
             _currentPath = transfer.Path;
-            _dirty = false;
             var info = new FileInfo(transfer.Path);
             await using var savedFile = File.OpenRead(transfer.Path);
             var hash = await SHA256.HashDataAsync(savedFile);
@@ -167,26 +162,8 @@ public sealed class NativeFileService
         return new NativeResponse(new MemoryStream(body), status, reason, "Content-Type: application/json\r\nCache-Control: no-store");
     }
 
-    private static async Task CopyComStreamAsync(IStream source, FileStream destination)
-    {
-        var buffer = new byte[128 * 1024];
-        var readPointer = Marshal.AllocHGlobal(sizeof(int));
-        try
-        {
-            while (true)
-            {
-                Marshal.WriteInt32(readPointer, 0);
-                source.Read(buffer, buffer.Length, readPointer);
-                var count = Marshal.ReadInt32(readPointer);
-                if (count <= 0) break;
-                await destination.WriteAsync(buffer.AsMemory(0, count));
-            }
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(readPointer);
-        }
-    }
+    private static Task CopyStreamAsync(Stream source, FileStream destination) =>
+        source.CopyToAsync(destination, 128 * 1024);
 
     private static void TryDelete(string path)
     {
