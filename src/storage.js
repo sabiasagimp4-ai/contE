@@ -28,22 +28,33 @@ export class MemoryStorage {
     guard();
     // MemoryStorageのテスト/フォールバックでも、複数Storeの確定を一単位にする。
     // put/deleteを差し替えたテスト doubles も同じ失敗経路を通れるようにする。
-    const before = new Map(
-      [...this.#data].map(([store, values]) => [
-        store,
-        new Map([...values].map(([key, value]) => [key, copy(value)])),
-      ]),
-    );
+    // ロールバックは操作対象のKeyだけを退避する。無関係な既存データ（他のSnapshotの
+    // payloadなど）を毎回まるごと複製すると、保持世代が増えるほどbatch1回のコストが
+    // 際限なく重くなるため、触れた分だけを戻す。
+    const undo = [];
     try {
       for (const operation of operations) {
         guard();
+        const bucket = this.#bucket(operation.store);
+        const had = bucket.has(operation.key);
+        undo.push({
+          store: operation.store,
+          key: operation.key,
+          had,
+          value: had ? bucket.get(operation.key) : undefined,
+        });
         if (operation.type === "put")
           await this.put(operation.store, operation.key, operation.value);
         else await this.delete(operation.store, operation.key);
         guard();
       }
     } catch (e) {
-      this.#data = before;
+      // 触れた順の逆から戻す。同じKeyを複数回操作していても最初の値へ戻る。
+      for (const entry of undo.reverse()) {
+        const bucket = this.#bucket(entry.store);
+        if (entry.had) bucket.set(entry.key, entry.value);
+        else bucket.delete(entry.key);
+      }
       throw e;
     }
   }

@@ -112,6 +112,12 @@ try {
    const ids=await repo.assetIds();storage.close();return {ids,adopted,error};
  });
  assert.deepEqual(atomic.ids,[]);assert.equal(atomic.adopted,false);assert.match(atomic.error,/編集が変わり/);
+ // Merging a Scene's first Shot used to silently no-op; it must now explain why instead.
+ await page.locator('#strip button').first().click();
+ await page.keyboard.press('Control+Shift+k');
+ await page.waitForFunction(()=>!document.querySelector('#errorNotice').hidden);
+ assert.match(await page.locator('#noticeText').innerText(),/統合できません/);
+ await page.locator('#noticeDismiss').click();
  // Long errors remain fully readable and retryable.
  await page.locator('#file').setInputFiles({name:'broken.contp',mimeType:'application/json',buffer:Buffer.from('{broken')});
  await page.waitForFunction(()=>!document.querySelector('#errorNotice').hidden);assert.ok(await page.locator('#noticeRetry').isVisible());

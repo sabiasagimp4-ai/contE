@@ -819,8 +819,21 @@ const acts = {
       audio.pruneClips(p);
       audio.pruneAudioAssets(p);
     }),
-  split: () => edit((p) => split(p, activeId())),
-  merge: () => edit((p) => merge(p, activeId())),
+  // split()/merge() silently no-op at a Shot's first Panel / a Scene's first
+  // Shot (see src/model.js). Without this check the shortcut/button appeared
+  // to do nothing with no feedback at all; tell the user why instead.
+  split: () => {
+    const r = flatten(store.p).find((row) => row.panel.id === activeId());
+    if (r && r.pi === 0)
+      return notice("Shotの先頭のPanelでは分割できません");
+    edit((p) => split(p, activeId()));
+  },
+  merge: () => {
+    const r = flatten(store.p).find((row) => row.panel.id === activeId());
+    if (r && !r.hi)
+      return notice("Sceneの先頭Shotは前Shotへ統合できません");
+    edit((p) => merge(p, activeId()));
+  },
   scene: () =>
     edit((p) => {
       const next = scene(`シーン${p.scenes.length + 1}`);
